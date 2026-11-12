@@ -1,0 +1,14 @@
+appId: com.nicolasakf.minimail
+productName: MiniMail
+artifactName: ${productName}-${version}-mac-${arch}.${ext}
+files:
+  - out/**/*
+  - package.json
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.icns
+  hardenedRuntime: true
+  forceCodeSigning: true
+  notarize: true
+dmg:
+  sign: true

@@ -37,16 +37,20 @@ function productionCsp(): Plugin {
   };
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   main: {
+    // Public installers must never inline a developer's local OAuth credentials.
+    envPrefix: mode === "release" ? [] : undefined,
     plugins: [externalizeDepsPlugin()],
     resolve: { alias },
   },
   preload: {
+    envPrefix: mode === "release" ? [] : undefined,
     plugins: [externalizeDepsPlugin()],
     resolve: { alias },
   },
   renderer: {
+    envPrefix: mode === "release" ? [] : undefined,
     root: "src/renderer",
     plugins: [react(), productionCsp()],
     resolve: {
@@ -61,4 +65,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
