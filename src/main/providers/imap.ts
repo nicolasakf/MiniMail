@@ -5,6 +5,7 @@ import nodemailer from "nodemailer";
 import { classifyMessage } from "@shared/classify";
 import { firstHeader, isAuthenticated } from "@shared/logos";
 import { makeMessageId } from "@shared/ids";
+import { MAIL_WINDOW } from "@shared/mail-window";
 import type {
   Account,
   Contact,
@@ -136,6 +137,12 @@ function inlineCidImages(html: string, parsed: ParsedMail): string {
   return result;
 }
 
+/** True for the errors imapflow raises when the socket is gone (the server closed it, or it timed out). */
+function isDroppedConnection(error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  return code === "NoConnection" || code === "ECONNRESET" || code === "EPIPE" || code === "ETIMEDOUT";
+}
+
 /**
  * Owns one long-lived IMAP connection and reconnects (with a fresh token) when it
  * drops. Operations go through `use`, which retries once after a reconnect.
@@ -183,12 +190,16 @@ class ImapConnection {
   }
 
   async use<T>(task: (client: ImapFlow) => Promise<T>): Promise<T> {
+    let used: ImapFlow | null = null;
     try {
-      return await task(await this.connect());
+      used = await this.connect();
+      return await task(used);
     } catch (error) {
-      // One retry covers a connection the server closed while we were idle.
-      if (this.client && !this.client.usable) {
-        this.client = null;
+      // One retry covers a connection the server closed while we were idle. The close listener
+      // clears `this.client` as soon as the socket drops, so judge the client this call used,
+      // not the field: otherwise the retry never runs and "Connection not available" surfaces.
+      if (used && (isDroppedConnection(error) || !used.usable)) {
+        if (this.client === used) this.client = null;
         return task(await this.connect());
       }
       throw error;
@@ -204,6 +215,24 @@ class ImapConnection {
 
 /** Waits before reconnecting a dropped watcher, growing with each failure in a row. */
 const WATCH_BACKOFF_MS = [2_000, 10_000, 30_000, 120_000];
+/** Gmail labels of mail that is not archived: still in the Inbox, sent by the user, or a draft. */
+const NOT_ARCHIVED_LABELS = new Set(["\\inbox", "\\sent", "\\draft"]);
+/** How far back an All Mail scan reads, in multiples of the window, looking for archived mail. */
+const ALL_MAIL_SCAN_FACTOR = 4;
+/** Messages read per command while scanning All Mail. */
+const ALL_MAIL_CHUNK = 500;
+
+/** True when a message in Gmail's All Mail is archived; no labels (not Gmail) counts as archived. */
+export function isArchivedInGmail(labels: ReadonlySet<string> | undefined): boolean {
+  if (!labels) return true;
+  for (const label of labels) {
+    if (NOT_ARCHIVED_LABELS.has(label.toLowerCase())) return false;
+  }
+  return true;
+}
+
+/** Rows one folder's copy holds at most: the list window plus older ones kept for the next full list. */
+const MAX_KEPT = MAIL_WINDOW + 100;
 /** Restarts IDLE this often so a connection a router silently dropped is noticed (limit is 29 min). */
 const WATCH_IDLE_RESTART_MS = 5 * 60_000;
 /** A burst of events (a batch arriving, many flags changing) is reported once. */
@@ -320,6 +349,8 @@ export class ImapProvider implements MailProvider {
   private watcher: ImapWatcher | null = null;
   private readonly endpoints: Endpoints;
   private folderPaths: FolderPaths | null = null;
+  /** The Archive tab is Gmail's All Mail, which also holds Inbox, sent and draft mail. */
+  private archiveIsAllMail = false;
   /** folder -> uid -> summary, so polling only downloads new messages. */
   private readonly cache = new Map<MailFolder, Map<number, MessageSummary>>();
   /** UIDVALIDITY seen for each folder this session, saved next to the copy. */
@@ -352,7 +383,7 @@ export class ImapProvider implements MailProvider {
   /** The last list for this folder: this session's, else the copy from a previous launch. */
   cached(folder: MailFolder): MessageSummary[] {
     const rows = this.cache.get(folder)?.values() ?? this.persist?.load(folder)?.messages ?? [];
-    return [...rows].sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+    return [...rows].sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, MAIL_WINDOW);
   }
 
   /** Rebuilds a uid-keyed map from rows saved by an earlier launch. */
@@ -420,6 +451,8 @@ export class ImapProvider implements MailProvider {
               flags.set(message.uid, message.flags ?? new Set());
             }
           }
+        } else if (exists > 0 && folder === "archive" && this.archiveIsAllMail) {
+          await this.readArchivedWindow(client, exists, limit, flags);
         } else if (exists > 0) {
           const start = Math.max(1, exists - limit + 1);
           for await (const message of client.fetch(`${start}:*`, { uid: true, flags: true })) {
@@ -510,10 +543,21 @@ export class ImapProvider implements MailProvider {
         next.set(uid, { ...row, unread: !flags.has("\\Seen"), pinned: flags.has("\\Flagged") });
       }
     }
-    this.cache.set(folder, next);
-    const rows = byNewest(next.values());
-    this.persist?.save(folder, { uidValidity, messages: rows });
-    return rows;
+    // A smaller list (a first page) must not throw away older mail a bigger one already
+    // downloaded: rows older than this window stay cached for the next full list to check.
+    // Rows inside the window that the server no longer has are gone (moved or deleted).
+    // Pinned is a search, not a range, so anything outside its answer is simply unflagged.
+    const kept = new Map(next);
+    // In Gmail's All Mail the window skips Inbox, sent and draft mail, so an older row's labels
+    // are unknown until a scan reaches it: only what the scan vouched for is kept.
+    if (folder !== "pinned" && !(folder === "archive" && this.archiveIsAllMail)) {
+      const oldestInWindow = Math.min(...windowFlags.keys());
+      const older = [...working].filter(([uid]) => uid < oldestInWindow).sort(([a], [b]) => b - a);
+      for (const [uid, row] of older.slice(0, Math.max(0, MAX_KEPT - kept.size))) kept.set(uid, row);
+    }
+    this.cache.set(folder, kept);
+    this.persist?.save(folder, { uidValidity, messages: byNewest(kept.values()) });
+    return byNewest(next.values());
   }
 
   /** Fills `authenticated` on cached rows from the Authentication-Results header alone. */
@@ -742,6 +786,11 @@ export class ImapProvider implements MailProvider {
       bcc: draft.bcc.map(toAddress),
       subject: draft.subject,
       text: draft.text,
+      attachments: (draft.attachments ?? []).map((file) => ({
+        filename: file.filename,
+        contentType: file.contentType || undefined,
+        content: Buffer.from(file.contentBase64, "base64"),
+      })),
       ...(draft.inReplyTo && draft.inReplyTo.mode !== "forward"
         ? {
             inReplyTo: draft.inReplyTo.messageId,
@@ -809,6 +858,34 @@ export class ImapProvider implements MailProvider {
   }
 
   /** Maps logical folders to this server's paths using SPECIAL-USE flags (cached per connection). */
+  /**
+   * The Archive window when the Archive tab is Gmail's All Mail: the newest `limit` messages that
+   * are really archived, read newest first in chunks. An email is in one place at a time, so mail
+   * still in the Inbox (and the user's sent mail and drafts) is skipped by its Gmail labels; Spam
+   * and Trash are never in All Mail. The scan stops after a bounded number of messages, so a
+   * mailbox full of sent mail cannot stall it. A server that sends no labels is not filtered.
+   */
+  private async readArchivedWindow(
+    client: ImapFlow,
+    exists: number,
+    limit: number,
+    flags: Map<number, Set<string>>,
+  ): Promise<void> {
+    const floor = Math.max(1, exists - limit * ALL_MAIL_SCAN_FACTOR + 1);
+    for (let end = exists; end >= floor && flags.size < limit; ) {
+      const start = Math.max(floor, end - ALL_MAIL_CHUNK + 1);
+      const archived: { uid: number; flags: Set<string> }[] = [];
+      for await (const message of client.fetch(`${start}:${end}`, { uid: true, flags: true, labels: true })) {
+        if (isArchivedInGmail(message.labels)) {
+          archived.push({ uid: message.uid, flags: message.flags ?? new Set() });
+        }
+      }
+      archived.sort((a, b) => b.uid - a.uid);
+      for (const message of archived.slice(0, limit - flags.size)) flags.set(message.uid, message.flags);
+      end = start - 1;
+    }
+  }
+
   private async resolveFolders(client: ImapFlow): Promise<FolderPaths> {
     if (this.folderPaths) return this.folderPaths;
     const mailboxes = await client.list();
@@ -817,7 +894,10 @@ export class ImapProvider implements MailProvider {
       const folder = mailbox.specialUse ? SPECIAL_USE[mailbox.specialUse] : undefined;
       if (folder && !paths[folder]) paths[folder] = mailbox.path;
       // Gmail has no \Archive; "All Mail" is where archived messages live.
-      if (mailbox.specialUse === "\\All" && !paths.archive) paths.archive = mailbox.path;
+      if (mailbox.specialUse === "\\All" && !paths.archive) {
+        paths.archive = mailbox.path;
+        this.archiveIsAllMail = true;
+      }
     }
     this.folderPaths = paths;
     return paths;

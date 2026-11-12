@@ -1,7 +1,7 @@
 import { toast } from "sonner";
 
 import { accountLabel } from "@shared/accounts";
-import type { Account, SortProgress } from "@shared/types";
+import type { Account, SortFolder, SortOptions, SortProgress } from "@shared/types";
 
 import { api } from "./api";
 
@@ -66,11 +66,15 @@ function Bars({ progress, accounts }: { progress: SortProgress; accounts: Accoun
  * Starts "sort all mail again" and keeps one toast up to date with how far it has got, then
  * replaces it with the outcome. Each account gets its own bar. A total is what has been queued
  * so far: an account's inbox adds its conversations as it loads, so it can grow while this runs.
- * With `since`, only conversations with mail from that moment on are sorted again.
+ * With `since`, only conversations with mail from that moment on are sorted again; `folders`
+ * picks which folders (Inbox, Archive, Spam, Trash) are sorted.
  */
-export async function sortMailAgain(since?: Date): Promise<void> {
+export async function sortMailAgain(since?: Date, folders: SortFolder[] = ["inbox"]): Promise<void> {
   try {
-    await api.categories.reclassify(since ? { since: since.toISOString() } : undefined);
+    const options: SortOptions = {};
+    if (since) options.since = since.toISOString();
+    options.folders = folders;
+    await api.categories.reclassify(options);
   } catch (error) {
     toast.error(error instanceof Error ? error.message : String(error));
     return;

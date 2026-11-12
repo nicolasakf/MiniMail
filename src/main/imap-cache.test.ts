@@ -5,7 +5,17 @@ import type { Account, MailFolder } from "@shared/types";
 // A tiny IMAP server: enough of imapflow's surface for list/act, with call recording.
 const server = vi.hoisted(() => ({
   uidValidity: 1n,
-  messages: [] as { uid: number; flags: Set<string>; subject: string; date: Date; auth?: string }[],
+  messages: [] as {
+    uid: number;
+    flags: Set<string>;
+    subject: string;
+    date: Date;
+    auth?: string;
+    /** Gmail labels (X-GM-LABELS), sent only when a fetch asks for them. */
+    labels?: string[];
+  }[],
+  /** Serve Gmail's folders: no \Archive, "All Mail" (\All) instead. */
+  gmailFolders: false,
   /** The uids asked for in every preview download (partial body), in order. */
   previewRequests: [] as number[][],
   /** The uids asked for in every full-message download. */
@@ -32,7 +42,9 @@ vi.mock("imapflow", () => {
     async connect() {}
     async logout() {}
     async list() {
-      return [{ path: "INBOX" }, { path: "Archive", specialUse: "\\Archive" }];
+      return server.gmailFolders
+        ? [{ path: "INBOX" }, { path: "[Gmail]/All Mail", specialUse: "\\All" }]
+        : [{ path: "INBOX" }, { path: "Archive", specialUse: "\\Archive" }];
     }
     async getMailboxLock() {
       const previous = server.lockTail;
@@ -45,10 +57,12 @@ vi.mock("imapflow", () => {
     async search() {
       return [];
     }
-    async *fetch(range: string | number[], query: { source?: unknown; headers?: unknown }) {
+    async *fetch(range: string | number[], query: { source?: unknown; headers?: unknown; labels?: boolean }) {
+      // A number array is uids; "n:*" and "n:m" are sequence ranges (1-based, inclusive).
+      const [from, to] = Array.isArray(range) ? [0, 0] : range.split(":");
       const rows = Array.isArray(range)
         ? server.messages.filter((message) => range.includes(message.uid))
-        : server.messages;
+        : server.messages.slice(Math.max(0, Number(from) - 1), to === "*" ? undefined : Number(to));
       const asked = Array.isArray(range) ? [...range] : [];
       if (query.source === true) {
         server.fullFetches.push(asked);
@@ -68,7 +82,11 @@ vi.mock("imapflow", () => {
       }
       for (const message of rows) {
         if (!query.source) {
-          yield { uid: message.uid, flags: message.flags };
+          yield {
+            uid: message.uid,
+            flags: message.flags,
+            ...(query.labels && message.labels ? { labels: new Set(message.labels) } : {}),
+          };
           continue;
         }
         yield {
@@ -108,7 +126,7 @@ vi.mock("imapflow", () => {
   return { ImapFlow: FakeImapFlow };
 });
 
-import { ImapProvider, nextBatchSize } from "./providers/imap";
+import { ImapProvider, isArchivedInGmail, nextBatchSize } from "./providers/imap";
 import { nativeIdOf, patchSummaries, type CachedFolder, type SummaryStore } from "./providers/summary-cache";
 
 const account: Account = {
@@ -135,6 +153,7 @@ const uidsOf = (rows: { id: string }[]) => rows.map((row) => nativeIdOf(row as n
 
 beforeEach(() => {
   server.uidValidity = 1n;
+  server.gmailFolders = false;
   server.connects = 0;
   server.previewRequests = [];
   server.fullFetches = [];
@@ -161,6 +180,36 @@ describe("ImapProvider saved copy", () => {
 
     await provider.list("inbox", 100);
     expect(server.previewRequests).toHaveLength(1);
+  });
+
+  it("keeps older mail when a smaller list runs, so the full list downloads nothing again", async () => {
+    server.messages = Array.from({ length: 8 }, (_, index) => ({
+      uid: index + 1,
+      flags: new Set<string>(),
+      subject: `Message ${index + 1}`,
+      date: new Date(Date.UTC(2026, 10, index + 1)),
+    }));
+    const store = memoryStore();
+    const provider = launch(store);
+    expect(await provider.list("inbox", 8)).toHaveLength(8);
+    expect(server.previewRequests.flat()).toHaveLength(8);
+
+    // A first page: only the newest three come back, but the other five stay cached and saved.
+    expect(uidsOf(await provider.list("inbox", 3))).toEqual(["8", "7", "6"]);
+    expect(store.folders.get("inbox")?.messages).toHaveLength(8);
+    expect(provider.cached("inbox")).toHaveLength(8);
+
+    server.previewRequests = [];
+    expect(await provider.list("inbox", 8)).toHaveLength(8);
+    expect(server.previewRequests).toEqual([]);
+  });
+
+  it("drops a cached message inside the window that the server no longer has", async () => {
+    const provider = launch(memoryStore());
+    await provider.list("inbox", 100);
+    server.messages = server.messages.filter((message) => message.uid !== 2);
+    expect(uidsOf(await provider.list("inbox", 100))).toEqual(["3", "1"]);
+    expect(uidsOf(provider.cached("inbox"))).toEqual(["3", "1"]);
   });
 
   it("paints a new launch from the copy without any connection, then fetches only what is new", async () => {
@@ -468,5 +517,45 @@ describe("patchSummaries", () => {
     patchSummaries(rows, "archive", "inbox", new Set(["1", "2"]));
     expect(rows).toHaveLength(2);
     expect(rows[0].unread).toBe(true);
+  });
+});
+
+describe("Gmail Archive (All Mail)", () => {
+  const mail = (uid: number, labels: string[]) => ({
+    uid,
+    flags: new Set<string>(),
+    subject: `Message ${uid}`,
+    date: new Date(Date.UTC(2026, 10, 1, uid)),
+    labels,
+  });
+
+  it("counts only mail out of the Inbox, not sent by the user and not a draft", () => {
+    expect(isArchivedInGmail(new Set(["\\Important", "Receipts"]))).toBe(true);
+    expect(isArchivedInGmail(new Set(["\\Inbox"]))).toBe(false);
+    expect(isArchivedInGmail(new Set(["\\Sent"]))).toBe(false);
+    expect(isArchivedInGmail(new Set(["\\Draft"]))).toBe(false);
+    expect(isArchivedInGmail(new Set(["\\INBOX"]))).toBe(false);
+    // A server without Gmail labels is not filtered.
+    expect(isArchivedInGmail(undefined)).toBe(true);
+  });
+
+  it("lists only archived mail, reading further back to fill the window", async () => {
+    server.gmailFolders = true;
+    server.messages = [
+      mail(1, ["\\Important"]),
+      mail(2, []),
+      mail(3, ["\\Sent"]),
+      mail(4, ["Receipts"]),
+      mail(5, ["\\Inbox"]),
+      mail(6, ["\\Draft"]),
+      mail(7, ["\\Inbox", "\\Important"]),
+    ];
+    // The newest three in All Mail are not archived; the window of three reaches back past them.
+    expect(uidsOf(await launch(memoryStore()).list("archive", 3))).toEqual(["4", "2", "1"]);
+  });
+
+  it("leaves accounts with a real Archive folder unfiltered", async () => {
+    server.messages = [mail(1, ["\\Inbox"]), mail(2, [])];
+    expect(uidsOf(await launch().list("archive", 10))).toEqual(["2", "1"]);
   });
 });

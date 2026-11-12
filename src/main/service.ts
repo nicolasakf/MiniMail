@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import { MAX_AVATAR_BYTES, normalizeAlias } from "@shared/accounts";
+import { buildContactIndex, type ContactEntry } from "@shared/contacts";
 import { parseMessageId } from "@shared/ids";
+import { MAIL_WINDOW } from "@shared/mail-window";
 import type {
   Account,
   AccountError,
@@ -13,6 +15,8 @@ import type {
   MailFolder,
   MessageDetail,
   MessageSummary,
+  SortCounts,
+  SortFolder,
 } from "@shared/types";
 
 import {
@@ -34,7 +38,10 @@ import { perfLog, perfTime } from "./perf";
 import type { AccountSecret, AccountStore } from "./store";
 
 const ACCOUNT_HUES = [210, 150, 30, 280, 340, 180];
-const DEFAULT_LIMIT = 100;
+/** Every list asks for the same window; see `MAIL_WINDOW`. */
+const DEFAULT_LIMIT = MAIL_WINDOW;
+/** How many recent messages of Sent and Inbox are read to learn who the user writes to. */
+const CONTACT_SCAN_LIMIT = 300;
 /** Refresh a little early so a token never expires mid-request. */
 const TOKEN_SKEW_MS = 60_000;
 
@@ -182,6 +189,31 @@ export class MailService {
     return { messages: categorized, errors };
   }
 
+  /**
+   * Conversations a sort with these options would send to Jev, per folder. Counts what this
+   * computer holds for each folder (the same window the lists show), so a folder never opened
+   * here reads 0.
+   */
+  sortCounts(since: number | null): SortCounts {
+    const accounts = this.store.list();
+    const count = (folder: MailFolder): number =>
+      this.categorizer.countToSort(
+        accounts.flatMap((account) => this.providerFor(account).cached?.(folder) ?? []),
+        since,
+      );
+    return {
+      inbox: count("inbox"),
+      archive: count("archive"),
+      spam: count("spam"),
+      trash: count("trash"),
+    };
+  }
+
+  /** Lists these folders so a running "sort again" meets their mail (listing queues it). */
+  async sortFolders(folders: readonly SortFolder[]): Promise<void> {
+    await Promise.allSettled(folders.map((folder) => this.list({ folder })));
+  }
+
   async get(ids: string[]): Promise<MessageDetail[]> {
     const byProvider = this.groupByProviderFolder(ids);
     const fetched = new Map<string, MessageDetail>();
@@ -212,6 +244,30 @@ export class MailService {
 
   async send(draft: Draft): Promise<void> {
     await this.providerForId(draft.accountId).send(draft);
+  }
+
+  /**
+   * The address book behind recipient suggestions: who we sent mail to and who wrote to us, read
+   * from every account's Sent and Inbox. A folder that cannot be listed falls back to the copy
+   * kept on disk, and one that fails either way is skipped, so suggestions never block composing.
+   */
+  async contacts(): Promise<ContactEntry[]> {
+    const accounts = this.store.list();
+    const folders: MailFolder[] = ["sent", "inbox"];
+    const batches = await Promise.all(
+      accounts.flatMap((account) =>
+        folders.map(async (folder): Promise<MessageSummary[]> => {
+          const provider = this.providerFor(account);
+          try {
+            return await provider.list(folder, CONTACT_SCAN_LIMIT);
+          } catch {
+            return provider.cached?.(folder) ?? [];
+          }
+        }),
+      ),
+    );
+    const own = new Set(accounts.map((account) => account.email.toLowerCase()));
+    return buildContactIndex(batches.flat(), own);
   }
 
   async dispose(): Promise<void> {

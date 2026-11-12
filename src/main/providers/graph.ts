@@ -69,7 +69,14 @@ const messageSchema = z.object({
     .nullish(),
 });
 
-const listSchema = z.object({ value: z.array(messageSchema) });
+const listSchema = z.object({
+  value: z.array(messageSchema),
+  /** The next page, when there is more; Graph returns at most 100 messages per page. */
+  "@odata.nextLink": z.string().nullish(),
+});
+
+/** Graph's largest page of messages. */
+const PAGE_MAX = 100;
 
 type GraphMessage = z.infer<typeof messageSchema>;
 
@@ -110,6 +117,9 @@ function toContact(recipient: z.infer<typeof recipientSchema> | null | undefined
 }
 
 /** A failed Graph call, keeping the HTTP status so callers can tell "gone" from "refused". */
+/** Graph accepts file attachments up to this size in a single request. */
+const GRAPH_INLINE_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+
 class GraphError extends Error {
   constructor(
     message: string,
@@ -123,10 +133,15 @@ class GraphError extends Error {
 /** Graph ids are stable until a message moves, so the saved copy never needs invalidating. */
 const CACHE_VALIDITY = "graph";
 /** Extra attempts after Graph throttles (429) or a read hits a busy server (503/504). */
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 4;
 const MAX_RETRY_WAIT_MS = 8000;
 /** Messages of one conversation downloaded at a time. */
 const GET_CONCURRENCY = 4;
+/**
+ * Writes in flight at once. Graph allows 4 concurrent requests per mailbox (beyond that:
+ * ApplicationThrottled / MailboxConcurrency), and reads may be running alongside, so stay under it.
+ */
+const ACT_CONCURRENCY = 3;
 
 const REPLY_ENDPOINT = {
   reply: "createReply",
@@ -155,7 +170,7 @@ export class GraphProvider implements MailProvider {
 
   async list(folder: MailFolder, limit: number): Promise<MessageSummary[]> {
     const wellKnown = WELL_KNOWN[folder === "pinned" ? "inbox" : folder];
-    const top = Math.min(limit, 100);
+    const top = Math.min(limit, PAGE_MAX);
     // Graph rejects $orderby combined with a $filter on a different property.
     const query =
       folder === "pinned"
@@ -163,12 +178,29 @@ export class GraphProvider implements MailProvider {
         : `$orderby=${encodeURIComponent("receivedDateTime desc")}`;
     const path = `/me/mailFolders/${wellKnown}/messages?$top=${top}&${query}&$select=${LIST_FIELDS}&$expand=${EXPAND_LAST_VERB}`;
 
-    const { value } = listSchema.parse(await this.request("GET", path));
+    // Page through until the window is full: Graph never returns more than 100 at once.
+    const value: GraphMessage[] = [];
+    let next: string | null = path;
+    while (next !== null && value.length < limit) {
+      const page = listSchema.parse(await this.request("GET", next));
+      value.push(...page.value);
+      next = this.relativeLink(page["@odata.nextLink"]);
+    }
     const rows = value
+      .slice(0, limit)
       .map((message) => this.summarize(message, folder))
       .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
     this.remember(folder, rows);
     return rows;
+  }
+
+  /**
+   * A `@odata.nextLink` as a path for `request`. Only links back to Graph itself are followed:
+   * the access token goes with every request.
+   */
+  private relativeLink(link: string | null | undefined): string | null {
+    if (!link || !link.startsWith(`${GRAPH}/`)) return null;
+    return link.slice(GRAPH.length);
   }
 
   /** The last list for this folder: this session's, else the copy from a previous launch. */
@@ -223,31 +255,48 @@ export class GraphProvider implements MailProvider {
   }
 
   async act(action: MailAction, folder: MailFolder, nativeIds: string[]): Promise<void> {
-    await Promise.all(
-      nativeIds.map(async (nativeId) => {
-        const base = `/me/messages/${encodeURIComponent(nativeId)}`;
-        switch (action) {
-          case "markRead":
-            return this.request("PATCH", base, { isRead: true });
-          case "markUnread":
-            return this.request("PATCH", base, { isRead: false });
-          case "pin":
-            return this.request("PATCH", base, { flag: { flagStatus: "flagged" } });
-          case "unpin":
-            return this.request("PATCH", base, { flag: { flagStatus: "notFlagged" } });
-          case "archive":
-            return this.request("POST", `${base}/move`, { destinationId: WELL_KNOWN.archive });
-          case "unarchive":
-            return this.request("POST", `${base}/move`, { destinationId: WELL_KNOWN.inbox });
-          case "trash":
-            return this.request("POST", `${base}/move`, { destinationId: WELL_KNOWN.trash });
-          case "spam":
-            return this.request("POST", `${base}/move`, { destinationId: WELL_KNOWN.spam });
-          case "deleteForever":
-            return this.request("DELETE", base);
+    const run = (nativeId: string): Promise<unknown> => {
+      const base = `/me/messages/${encodeURIComponent(nativeId)}`;
+      switch (action) {
+        case "markRead":
+          return this.request("PATCH", base, { isRead: true });
+        case "markUnread":
+          return this.request("PATCH", base, { isRead: false });
+        case "pin":
+          return this.request("PATCH", base, { flag: { flagStatus: "flagged" } });
+        case "unpin":
+          return this.request("PATCH", base, { flag: { flagStatus: "notFlagged" } });
+        case "archive":
+          return this.request("POST", `${base}/move`, { destinationId: WELL_KNOWN.archive });
+        case "unarchive":
+          return this.request("POST", `${base}/move`, { destinationId: WELL_KNOWN.inbox });
+        case "trash":
+          return this.request("POST", `${base}/move`, { destinationId: WELL_KNOWN.trash });
+        case "spam":
+          return this.request("POST", `${base}/move`, { destinationId: WELL_KNOWN.spam });
+        case "deleteForever":
+          return this.request("DELETE", base);
+      }
+    };
+
+    // A small pool rather than one request per message: marking a big group read must not trip
+    // Graph's per-mailbox concurrency limit. After a failure no further requests start.
+    let next = 0;
+    let failure: { error: unknown } | undefined;
+    const worker = async (): Promise<void> => {
+      while (!failure && next < nativeIds.length) {
+        const nativeId = nativeIds[next++]!;
+        try {
+          await run(nativeId);
+        } catch (error) {
+          failure ??= { error };
         }
-      }),
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(ACT_CONCURRENCY, nativeIds.length) }, worker),
     );
+    if (failure) throw failure.error;
     this.patchCache(action, folder, new Set(nativeIds));
   }
 
@@ -263,9 +312,25 @@ export class GraphProvider implements MailProvider {
       ccRecipients: recipients(draft.cc),
       bccRecipients: recipients(draft.bcc),
     };
+    const files = draft.attachments ?? [];
+    for (const file of files) {
+      // Larger files need an upload session; say so instead of failing obscurely.
+      if ((file.contentBase64.length * 3) / 4 > GRAPH_INLINE_ATTACHMENT_BYTES) {
+        throw new Error(`"${file.filename}" is over 3 MB, the limit for attachments on this account.`);
+      }
+    }
+    const attachments = files.map((file) => ({
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: file.filename,
+      contentType: file.contentType || "application/octet-stream",
+      contentBytes: file.contentBase64,
+    }));
 
-    if (draft.inReplyTo && (await this.sendAsReply(draft.inReplyTo, message))) return;
-    await this.request("POST", "/me/sendMail", { message, saveToSentItems: true });
+    if (draft.inReplyTo && (await this.sendAsReply(draft.inReplyTo, message, attachments))) return;
+    await this.request("POST", "/me/sendMail", {
+      message: attachments.length > 0 ? { ...message, attachments } : message,
+      saveToSentItems: true,
+    });
   }
 
   /**
@@ -276,6 +341,7 @@ export class GraphProvider implements MailProvider {
   private async sendAsReply(
     inReplyTo: NonNullable<Draft["inReplyTo"]>,
     message: Record<string, unknown>,
+    attachments: Record<string, unknown>[] = [],
   ): Promise<boolean> {
     // The composer passes the app's message id; Graph wants its own.
     const originalId = parseMessageId(inReplyTo.nativeId)?.nativeId ?? inReplyTo.nativeId;
@@ -296,6 +362,9 @@ export class GraphProvider implements MailProvider {
     try {
       // The composer already wrote the quoted original into the text, so it replaces Graph's own.
       await this.request("PATCH", draftPath, message);
+      for (const attachment of attachments) {
+        await this.request("POST", `${draftPath}/attachments`, attachment);
+      }
       await this.request("POST", `${draftPath}/send`);
     } catch (error) {
       // Do not leave a half-written reply behind in Drafts.

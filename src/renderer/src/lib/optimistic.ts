@@ -32,3 +32,27 @@ export function applyOptimistic(
       return messages.filter((m) => !ids.has(m.id));
   }
 }
+
+/** Where each move action puts a message. */
+const MOVED_TO: Partial<Record<MailAction, MailFolder>> = {
+  archive: "archive",
+  unarchive: "inbox",
+  spam: "spam",
+  trash: "trash",
+};
+
+/**
+ * Like `applyOptimistic`, for a list that also holds Archive, Spam and Trash mail (the Inbox with
+ * those folders shown): a move changes the message's folder instead of dropping it, so it stays
+ * in the list when its new folder is shown. Deleting forever still drops it.
+ */
+export function applyOptimisticKeepingFolders(
+  messages: readonly MessageSummary[],
+  action: MailAction,
+  ids: ReadonlySet<string>,
+  folder: MailFolder,
+): MessageSummary[] {
+  const to = MOVED_TO[action];
+  if (!to) return applyOptimistic(messages, action, ids, folder);
+  return messages.map((m) => (ids.has(m.id) ? { ...m, folder: to } : m));
+}

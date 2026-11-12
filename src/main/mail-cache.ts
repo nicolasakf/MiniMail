@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 import { z } from "zod";
 
+import { MAIL_WINDOW } from "@shared/mail-window";
 import type { MailFolder, MessageSummary } from "@shared/types";
 
 import { writePrivateFile, type Cipher } from "./category-store";
@@ -10,8 +11,8 @@ import type { CachedFolder, SummaryStore } from "./providers/summary-cache";
 /** Bump when MessageSummary changes shape; an older file is then ignored instead of misread. */
 const VERSION = 1;
 const SAVE_DELAY_MS = 1500;
-/** The list asks for 100; a little headroom, and a hard stop so the file cannot grow unbounded. */
-const MAX_PER_FOLDER = 200;
+/** The whole list window plus a little headroom, and a hard stop so the file cannot grow unbounded. */
+const MAX_PER_FOLDER = MAIL_WINDOW + 100;
 
 /** Cheap shape check for rows read back from disk; the file is ours, this only catches drift. */
 function looksLikeSummary(value: unknown): value is MessageSummary {

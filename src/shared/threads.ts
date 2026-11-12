@@ -1,4 +1,4 @@
-import type { MessageSummary } from "./types";
+import type { MailFolder, MessageSummary } from "./types";
 
 export interface Thread {
   /** Stable across refreshes: `${accountId}:${threadId}`. */
@@ -56,4 +56,17 @@ export function groupThreads(messages: readonly MessageSummary[]): Thread[] {
   return threads.sort(
     (a, b) => Date.parse(b.latest.date) - Date.parse(a.latest.date),
   );
+}
+
+/** The folders a conversation can be moved between, in the order menus list them. */
+export const MOVE_FOLDERS = ["inbox", "archive", "spam", "trash"] as const;
+export type MoveFolder = (typeof MOVE_FOLDERS)[number];
+
+/**
+ * The one folder a conversation is in, for a list that mixes folders. Like Gmail: it is in
+ * the Inbox while any of its messages is; otherwise where its newest message is.
+ */
+export function conversationFolder(thread: Pick<Thread, "messages" | "latest">): MailFolder {
+  if (thread.messages.some((message) => message.folder === "inbox")) return "inbox";
+  return thread.latest.folder;
 }

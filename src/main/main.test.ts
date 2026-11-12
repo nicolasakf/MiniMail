@@ -113,6 +113,33 @@ describe("GraphProvider", () => {
     expect(byId.get("d")).toBeUndefined();
   });
 
+  it("pages past Graph's 100-message limit up to the window, following only Graph's own links", async () => {
+    const page = (from: number, count: number) =>
+      Array.from({ length: count }, (_, index) => ({
+        ...graphMessage,
+        id: `m${from + index}`,
+        conversationId: `c${from + index}`,
+      }));
+    const calls = stubFetch((call) => {
+      if (call.url.includes("skip=100")) {
+        return json({ value: page(100, 100), "@odata.nextLink": "https://evil.example/steal?skip=200" });
+      }
+      return json({
+        value: page(0, 100),
+        "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$skip=100",
+      });
+    });
+
+    expect(await provider().list("inbox", 150)).toHaveLength(150);
+    expect(calls).toHaveLength(2);
+    expect(calls[0].url).toContain("$top=100");
+
+    // A link that leaves Graph is never followed with the token.
+    const all = await provider().list("inbox", 500);
+    expect(all).toHaveLength(200);
+    expect(calls.some((call) => call.url.includes("evil.example"))).toBe(false);
+  });
+
   it("maps Graph messages to summaries and classifies them", async () => {
     const calls = stubFetch(() =>
       json({
@@ -362,6 +389,21 @@ describe("GraphProvider", () => {
     });
     await expect(throttled.list("inbox", 10)).resolves.toEqual([]);
     expect(waits).toEqual([2000, 8000]);
+  });
+
+  it("never has more than a few writes in flight, however many messages are acted on", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    vi.stubGlobal("fetch", async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight -= 1;
+      return new Response(null, { status: 200 });
+    });
+    const ids = Array.from({ length: 50 }, (_, i) => `m${i}`);
+    await provider().act("markRead", "inbox", ids);
+    expect(peak).toBeLessThanOrEqual(3);
   });
 
   it("does not repeat a write after a server error", async () => {

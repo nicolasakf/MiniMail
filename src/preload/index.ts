@@ -35,6 +35,8 @@ const api: MiniMailApi = {
     get: (ids) => invoke(IPC.mailGet, ids),
     act: (action, ids) => invoke(IPC.mailAct, action, ids),
     send: (draft) => invoke(IPC.mailSend, draft),
+    contacts: () => invoke(IPC.mailContacts),
+    verificationCodes: (ids) => invoke(IPC.mailVerificationCodes, ids),
     onChanged: (listener) => {
       const handler = () => listener();
       ipcRenderer.on(IPC.mailChanged, handler);
@@ -46,13 +48,25 @@ const api: MiniMailApi = {
     save: (categories) => invoke(IPC.categoriesSave, categories),
     setGatewayKey: (key) => invoke(IPC.categoriesSetKey, key),
     clearGatewayKey: () => invoke(IPC.categoriesClearKey),
+    setCodeModel: (model) => invoke(IPC.categoriesSetCodeModel, model),
+    setSortFolders: (folders) => invoke(IPC.categoriesSetSortFolders, folders),
     testGateway: () => invoke(IPC.categoriesTest),
     reclassify: (options) => invoke(IPC.categoriesReclassify, options),
+    sortCounts: (options) => invoke(IPC.categoriesSortCounts, options),
   },
   senders: {
     trusted: () => invoke(IPC.sendersTrusted),
     trust: (email) => invoke(IPC.sendersTrust, email),
     untrust: (email) => invoke(IPC.sendersUntrust, email),
+  },
+  drafts: {
+    list: () => invoke(IPC.draftsList),
+    save: (draft) => invoke(IPC.draftsSave, draft),
+    remove: (id) => invoke(IPC.draftsDelete, id),
+  },
+  prefs: {
+    get: () => invoke(IPC.prefsGet),
+    set: (patch) => invoke(IPC.prefsSet, patch),
   },
   logos: {
     get: (requests) => invoke(IPC.logosGet, requests),

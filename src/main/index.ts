@@ -7,7 +7,10 @@ import { app, BrowserWindow, safeStorage, shell } from "electron";
 import { senderDomain } from "@shared/categories";
 import { IPC } from "@shared/ipc";
 
+import { AiSettingsStore } from "./ai-settings";
+import { createCodeFallback } from "./code-fallback";
 import { Categorizer } from "./categorizer";
+import { VerificationCodes } from "./verification-codes";
 import { CategoryStore, GatewayKeyStore } from "./category-store";
 import { registerIpc } from "./ipc";
 import { createJevClassifier } from "./jev";
@@ -18,6 +21,8 @@ import { LogoCache } from "./logos/logo-cache";
 import { LogoService } from "./logos/logo-service";
 import { LogoSettingsStore } from "./logos/logo-settings";
 import { safeFetch } from "./logos/net-guard";
+import { DraftStore } from "./draft-store";
+import { UiPrefsStore } from "./ui-prefs";
 import { TrustedSenders } from "./trusted-senders";
 import { MailCache } from "./mail-cache";
 import { MailService } from "./service";
@@ -150,9 +155,12 @@ if (!app.requestSingleInstanceLock()) {
     const store = new AccountStore(join(userData, "accounts.json"));
     categoryStore = new CategoryStore(join(userData, "categories.json"));
     const keys = new GatewayKeyStore(join(userData, "ai-gateway.json"), safeStorage);
+    const aiSettings = new AiSettingsStore(join(userData, "ai-settings.json"));
     const categorizer = new Categorizer({
       store: categoryStore,
       keys,
+      codeModel: () => aiSettings.codeModel(),
+      sortFolders: () => aiSettings.sortFolders(),
       classify: createJevClassifier(() => keys.get()),
       // New answers change what the list should show, so ask the page to refresh.
       onUpdated: () => mainWindow?.webContents.send(IPC.mailChanged),
@@ -160,6 +168,14 @@ if (!app.requestSingleInstanceLock()) {
     mailCache = new MailCache(join(userData, "mail-cache.json"), safeStorage);
     perfLog("stores loaded", `${store.list().length} accounts`);
     service = new MailService(store, oauthConfig, openExternalSafely, categorizer, mailCache);
+    const codes = new VerificationCodes({
+      load: (ids) => service!.get(ids),
+      fallback: () => {
+        const key = keys.get();
+        const model = aiSettings.codeModel();
+        return key && model ? createCodeFallback(key, model) : null;
+      },
+    });
     logoCache = new LogoCache(join(userData, "logos.json"), safeStorage);
     const logoSettings = new LogoSettingsStore(join(userData, "logo-settings.json"));
     const finder = { fetch: safeFetch, resolveTxt: (name: string) => dns.resolveTxt(name) };
@@ -173,9 +189,13 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc({
       service,
       categorizer,
+      aiSettings,
+      codes,
       logos,
       logoSettings,
       trusted: new TrustedSenders(join(userData, "trusted-senders.json"), safeStorage),
+      drafts: new DraftStore(join(userData, "drafts.json"), safeStorage),
+      prefs: new UiPrefsStore(join(userData, "ui-prefs.json")),
       oauthConfig,
       rendererUrl,
       openExternal: openExternalSafely,

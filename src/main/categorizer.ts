@@ -1,5 +1,7 @@
 import { categoryProblems, ruleBasedCategoryId } from "@shared/categories";
-import type { Category, CategoryState, MailFolder, MessageSummary, SortProgress } from "@shared/types";
+import type { Category, CategoryState, MailFolder, MessageSummary, SortFolder, SortProgress } from "@shared/types";
+
+import { DEFAULT_CODE_MODEL } from "@shared/verification-code";
 
 import type { CategoryStore } from "./category-store";
 import { describeGatewayError, JEV_MODEL, type Classifier } from "./jev";
@@ -36,6 +38,10 @@ export interface CategorizerDeps {
   store: CategoryStore;
   keys: KeyStore;
   classify: Classifier;
+  /** The model that reads verification codes; empty means rules only. */
+  codeModel?: () => string;
+  /** Folders whose newly arrived mail is sorted automatically; the Inbox when omitted. */
+  sortFolders?: () => readonly SortFolder[];
   /** Called, debounced, when new answers are stored, so the UI can refresh its list. */
   onUpdated: () => void;
   now?: () => number;
@@ -87,8 +93,14 @@ export class Categorizer {
    * more unless their answer is newer than `startedAt`. Their old answer stays visible meanwhile.
    */
   private resort: { since: number; startedAt: number } | null = null;
+  /** Folders the current "sort again" run covers; outside a run, only the Inbox is classified. */
+  private sortFolders = new Set<MailFolder>();
 
   constructor(private readonly deps: CategorizerDeps) {}
+
+  private newMailFolders(): readonly SortFolder[] {
+    return this.deps.sortFolders?.() ?? ["inbox"];
+  }
 
   private now(): number {
     return (this.deps.now ?? Date.now)();
@@ -100,6 +112,8 @@ export class Categorizer {
       ai: {
         configured: Boolean(this.deps.keys.get()),
         model: JEV_MODEL,
+        codeModel: this.deps.codeModel?.() ?? DEFAULT_CODE_MODEL,
+        sortFolders: [...this.newMailFolders()],
         lastError: this.lastError,
         pending: this.queue.size + this.running.size,
         sorting: this.run ? snapshot(this.run, false, null) : this.lastRun,
@@ -158,16 +172,19 @@ export class Categorizer {
 
   /**
    * Sorts mail again with the current criteria on the next refresh: everything (answers are
-   * forgotten), or only conversations with mail from `since` (epoch ms) on.
+   * forgotten), or only conversations with mail from `since` (epoch ms) on. `folders` are the
+   * folders this run covers. Everything-in-the-Inbox forgets all answers; any other choice
+   * keeps old answers visible and sorts the chosen folders' conversations once more.
    */
-  reclassify(since: number | null = null): void {
+  reclassify(since: number | null = null, folders: readonly MailFolder[] = ["inbox"]): void {
     this.generation += 1;
+    this.sortFolders = new Set(folders);
     this.queue.clear();
-    if (since === null) {
+    if (since === null && this.sortFolders.has("inbox")) {
       this.deps.store.clearClassifications();
       this.resort = null;
     } else {
-      this.resort = { since, startedAt: this.now() };
+      this.resort = { since: since ?? 0, startedAt: this.now() };
     }
     this.pausedUntil = 0;
     this.finishRun(null);
@@ -183,7 +200,18 @@ export class Categorizer {
     if (!run) return;
     if (run.timer) clearTimeout(run.timer);
     this.run = null;
+    this.sortFolders.clear();
     this.lastRun = snapshot(run, true, error);
+  }
+
+  /** How many conversations in `messages` a sort since `since` (epoch ms, null for all) would classify. */
+  countToSort(messages: readonly MessageSummary[], since: number | null): number {
+    const keys = new Set<string>();
+    for (const message of messages) {
+      if (since !== null && Date.parse(message.date) < since) continue;
+      keys.add(threadKey(message));
+    }
+    return keys.size;
   }
 
   /** Starts the countdown to "finished"; any new queued conversation cancels it. */
@@ -199,19 +227,23 @@ export class Categorizer {
 
   /**
    * Fills in `categoryId` for a freshly listed batch and queues whatever still needs the model.
-   * Only the Inbox is classified; other folders show answers that already exist.
+   * New mail in the chosen folders (the Inbox by default) is classified, and so are the folders a running "sort again" covers;
+   * other folders show answers that already exist.
    */
   apply(messages: MessageSummary[], folder: MailFolder): MessageSummary[] {
     if (folder === "sent" || folder === "drafts") return messages;
 
     const categories = this.deps.store.categories();
     const known = new Set(categories.map((category) => category.id));
-    const canClassify =
-      folder === "inbox" && Boolean(this.deps.keys.get()) && this.now() >= this.pausedUntil;
+    const ready = Boolean(this.deps.keys.get()) && this.now() >= this.pausedUntil;
+    const inRun = this.run !== null && this.sortFolders.has(folder);
+    // New mail is classified in the folders the user chose; others only while a run covers them.
+    const canClassify = ready && ((this.newMailFolders() as readonly MailFolder[]).includes(folder) || inRun);
+    const canRedo = ready && inRun;
 
     // Conversations a "since a date" run still has to redo: recent mail, answer older than the run.
     const redo = new Set<string>();
-    const resort = canClassify ? this.resort : null;
+    const resort = canRedo ? this.resort : null;
     if (resort) {
       for (const message of messages) {
         if (Date.parse(message.date) < resort.since) continue;

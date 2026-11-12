@@ -31,7 +31,7 @@ show the states a slow mail server produces: `?slow=8000` delays opening a messa
   Click a group to open its own list (Back or Esc returns). Hover a group to archive all of it.
 - Date sections (Today, Yesterday, Last Week, then months), conversation threading with a
   message count, unread dots, colored sender rings, one dot per account in the unified view.
-- Folders: Inbox, Pinned, Drafts, Sent, Trash, Spam, Archive. The dropdown next to the title
+- Folders: Inbox, Pinned, Drafts, Sent. Archive, Trash and Spam are not in the sidebar: the Inbox header has an unread-only button and, beside it, a group that checks which folders the list shows (Inbox, Archive, Trash, Spam; only Inbox is checked by default, and the choice is remembered). Archive, Trash and Spam rows are marked with a gray, red or amber icon beside the sender. The dropdown next to the title
   shows which account is in view ("All accounts" or the account's alias or address) and
   switches it.
 - **Account aliases**: give an account a short name (for example "Work") when you add it, or
@@ -39,8 +39,9 @@ show the states a slow mail server produces: `?slow=8000` delays opening a messa
   account menu, the From picker and the conversation header, with the address kept underneath
   where there is room. Only MiniMail shows it: it is never sent in mail or to the provider.
   Leave it blank to go back to the address.
-- **Views**, switched with the tabs next to the account dropdown: **Category** (the default,
-  the Focused List above), **Sender** and **List** (plain, by date). Sender adds a panel next to
+- **Views**, switched with the tabs next to the account dropdown: **Smart** (the default,
+  the Focused List above), **Sender** and **List** (plain, by date). Tab cycles through the
+  tabs, Shift+Tab goes back. Sender adds a panel next to
   the rail with every address the folder has mail from; pick one to list its mail, or group the
   panel by domain and expand a domain to see its senders. Opening a conversation there keeps
   the panel and replaces only the list.

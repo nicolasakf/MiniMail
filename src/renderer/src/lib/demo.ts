@@ -3,6 +3,13 @@ import { trustKey } from "@shared/trust";
 import { DEFAULT_LOGO_SETTINGS, isFreemail, logoKey, type LogoRequest, type LogoSettings } from "@shared/logos";
 import type { AccountCapabilities, MiniMailApi } from "@shared/api";
 import { categoryProblems, defaultCategories, ruleBasedCategoryId } from "@shared/categories";
+import {
+  CODE_MODEL_PATTERN,
+  DEFAULT_CODE_MODEL,
+  extractVerificationCode,
+  htmlToText,
+} from "@shared/verification-code";
+import { buildContactIndex } from "@shared/contacts";
 import { makeMessageId } from "@shared/ids";
 import type {
   Account,
@@ -12,9 +19,13 @@ import type {
   Contact,
   Draft,
   MailAction,
+  MailFolder,
   MessageDetail,
   MessageSummary,
+  SavedDraft,
   SmartCategory,
+  SortFolder,
+  UiPrefs,
 } from "@shared/types";
 
 /**
@@ -96,6 +107,83 @@ interface Seed {
   answered?: boolean;
   text?: string;
   html?: string;
+}
+
+/** Small deterministic generator, so the demo history is the same on every launch. */
+function seededRandom(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (state * 1_664_525 + 1_013_904_223) % 4_294_967_296;
+    return state / 4_294_967_296;
+  };
+}
+
+/**
+ * Six weeks of already-archived mail, so the Dashboard has a history to chart. Busier on
+ * weekday mornings, quieter at night and on weekends, like a real inbox.
+ */
+function archiveHistory(): Seed[] {
+  const random = seededRandom(42);
+  const senders: { from: Contact; signal: SmartCategory; subjects: string[]; weight: number; account: Account }[] = [
+    { from: person("GitHub", "notifications@github.example"), signal: "notification", weight: 9, account: ME_ZOHO, subjects: ["[acme/web] CI failed on main", "[acme/web] New comment on #482", "[acme/api] Review requested"] },
+    { from: person("Linear", "updates@linear.example"), signal: "notification", weight: 6, account: ME_ZOHO, subjects: ["3 issues assigned to you", "Cycle 42 summary"] },
+    { from: person("Amazon", "shipment@amazon.example"), signal: "notification", weight: 4, account: ME_GMAIL, subjects: ["Your package has shipped", "Delivered: your order"] },
+    { from: person("Morning Brew", "crew@morningbrew.example"), signal: "newsletter", weight: 5, account: ME_GMAIL, subjects: ["Markets wobble, again", "The weekend read"] },
+    { from: person("The Verge", "newsletter@theverge.example"), signal: "newsletter", weight: 3, account: ME_GMAIL, subjects: ["Verge Daily: chips, phones and more"] },
+    { from: person("Shopify Deals", "deals@mail.shop.example"), signal: "newsletter", weight: 4, account: ME_GMAIL, subjects: ["48 hours only: 30% off", "New arrivals you'll love"] },
+    { from: person("Shop Support", "help@shop.example"), signal: "notification", weight: 2, account: ME_GMAIL, subjects: ["Your return was received"] },
+    { from: person("Canvas", "notifications@instructure.example"), signal: "notification", weight: 5, account: ME_UNIVERSITY, subjects: ["New announcement: Lab 4", "Assignment graded"] },
+    { from: person("Prof. Lina Ortiz", "lina.ortiz@university.example"), signal: "person", weight: 3, account: ME_UNIVERSITY, subjects: ["Office hours moved", "Thesis outline feedback"] },
+    { from: person("Marcus Chen", "marcus.chen@example.com"), signal: "person", weight: 4, account: ME_GMAIL, subjects: ["Dinner Thursday?", "Photos from the trip"] },
+    { from: person("Dana Whitfield", "dana@clientco.example"), signal: "person", weight: 3, account: ME_ZOHO, subjects: ["Contract redlines", "Quick question on the estimate"] },
+    { from: person("Calendar", "calendar@clientco.example"), signal: "invitation", weight: 2, account: ME_ZOHO, subjects: ["Invitation: Weekly sync"] },
+    { from: person("Google", "no-reply@accounts.google.example"), signal: "notification", weight: 2, account: ME_GMAIL, subjects: ["Your verification code is 482913"] },
+    { from: person("Stripe", "receipts@stripe.example"), signal: "notification", weight: 3, account: ME_ZOHO, subjects: ["Your receipt from Acme Hosting", "Payout sent"] },
+  ];
+  const totalWeight = senders.reduce((sum, sender) => sum + sender.weight, 0);
+  const pick = () => {
+    let roll = random() * totalWeight;
+    for (const sender of senders) {
+      roll -= sender.weight;
+      if (roll <= 0) return sender;
+    }
+    return senders[0];
+  };
+  const hourWeights = [0, 0, 0, 0, 0, 1, 2, 4, 7, 9, 8, 7, 5, 6, 7, 6, 5, 4, 3, 3, 2, 2, 1, 1];
+  const hourTotal = hourWeights.reduce((sum, weight) => sum + weight, 0);
+  const pickHour = () => {
+    let roll = random() * hourTotal;
+    for (let hour = 0; hour < 24; hour += 1) {
+      roll -= hourWeights[hour];
+      if (roll <= 0) return hour;
+    }
+    return 9;
+  };
+
+  const seeds: Seed[] = [];
+  for (let daysAgo = 1; daysAgo <= 42; daysAgo += 1) {
+    const day = new Date();
+    day.setDate(day.getDate() - daysAgo);
+    const weekend = day.getDay() === 0 || day.getDay() === 6;
+    const count = Math.round((weekend ? 3 : 8) + random() * (weekend ? 3 : 7));
+    for (let index = 0; index < count; index += 1) {
+      const sender = pick();
+      seeds.push({
+        key: `history-${daysAgo}-${index}`,
+        folder: "archive",
+        account: sender.account,
+        from: sender.from,
+        subject: sender.subjects[Math.floor(random() * sender.subjects.length)],
+        date: at(daysAgo, pickHour(), Math.floor(random() * 60)),
+        signal: sender.signal,
+        unread: random() < 0.12,
+        answered: sender.signal === "person" && random() < 0.5,
+        attachments: random() < 0.08,
+        text: "Archived demo message.",
+      });
+    }
+  }
+  return seeds;
 }
 
 function seedMessages(): MessageDetail[] {
@@ -365,6 +453,7 @@ function seedMessages(): MessageDetail[] {
       date: at(2, 19, 30),
       text: "Sounds good, count me in.",
     },
+    ...archiveHistory(),
   ];
 
   return seeds.map((seed) => {
@@ -474,6 +563,9 @@ export function createDemoApi(): MiniMailApi {
 
   let categories: Category[] = defaultCategories();
   const trustedSenders = new Set<string>();
+  // Like everything else in the demo, drafts and the saved view and filters last until the page is reloaded.
+  let demoDrafts: SavedDraft[] = [];
+  let demoPrefs: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"] };
   let aiConfigured = false;
   // A pretend "sort again" so the progress toast can be seen without a key.
   let sortStartedAt: number | null = null;
@@ -489,9 +581,11 @@ export function createDemoApi(): MiniMailApi {
     const done = perAccount.reduce((sum, account) => sum + account.done, 0);
     return { done, total, accounts: perAccount, finished: done >= total, error: null };
   };
+  let codeModel: string = DEFAULT_CODE_MODEL;
+  let sortFolders: SortFolder[] = ["inbox"];
   const categoryState = (): CategoryState => ({
     categories: categories.map((category) => ({ ...category })),
-    ai: { configured: aiConfigured, model: "typesafe-ai/jev", lastError: null, pending: 0, sorting: sortProgress() },
+    ai: { configured: aiConfigured, model: "typesafe-ai/jev", codeModel, sortFolders: [...sortFolders], lastError: null, pending: 0, sorting: sortProgress() },
   });
 
   return {
@@ -578,6 +672,17 @@ export function createDemoApi(): MiniMailApi {
         }
         return ids.flatMap((id) => messages.filter((message) => message.id === id));
       },
+      async verificationCodes(ids) {
+        // The demo reads with the same rules as the app and has no model to fall back on.
+        await wait(60);
+        const found: Record<string, string | null> = {};
+        for (const message of messages) {
+          if (!ids.includes(message.id)) continue;
+          const text = message.text?.trim() ? message.text : htmlToText(message.html ?? "");
+          found[message.id] = extractVerificationCode({ subject: message.subject, text });
+        }
+        return found;
+      },
       async act(action: MailAction, ids) {
         await wait(80);
         const target = new Set(ids);
@@ -636,6 +741,10 @@ export function createDemoApi(): MiniMailApi {
           },
         ];
       },
+      async contacts() {
+        await wait(60);
+        return buildContactIndex(messages, new Set(accounts.map((account) => account.email.toLowerCase())));
+      },
       onChanged(listener) {
         listeners.add(listener);
         return () => listeners.delete(listener);
@@ -652,6 +761,27 @@ export function createDemoApi(): MiniMailApi {
       async untrust(email) {
         trustedSenders.delete(trustKey(email));
         return [...trustedSenders];
+      },
+    },
+    drafts: {
+      async list() {
+        return demoDrafts;
+      },
+      async save(draft) {
+        demoDrafts = [draft, ...demoDrafts.filter((existing) => existing.id !== draft.id)];
+        return demoDrafts;
+      },
+      async remove(id) {
+        demoDrafts = demoDrafts.filter((existing) => existing.id !== id);
+        return demoDrafts;
+      },
+    },
+    prefs: {
+      async get() {
+        return { ...demoPrefs, shownFolders: [...demoPrefs.shownFolders] };
+      },
+      async set(patch) {
+        demoPrefs = { ...demoPrefs, ...patch };
       },
     },
     logos: {
@@ -695,6 +825,17 @@ export function createDemoApi(): MiniMailApi {
         aiConfigured = false;
         return categoryState();
       },
+      async setCodeModel(model) {
+        await wait(40);
+        if (!CODE_MODEL_PATTERN.test(model.trim())) throw new Error('Use a gateway model id like "reflection/beam".');
+        codeModel = model.trim();
+        return categoryState();
+      },
+      async setSortFolders(folders) {
+        await wait(40);
+        sortFolders = [...folders];
+        return categoryState();
+      },
       async testGateway() {
         await wait(600);
         if (!aiConfigured) throw new Error("No Vercel AI Gateway key is set.");
@@ -703,6 +844,17 @@ export function createDemoApi(): MiniMailApi {
         await wait(40);
         sortStartedAt = Date.now();
         notify();
+      },
+      async sortCounts(options) {
+        await wait(40);
+        const since = options?.since ? Date.parse(options.since) : null;
+        const count = (folder: MailFolder) =>
+          new Set(
+            messages
+              .filter((message) => message.folder === folder && (since === null || Date.parse(message.date) >= since))
+              .map((message) => `${message.accountId}:${message.threadId}`),
+          ).size;
+        return { inbox: count("inbox"), archive: count("archive"), spam: count("spam"), trash: count("trash") };
       },
     },
     system: {

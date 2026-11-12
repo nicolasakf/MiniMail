@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { MAX_ALIAS_LENGTH, MAX_AVATAR_BYTES, normalizeAlias } from "./accounts";
 import type { LogoRequest, LogoSettings } from "./logos";
+import { MAIL_WINDOW } from "./mail-window";
 import {
   categoryProblems,
   MAX_CATEGORIES,
@@ -9,7 +10,9 @@ import {
   MAX_NAME_LENGTH,
   MIN_CRITERIA_LENGTH,
 } from "./categories";
-import type { AddAccountInput, Category, Draft, ListQuery } from "./types";
+import { CODE_MODEL_PATTERN } from "./verification-code";
+import { SORT_FOLDERS } from "./types";
+import type { AddAccountInput, Category, Draft, ListQuery, MailView, SavedDraft, UiPrefs } from "./types";
 
 /**
  * Validation for everything the renderer sends to the main process. The renderer is
@@ -78,7 +81,7 @@ export const addAccountSchema: z.ZodType<AddAccountInput> = z.union([
 export const listQuerySchema: z.ZodType<ListQuery> = z.object({
   accountIds: z.array(z.string()).optional(),
   folder: folderSchema,
-  limit: z.number().int().min(1).max(500).optional(),
+  limit: z.number().int().min(1).max(MAIL_WINDOW).optional(),
   cacheOnly: z.boolean().optional(),
 });
 
@@ -89,6 +92,16 @@ export const draftSchema: z.ZodType<Draft> = z.object({
   bcc: z.array(contactSchema),
   subject: z.string(),
   text: z.string(),
+  attachments: z
+    .array(
+      z.object({
+        filename: z.string().min(1),
+        contentType: z.string(),
+        contentBase64: z.string(),
+      }),
+    )
+    .max(25)
+    .optional(),
   inReplyTo: z
     .object({
       messageId: z.string(),
@@ -98,6 +111,51 @@ export const draftSchema: z.ZodType<Draft> = z.object({
     })
     .optional(),
 });
+
+const MAX_DRAFT_TEXT = 2_000_000;
+
+export const savedDraftSchema: z.ZodType<SavedDraft> = z.object({
+  id: z.string().min(1).max(128),
+  savedAt: z.string().max(40),
+  mode: z.enum(["new", "reply", "replyAll", "forward"]),
+  accountId: z.string(),
+  // Unlike a message being sent, a draft may still lack recipients (or hold half-typed ones).
+  to: z.array(contactSchema).max(500),
+  cc: z.array(contactSchema).max(500),
+  bcc: z.array(contactSchema).max(500),
+  pendingText: z.object({
+    to: z.string().max(2000),
+    cc: z.string().max(2000),
+    bcc: z.string().max(2000),
+  }),
+  subject: z.string().max(2000),
+  body: z.string().max(MAX_DRAFT_TEXT),
+  quoted: z.string().max(MAX_DRAFT_TEXT).optional(),
+  inReplyTo: z
+    .object({
+      messageId: z.string(),
+      nativeId: z.string(),
+      references: z.array(z.string()),
+      mode: z.enum(["reply", "replyAll", "forward"]),
+    })
+    .optional(),
+});
+
+export const draftIdSchema = z.string().min(1).max(128);
+
+export const mailViewSchema: z.ZodType<MailView> = z.enum(["category", "sender", "list"]);
+
+export const shownFoldersSchema = z.array(z.enum(["inbox", "archive", "trash", "spam"])).max(4);
+
+/** Any subset of the saved choices; what is left out keeps its value. */
+export const uiPrefsPatchSchema: z.ZodType<Partial<UiPrefs>> = z
+  .object({
+    view: mailViewSchema,
+    unreadOnly: z.boolean(),
+    shownFolders: shownFoldersSchema,
+  })
+  .partial()
+  .strict();
 
 export const categorySchema: z.ZodType<Category> = z.object({
   id: z.string().min(1).max(64),
@@ -135,6 +193,19 @@ export const logoSettingsSchema: z.ZodType<LogoSettings> = z.object({
 /** Vercel AI Gateway API key typed by the user. */
 export const gatewayKeySchema = z.string().trim().min(8).max(300);
 
+/** A Vercel AI Gateway model id such as "reflection/beam", or empty to turn the model fallback off. */
+export const codeModelSchema = z
+  .string()
+  .trim()
+  .max(100)
+  .regex(CODE_MODEL_PATTERN, 'Use a gateway model id like "reflection/beam".');
+
+/** Folders whose new mail is sorted automatically: any combination; none turns automatic sorting off. */
+export const sortFoldersSchema = z
+  .array(z.enum(SORT_FOLDERS))
+  .max(SORT_FOLDERS.length)
+  .transform((folders) => SORT_FOLDERS.filter((folder) => folders.includes(folder)));
+
 /** "Sort mail again": everything, or only conversations with mail from `since` (an ISO date) on. */
 export const reclassifySchema = z
   .object({
@@ -143,8 +214,12 @@ export const reclassifySchema = z
       .max(40)
       .refine((value) => !Number.isNaN(Date.parse(value)), "Not a date")
       .optional(),
+    folders: z.array(z.enum(["inbox", "archive", "spam", "trash"])).max(4).optional(),
   })
   .optional();
 
 /** One or more message ids; capped so a bad call cannot ask for thousands of fetches. */
 export const idsSchema = z.array(z.string()).min(1).max(500);
+
+/** Messages asked about for a code at once: the visible verification rows. */
+export const codeIdsSchema = z.array(z.string()).min(1).max(30);

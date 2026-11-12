@@ -3,10 +3,10 @@ import { logoRequestFor, type LogoRequest } from "./logos";
 import type { Thread } from "./threads";
 import type { Category } from "./types";
 
-/** Id of the collapsible Pinned group; every other group kind is a category id. */
-export const PINNED_GROUP = "pinned";
+/** Key of the collapsible "Pinned" heading, between the category rows and the date sections. */
+export const PINNED_SECTION = "section:pinned";
 
-/** Buckets shown as one row that opens its own list: Spark's Pinned plus one per user category. */
+/** Buckets shown as one row that opens its own list: one per user category (a category id). */
 export type GroupKind = string;
 
 /** One sender "chip" on a collapsed group row (e.g. "Amazon.com 3"). */
@@ -18,16 +18,29 @@ export interface SenderChip {
   unread: boolean;
   /** Which logo or photo lookup this sender qualifies for; null means initials. */
   logo: LogoRequest | null;
+  /** The sender's most recent conversation in the group: what clicking the chip opens. */
+  threadId: string;
+  /** That conversation's latest message and its date, for what a card shows about it (a code). */
+  messageId: string;
+  date: string;
 }
 
 export type ListItem =
-  | { type: "section"; key: string; label: string }
+  | {
+      type: "section";
+      key: string;
+      label: string;
+      /** Set on the Pinned heading: clicking it hides or shows the pinned conversations under it. */
+      collapsible?: { collapsed: boolean; count: number };
+    }
   | { type: "thread"; key: string; thread: Thread }
   | (GroupDef & {
       type: "group";
       key: string;
       count: number;
       hasUnread: boolean;
+      /** How many of the group's conversations are unread. */
+      unreadCount: number;
       chips: SenderChip[];
     });
 
@@ -35,29 +48,28 @@ export type ListItem =
 export interface GroupDef {
   kind: GroupKind;
   label: string;
-  /** The category's hue; null for Pinned. */
+  /** The category's hue. */
   hue: number | null;
-  /** The category's Lucide icon name; null for Pinned or when none is set. */
+  /** The category's Lucide icon name; null when none is set. */
   icon: string | null;
 }
 
-/** The buckets of the Focused List in display order: Pinned, then the user's categories. */
+/** The buckets of the Focused List in display order: the user's categories. */
 export function groupDefs(categories: readonly Category[]): GroupDef[] {
-  return [
-    { kind: PINNED_GROUP, label: "Pinned", hue: null, icon: null },
-    ...categories.map((category) => ({
-      kind: category.id,
-      label: category.name,
-      hue: category.hue,
-      icon: iconFor(category) ?? null,
-    })),
-  ];
+  return categories.map((category) => ({
+    kind: category.id,
+    label: category.name,
+    hue: category.hue,
+    icon: iconFor(category) ?? null,
+  }));
 }
 
 export interface FocusedListOptions {
   now: Date;
   /** The user's categories, in display order. Threads whose category is gone count as people. */
   categories: readonly Category[];
+  /** Hide the conversations under the Pinned heading, leaving only the heading. */
+  pinnedCollapsed?: boolean;
 }
 
 interface Section {
@@ -117,6 +129,10 @@ function buildChips(threads: readonly Thread[]): SenderChip[] {
         count: 1,
         unread: thread.unread,
         logo: logoRequestFor(thread.latest),
+        // Threads arrive newest first, so the first one seen for a sender is its latest.
+        threadId: thread.id,
+        messageId: thread.latest.id,
+        date: thread.latest.date,
       });
     }
   }
@@ -151,10 +167,11 @@ export function buildFlatList(threads: readonly Thread[], now: Date): ListItem[]
 /**
  * Lays threads out the way Spark's "Focused List" does: sections by date, mail
  * from people as individual rows, and categorized mail (notifications, newsletters,
- * invitations, ...) plus pinned threads collapsed into one row per bucket. Each bucket
- * collects every thread of its kind and opens the list, above the date sections (and their
- * "Today" heading), so old notifications never scatter through the list. The threads of a
- * bucket are listed on their own screen (see `threadsInGroup`).
+ * invitations, ...) collapsed into one row per bucket. Each bucket collects every thread of its
+ * kind and opens the list, above the date sections (and their "Today" heading), so old
+ * notifications never scatter through the list. The threads of a bucket are listed on their own
+ * screen (see `threadsInGroup`). Pinned threads sit under a collapsible "Pinned" heading that
+ * comes after the bucket rows and before "Today".
  *
  * `threads` must already be sorted newest first (see `groupThreads`).
  */
@@ -162,14 +179,15 @@ export function buildFocusedList(
   threads: readonly Thread[],
   options: FocusedListOptions,
 ): ListItem[] {
-  const { now, categories } = options;
+  const { now, categories, pinnedCollapsed = false } = options;
   const known = new Set(categories.map((category) => category.id));
 
   const groups = new Map<GroupKind, Thread[]>();
   const people: Thread[] = [];
+  const pinned: Thread[] = [];
   for (const thread of threads) {
     if (thread.pinned) {
-      groups.set(PINNED_GROUP, [...(groups.get(PINNED_GROUP) ?? []), thread]);
+      pinned.push(thread);
     } else if (thread.categoryId === null || !known.has(thread.categoryId)) {
       people.push(thread);
     } else {
@@ -202,8 +220,21 @@ export function buildFocusedList(
       icon,
       count: members.length,
       hasUnread: members.some((t) => t.unread),
+      unreadCount: members.filter((t) => t.unread).length,
       chips: buildChips(members),
     });
+  }
+
+  if (pinned.length > 0) {
+    result.push({
+      type: "section",
+      key: PINNED_SECTION,
+      label: "Pinned",
+      collapsible: { collapsed: pinnedCollapsed, count: pinned.length },
+    });
+    if (!pinnedCollapsed) {
+      for (const thread of pinned) result.push({ type: "thread", key: thread.id, thread });
+    }
   }
 
   for (const thread of people) {
@@ -219,11 +250,9 @@ export function buildFocusedList(
 }
 
 /**
- * The conversations a group row of the Focused List stands for, in the order given: every
- * pinned one for Pinned, otherwise the unpinned ones of that category.
+ * The conversations a group row of the Focused List stands for, in the order given: the
+ * unpinned ones of that category (pinned ones are listed under the Pinned heading instead).
  */
 export function threadsInGroup(threads: readonly Thread[], kind: GroupKind): Thread[] {
-  return kind === PINNED_GROUP
-    ? threads.filter((thread) => thread.pinned)
-    : threads.filter((thread) => !thread.pinned && thread.categoryId === kind);
+  return threads.filter((thread) => !thread.pinned && thread.categoryId === kind);
 }

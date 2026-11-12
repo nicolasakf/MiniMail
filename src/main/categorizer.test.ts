@@ -316,6 +316,37 @@ describe("Categorizer", () => {
     expect(classify).not.toHaveBeenCalled();
   });
 
+  it("classifies new mail in the folders the user chose, and never Sent or Drafts", async () => {
+    categorizer = new Categorizer({
+      store,
+      keys,
+      classify,
+      sortFolders: () => ["archive", "spam"],
+      onUpdated: updated,
+    });
+    expect(categorizer.state().ai.sortFolders).toEqual(["archive", "spam"]);
+    categorizer.apply([msg({ id: "1" })], "inbox");
+    categorizer.apply([msg({ id: "2", folder: "trash" })], "trash");
+    categorizer.apply([msg({ id: "3", folder: "sent" })], "sent");
+    await settle();
+    expect(classify).not.toHaveBeenCalled();
+    categorizer.apply([msg({ id: "4", folder: "archive" })], "archive");
+    categorizer.apply([msg({ id: "5", folder: "spam" })], "spam");
+    await settle();
+    expect(classify).toHaveBeenCalledTimes(2);
+  });
+
+  it("makes no model call for new mail when no folder is chosen", async () => {
+    categorizer = new Categorizer({ store, keys, classify, sortFolders: () => [], onUpdated: updated });
+    categorizer.apply([msg({ id: "1" })], "inbox");
+    await settle();
+    expect(classify).not.toHaveBeenCalled();
+  });
+
+  it("sorts only the Inbox by default", () => {
+    expect(categorizer.state().ai.sortFolders).toEqual(["inbox"]);
+  });
+
   it("stores 'no category' answers so the conversation is not asked about again", async () => {
     classify.mockResolvedValue({ categoryId: null, probability: 0.8 });
     categorizer.apply([msg({ id: "1", signal: "newsletter" })], "inbox");
@@ -350,6 +381,48 @@ describe("Categorizer", () => {
 
     await vi.advanceTimersByTimeAsync(5_000);
     expect(categorizer.state().ai.sorting).toMatchObject({ done: 3, total: 3, finished: true, error: null });
+  });
+
+  it("sorts Archive, Spam and Trash only when a run asks for them, and only while it lasts", async () => {
+    const archived = (id: string) => msg({ id, folder: "archive" });
+    categorizer.apply([archived("1")], "archive");
+    await settle();
+    expect(classify).not.toHaveBeenCalled();
+
+    categorizer.reclassify(null, ["archive"]);
+    categorizer.apply([archived("2")], "archive");
+    categorizer.apply([msg({ id: "3", folder: "spam" })], "spam");
+    await settle();
+    expect(classify).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    categorizer.apply([archived("4")], "archive");
+    await settle();
+    expect(classify).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the Inbox's answers alone when a run covers only other folders", async () => {
+    categorizer.apply([msg({ id: "1" })], "inbox");
+    await settle();
+    expect(classify).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    categorizer.reclassify(null, ["archive"]);
+    expect(store.classification("a1:1")).toBeDefined();
+    categorizer.apply([msg({ id: "1" })], "inbox");
+    categorizer.apply([msg({ id: "9", folder: "archive" })], "archive");
+    await settle();
+    expect(classify).toHaveBeenCalledTimes(2);
+  });
+
+  it("counts the conversations a sort would send, once per conversation and since a date", () => {
+    const rows = [
+      msg({ id: "1", threadId: "t", date: new Date(2026, 9, 1).toISOString() }),
+      msg({ id: "2", threadId: "t", date: new Date(2026, 10, 9).toISOString() }),
+      msg({ id: "3", date: new Date(2026, 9, 2).toISOString() }),
+    ];
+    expect(categorizer.countToSort(rows, null)).toBe(2);
+    expect(categorizer.countToSort(rows, new Date(2026, 10, 1).getTime())).toBe(1);
   });
 
   it("keeps a run open while a later account's conversations are still arriving", async () => {

@@ -99,6 +99,10 @@ export interface AiStatus {
   configured: boolean;
   /** Gateway model id used for classification. */
   model: string;
+  /** Gateway model id that reads verification codes the rules cannot; empty means rules only. */
+  codeModel: string;
+  /** Folders whose newly arrived mail is sorted automatically (the Inbox by default; none means new mail is not sorted automatically). */
+  sortFolders: SortFolder[];
   /** Last classification failure, cleared by the next success. */
   lastError: string | null;
   /** Conversations waiting to be classified. */
@@ -109,6 +113,21 @@ export interface AiStatus {
    */
   sorting: SortProgress | null;
 }
+
+/** Folders "sort all mail again" can include. */
+export const SORT_FOLDERS = ["inbox", "archive", "spam", "trash"] as const;
+export type SortFolder = (typeof SORT_FOLDERS)[number];
+
+/** Options of "sort all mail again": how far back, and which extra folders join the Inbox. */
+export interface SortOptions {
+  /** ISO date; only conversations with mail from then on are sorted again. Omitted means all. */
+  since?: string;
+  /** Folders to sort; omitted means the Inbox only. */
+  folders?: SortFolder[];
+}
+
+/** Conversations a sort would send to Jev, per folder (what is on this computer for that folder). */
+export type SortCounts = Record<SortFolder, number>;
 
 export interface SortAccountProgress {
   accountId: string;
@@ -205,6 +224,16 @@ export interface ListQuery {
   cacheOnly?: boolean;
 }
 
+/** A file attached to an outgoing message; the content travels as base64. */
+export interface DraftAttachment {
+  filename: string;
+  contentType: string;
+  contentBase64: string;
+}
+
+/** Largest total size of the files attached to one message. */
+export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+
 export interface Draft {
   accountId: string;
   to: Contact[];
@@ -212,9 +241,54 @@ export interface Draft {
   bcc: Contact[];
   subject: string;
   text: string;
+  attachments?: DraftAttachment[];
   /** Present when replying/forwarding, so providers can thread the message. */
   inReplyTo?: { messageId: string; nativeId: string; references: string[]; mode: "reply" | "replyAll" | "forward" };
 }
+
+export type ComposeMode = "new" | "reply" | "replyAll" | "forward";
+
+/**
+ * A message the user started and put aside (Esc or the close button). Drafts are kept on this
+ * computer only, in a file in the app's data folder: they never reach a mail server.
+ */
+export interface SavedDraft {
+  id: string;
+  /** ISO time of the last save. */
+  savedAt: string;
+  mode: ComposeMode;
+  accountId: string;
+  to: Contact[];
+  cc: Contact[];
+  bcc: Contact[];
+  /** Text typed into a recipient box that was not a complete address. */
+  pendingText: { to: string; cc: string; bcc: string };
+  subject: string;
+  body: string;
+  quoted?: string;
+  inReplyTo?: Draft["inReplyTo"];
+}
+
+/**
+ * How the mail of a folder is laid out: `category` (the "Smart" tab), `sender`, or a plain `list`.
+ */
+export type MailView = "category" | "sender" | "list";
+
+/** The folders whose mail the Inbox list can show: the inbox itself, and Archive, Trash and Spam. */
+export type ShownFolder = "inbox" | "archive" | "trash" | "spam";
+
+/** The list filters and view the app reopens with. */
+export interface UiPrefs {
+  /** The selected view tab: Smart, Sender or List. */
+  view: MailView;
+  /** The toolbar's "unread only" filter. */
+  unreadOnly: boolean;
+  /** The toolbar's Inbox / Archive / Trash / Spam toggles: the folders that are checked. */
+  shownFolders: ShownFolder[];
+}
+
+/** Most drafts kept at once; saving another drops the oldest. */
+export const MAX_SAVED_DRAFTS = 50;
 
 /** Result of operations that touch several accounts; one failure must not hide the rest. */
 export interface AccountError {

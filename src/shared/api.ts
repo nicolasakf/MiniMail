@@ -8,7 +8,13 @@ import type {
   ListResult,
   MailAction,
   MessageDetail,
+  SavedDraft,
+  UiPrefs,
+  SortCounts,
+  SortFolder,
+  SortOptions,
 } from "./types";
+import type { ContactEntry } from "./contacts";
 import type { LogoRequest, LogoSettings } from "./logos";
 
 /** Which sign-in methods this build can offer (OAuth needs client ids at build time). */
@@ -38,6 +44,13 @@ export interface MiniMailApi {
     get(ids: string[]): Promise<MessageDetail[]>;
     act(action: MailAction, ids: string[]): Promise<void>;
     send(draft: Draft): Promise<void>;
+    /**
+     * One-time codes in verification mail, by message id: the code, or null when there is none.
+     * An id is missing when the lookup failed and may be tried again later.
+     */
+    verificationCodes(ids: string[]): Promise<Record<string, string | null>>;
+    /** Everyone we have sent mail to or received mail from, for recipient suggestions. */
+    contacts(): Promise<ContactEntry[]>;
     /** Fires when the main process thinks the mailbox changed (server push, poll tick, window focus). */
     onChanged(listener: () => void): () => void;
   };
@@ -49,10 +62,16 @@ export interface MiniMailApi {
     /** Stores a Vercel AI Gateway key (encrypted) and turns AI classification on. */
     setGatewayKey(key: string): Promise<CategoryState>;
     clearGatewayKey(): Promise<CategoryState>;
+    /** Sets the gateway model that reads codes the rules cannot ("" turns the fallback off). */
+    setCodeModel(model: string): Promise<CategoryState>;
+    /** Chooses which folders' newly arrived mail is sorted automatically (none turns automatic sorting off). */
+    setSortFolders(folders: SortFolder[]): Promise<CategoryState>;
     /** Makes one tiny classification call so a bad key or network problem shows up now. */
     testGateway(): Promise<void>;
     /** Forgets every classification so the next refresh sorts all mail again with current criteria. */
-    reclassify(options?: { since?: string }): Promise<void>;
+    reclassify(options?: SortOptions): Promise<void>;
+    /** How many conversations a sort with these options would send to Jev, per folder. */
+    sortCounts(options?: Pick<SortOptions, "since">): Promise<SortCounts>;
   };
   senders: {
     /** Addresses whose remote images load without asking (lowercase). */
@@ -60,6 +79,19 @@ export interface MiniMailApi {
     /** Remembers a sender; returns the updated list. */
     trust(email: string): Promise<string[]>;
     untrust(email: string): Promise<string[]>;
+  };
+  drafts: {
+    /** Drafts kept on this computer, most recently saved first. */
+    list(): Promise<SavedDraft[]>;
+    /** Writes the draft to disk (replacing the one with the same id); rejects if it could not be saved. */
+    save(draft: SavedDraft): Promise<SavedDraft[]>;
+    remove(id: string): Promise<SavedDraft[]>;
+  };
+  prefs: {
+    /** The view tab and list filters the app reopens with. */
+    get(): Promise<UiPrefs>;
+    /** Remembers the given choices (the others keep their value). */
+    set(patch: Partial<UiPrefs>): Promise<void>;
   };
   logos: {
     /**

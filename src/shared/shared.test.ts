@@ -180,19 +180,31 @@ describe("buildFocusedList", () => {
     msg({ id: "p2", threadId: "p2", subject: "Person yesterday", date: new Date(2026, 10, 8, 12).toISOString() }),
   ]);
 
-  it("puts Pinned and categories first, then the Today heading with uncategorized mail", () => {
+  it("puts category rows first, then Pinned, then the Today heading with uncategorized mail", () => {
     const items = buildFocusedList(threads, { now: NOW, categories: defaultCategories() });
     const labels = items.map((i) =>
       i.type === "section" ? `# ${i.label}` : i.type === "group" ? `[${i.label} ${i.count}]` : i.thread.latest.subject,
     );
     expect(labels).toEqual([
-      "[Pinned 1]",
       "[Notifications 2]",
+      "# Pinned",
+      "Hello",
       "# Today",
       "Person today",
       "# Yesterday",
       "Person yesterday",
     ]);
+  });
+
+  it("hides the pinned conversations, but not the heading, when Pinned is collapsed", () => {
+    const items = buildFocusedList(threads, {
+      now: NOW,
+      categories: defaultCategories(),
+      pinnedCollapsed: true,
+    });
+    const pinned = items.find((i) => i.type === "section" && i.label === "Pinned");
+    expect(pinned).toMatchObject({ collapsible: { collapsed: true, count: 1 } });
+    expect(items.some((i) => i.type === "thread" && i.thread.latest.id === "pin1")).toBe(false);
   });
 
   it("keeps groups at the top even when their newest thread is older", () => {
@@ -217,7 +229,7 @@ describe("buildFocusedList", () => {
     expect(notifications).toMatchObject({ hasUnread: true, count: 2 });
     if (notifications?.type === "group") {
       expect(notifications.chips).toEqual([
-        { key: "ship@amazon.com", name: "Amazon", email: "ship@amazon.com", count: 2, unread: true, logo: null },
+        { key: "ship@amazon.com", name: "Amazon", email: "ship@amazon.com", count: 2, unread: true, logo: null, threadId: "a1:n1", messageId: expect.any(String), date: expect.any(String) },
       ]);
     }
   });
@@ -225,13 +237,12 @@ describe("buildFocusedList", () => {
   it("never lists a group's threads in the Focused List itself", () => {
     const items = buildFocusedList(threads, { now: NOW, categories: defaultCategories() });
     const listed = items.flatMap((i) => (i.type === "thread" ? [i.thread.latest.id] : []));
-    expect(listed).toEqual(["p1", "p2"]);
+    expect(listed).toEqual(["pin1", "p1", "p2"]);
   });
 
   it("gives the threads behind a group row, newest first", () => {
     const ids = (kind: string) => threadsInGroup(threads, kind).map((t) => t.latest.id);
     expect(ids("notifications")).toEqual(["n1", "n2"]);
-    expect(ids("pinned")).toEqual(["pin1"]);
     expect(ids("newsletters")).toEqual([]);
   });
 

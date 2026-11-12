@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { toast } from "sonner";
 
+import { FIRST_PAGE, MAIL_WINDOW } from "@shared/mail-window";
+import { dropFolderDuplicates } from "@shared/dashboard";
 import { groupThreads, type Thread } from "@shared/threads";
 import type {
   Account,
@@ -9,16 +11,19 @@ import type {
   MailAction,
   MailFolder,
   MessageSummary,
+  ShownFolder,
 } from "@shared/types";
 
 import { api } from "@/lib/api";
 import { groupByAccount, mergeAccountRows, mergeErrors } from "@/lib/merge";
-import { applyOptimistic } from "@/lib/optimistic";
+import { applyOptimistic, applyOptimisticKeepingFolders } from "@/lib/optimistic";
+
+/** Every folder whose mail the Inbox list can show, in display order. */
+export const SHOWN_FOLDERS: readonly ShownFolder[] = ["inbox", "archive", "trash", "spam"];
 
 /** "all" means every account; otherwise an account id. */
 export type AccountScope = "all" | string;
 
-const PAGE_SIZE = 100;
 /** How long an archive, trash, spam or delete waits for an Undo before it reaches the server. */
 const UNDO_WINDOW_MS = 6000;
 /** What the toast says once the action is done, by action. */
@@ -40,8 +45,24 @@ interface PendingAction {
   /** True once the request has been sent: it can no longer be undone. */
   sent: boolean;
 }
+/** How an action ended, as told to `onSettled` listeners. */
+export type ActionOutcome = "committed" | "undone" | "failed";
+export type SettledListener = (outcome: ActionOutcome, action: MailAction, ids: string[]) => void;
+
 /** A background refresh may replace a running one once that has taken this long. */
 const TAKEOVER_AFTER_MS = 15_000;
+
+/** The Inbox list holds the other folders' mail too, so a move there changes a message's folder. */
+function applyToList(
+  messages: readonly MessageSummary[],
+  action: MailAction,
+  ids: ReadonlySet<string>,
+  folder: MailFolder,
+): MessageSummary[] {
+  return folder === "inbox"
+    ? applyOptimisticKeepingFolders(messages, action, ids, folder)
+    : applyOptimistic(messages, action, ids, folder);
+}
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -65,7 +86,7 @@ function matchesQuery(message: MessageSummary, words: string[]): boolean {
  * Loads accounts and the messages for the current folder/account scope, keeps them
  * fresh, and exposes actions that update the list optimistically.
  */
-export function useMailbox() {
+export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountsLoaded, setAccountsLoaded] = useState(false);
   const [scope, setScope] = useState<AccountScope>("all");
@@ -75,6 +96,14 @@ export function useMailbox() {
   const [errors, setErrors] = useState<AccountError[]>([]);
   const [query, setQuery] = useState("");
   const ticket = useRef(0);
+  /** The Inbox list's folders besides the inbox; read at refresh time. */
+  const extraRef = useRef<readonly MailFolder[]>([]);
+  extraRef.current = shownFolders.filter((name) => name !== "inbox");
+  const extraKey = [...extraRef.current].sort().join(",");
+  const shownKey = [...shownFolders].sort().join(",");
+  /** The folders the list on screen is made of: the Inbox adds the ones the user turned on. */
+  const foldersOf = (current: MailFolder): MailFolder[] =>
+    current === "inbox" ? ["inbox", ...extraRef.current] : [current];
   /** When the running refresh of the current view started (ms), or null when none is running. */
   const runningSince = useRef<number | null>(null);
   /** A background refresh asked for while another was running; it runs right after. */
@@ -125,7 +154,7 @@ export function useMailbox() {
         return;
       }
       runningSince.current = performance.now();
-      if (!silent) setLoading(true);
+      if (!silent && messagesRef.current.length === 0) setLoading(true);
 
       const targets = scope === "all" ? [...accountIds.current] : [scope];
       const started = performance.now();
@@ -133,6 +162,7 @@ export function useMailbox() {
       const fromDisk = new Map<string, MessageSummary[]>();
       const answered = new Map<string, AccountError[]>();
       const stale = () => current !== ticket.current;
+      const folders = foldersOf(folder);
       const perf = (what: string) => {
         if (import.meta.env.DEV) {
           console.log(`[perf] list ${folder} ${what} (${Math.round(performance.now() - started)}ms)`);
@@ -141,29 +171,57 @@ export function useMailbox() {
 
       // A fresh view (first launch, folder or account switch) starts from the copy saved on disk,
       // so rows appear at once instead of after the slowest server answers.
-      if (!silent) {
-        void api.mail
-          .list({ folder, accountIds: targets, limit: PAGE_SIZE, cacheOnly: true })
-          .then((result) => {
-            if (stale() || result.messages.length === 0) return;
-            for (const [id, rows] of groupByAccount(result.messages)) {
-              if (!live.has(id)) fromDisk.set(id, rows);
-            }
-            setMessages((onScreen) => mergeAccountRows(targets, [live, fromDisk], onScreen));
-            setLoading(false);
-            perf(`painted ${result.messages.length} rows from disk copy`);
-          })
-          .catch(() => undefined);
-      }
+      // It also tells which accounts have never listed this folder here (no copy yet).
+      const diskCopy: Promise<ReadonlySet<string> | null> = silent
+        ? Promise.resolve(null)
+        : Promise.all(
+            folders.map((name) =>
+              api.mail.list({ folder: name, accountIds: targets, limit: MAIL_WINDOW, cacheOnly: true }),
+            ),
+          )
+            .then((results) => {
+              const rows = results.flatMap((result) => result.messages);
+              // Only the primary folder says which accounts have never listed this view here.
+              const withCopy = new Set(results[0].messages.map((message) => message.accountId));
+              if (stale() || rows.length === 0) return withCopy;
+              for (const [id, accountRows] of groupByAccount(rows)) {
+                if (!live.has(id)) fromDisk.set(id, accountRows);
+              }
+              setMessages((onScreen) => mergeAccountRows(targets, [live, fromDisk], onScreen));
+              setLoading(false);
+              perf(`painted ${rows.length} rows from disk copy`);
+              return withCopy;
+            })
+            .catch(() => null);
 
       // One request per account, shown as each answers: a slow server only delays its own rows.
       await Promise.all(
         targets.map(async (accountId) => {
           try {
-            const result = await api.mail.list({ folder, accountIds: [accountId], limit: PAGE_SIZE });
+            // A folder never listed here shows its newest mail first, then the whole window,
+            // instead of waiting for every preview in the window to download.
+            const withCopy = await diskCopy;
+            if (withCopy && !withCopy.has(accountId)) {
+              const first = await api.mail
+                .list({ folder: folders[0], accountIds: [accountId], limit: FIRST_PAGE })
+                .catch(() => null);
+              if (stale()) return;
+              if (first && first.messages.length > 0) {
+                live.set(accountId, first.messages);
+                setMessages((onScreen) => mergeAccountRows(targets, [live, fromDisk], onScreen));
+                setLoading(false);
+                perf(`account first page of ${first.messages.length}`);
+              }
+            }
+            // The same window the Dashboard and the copy on disk use; see MAIL_WINDOW.
+            const results = await Promise.all(
+              folders.map((name) =>
+                api.mail.list({ folder: name, accountIds: [accountId], limit: MAIL_WINDOW }),
+              ),
+            );
             if (stale()) return;
-            live.set(accountId, result.messages);
-            answered.set(accountId, result.errors);
+            live.set(accountId, results.flatMap((result) => result.messages));
+            answered.set(accountId, results.flatMap((result) => result.errors));
           } catch (error) {
             if (stale()) return;
             answered.set(accountId, [{ accountId, message: errorText(error) }]);
@@ -193,6 +251,14 @@ export function useMailbox() {
     void refresh();
   }, [refresh]);
 
+  // Turning an extra folder on or off keeps the rows on screen and brings in (or drops) its mail.
+  const firstExtraKey = useRef(extraKey);
+  useEffect(() => {
+    if (firstExtraKey.current === extraKey) return;
+    firstExtraKey.current = extraKey;
+    void refresh();
+  }, [extraKey, refresh]);
+
   useEffect(() => api.mail.onChanged(() => void refresh(true)), [refresh]);
 
   const messagesRef = useRef(messages);
@@ -201,6 +267,20 @@ export function useMailbox() {
   const nextToken = useRef(0);
   /** Ids of messages whose archive / trash / spam / delete is pending: hidden from every list. */
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
+  /**
+   * Told how each action ended: an archive / trash / spam / delete once the server took it or
+   * it was undone, and any action the server refused. Lets another copy of the mail follow.
+   */
+  const settledListeners = useRef(new Set<SettledListener>());
+  const onSettled = useCallback((listener: SettledListener) => {
+    settledListeners.current.add(listener);
+    return () => {
+      settledListeners.current.delete(listener);
+    };
+  }, []);
+  const notifySettled = useCallback((outcome: ActionOutcome, action: MailAction, ids: string[]) => {
+    for (const listener of settledListeners.current) listener(outcome, action, ids);
+  }, []);
   const syncPendingIds = useCallback(() => {
     setPendingIds(new Set([...pending.current.values()].flatMap((entry) => entry.ids)));
   }, []);
@@ -216,17 +296,19 @@ export function useMailbox() {
       try {
         await api.mail.act(entry.action, entry.ids);
         setMessages((previous) =>
-          applyOptimistic(previous, entry.action, new Set(entry.ids), entry.folder),
+          applyToList(previous, entry.action, new Set(entry.ids), entry.folder),
         );
+        notifySettled("committed", entry.action, entry.ids);
       } catch (error) {
         toast.error(`Could not ${entry.action}: ${errorText(error)}`);
+        notifySettled("failed", entry.action, entry.ids);
         void refresh(true);
       } finally {
         pending.current.delete(token);
         syncPendingIds();
       }
     },
-    [refresh, syncPendingIds],
+    [notifySettled, refresh, syncPendingIds],
   );
 
   /** Takes back a pending action before it is sent: its rows reappear where they were. */
@@ -238,9 +320,10 @@ export function useMailbox() {
       toast.dismiss(entry.toastId);
       pending.current.delete(token);
       syncPendingIds();
+      notifySettled("undone", entry.action, entry.ids);
       return true;
     },
-    [syncPendingIds],
+    [notifySettled, syncPendingIds],
   );
 
   /** Undoes the latest archive / trash / spam / delete still inside its window (⌘Z). */
@@ -299,22 +382,31 @@ export function useMailbox() {
         return;
       }
 
-      setMessages((previous) => applyOptimistic(previous, action, new Set(ids), folder));
+      setMessages((previous) => applyToList(previous, action, new Set(ids), folder));
       try {
         await api.mail.act(action, ids);
       } catch (error) {
         toast.error(`Could not ${action}: ${errorText(error)}`);
+        notifySettled("failed", action, ids);
         void refresh(true);
       }
     },
-    [commit, folder, refresh, syncPendingIds, undoToken],
+    [commit, folder, notifySettled, refresh, syncPendingIds, undoToken],
   );
 
   const visibleMessages = useMemo(() => {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     const shown = pendingIds.size === 0 ? messages : messages.filter((m) => !pendingIds.has(m.id));
-    return words.length === 0 ? shown : shown.filter((m) => matchesQuery(m, words));
-  }, [messages, query, pendingIds]);
+    // The Inbox list holds only the folders checked; a message moved elsewhere stays out of sight.
+    // Duplicates go first so a message that is in the inbox is not shown again from Archive.
+    const inFolders =
+      folder === "inbox"
+        ? dropFolderDuplicates(shown).filter(
+            (m) => !SHOWN_FOLDERS.includes(m.folder as ShownFolder) || shownKey.split(",").includes(m.folder),
+          )
+        : shown;
+    return words.length === 0 ? inFolders : inFolders.filter((m) => matchesQuery(m, words));
+  }, [messages, query, pendingIds, folder, shownKey]);
 
   const threads: Thread[] = useMemo(() => groupThreads(visibleMessages), [visibleMessages]);
 
@@ -335,6 +427,9 @@ export function useMailbox() {
     refresh,
     act,
     undo,
+    /** Ids hidden while their archive / trash / spam / delete waits out its Undo window. */
+    pendingIds,
+    onSettled,
   };
 }
 

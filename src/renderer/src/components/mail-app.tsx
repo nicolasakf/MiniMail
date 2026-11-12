@@ -7,32 +7,46 @@ import {
   buildFlatList,
   buildFocusedList,
   groupDefs,
+  PINNED_SECTION,
   threadsInGroup,
   type GroupKind,
   type ListItem,
 } from "@shared/focus-list";
+import { dropFolderDuplicates, matchesDrill, receivedMail, type DashboardRange } from "@shared/dashboard";
 import { buildSenders, threadsFromDomain, threadsFromSender } from "@shared/sender-list";
-import type { Thread } from "@shared/threads";
-import type { MailAction, MailFolder } from "@shared/types";
+import { conversationFolder, groupThreads, type Thread } from "@shared/threads";
+import type { MailAction, MailFolder, ShownFolder, UiPrefs } from "@shared/types";
 
 import { Composer } from "@/components/mail/composer";
 import { AccountsDialog } from "@/components/mail/accounts-dialog";
 import { CategoriesDialog } from "@/components/mail/categories-dialog";
+import {
+  Dashboard,
+  DashboardDrillHeader,
+  type DashboardSelection,
+  type DrillFolder,
+} from "@/components/mail/dashboard";
 import { FocusedList } from "@/components/mail/focused-list";
+import { LocalDrafts } from "@/components/mail/local-drafts";
 import { ItemMenu, type MenuEntry } from "@/components/mail/item-menu";
-import { GroupHeader, ListHeader, type MailView } from "@/components/mail/list-header";
+import { GroupHeader, ListHeader, VIEWS, type MailView } from "@/components/mail/list-header";
 import { Rail } from "@/components/mail/rail";
 import { SenderHeading, SenderPanel } from "@/components/mail/sender-panel";
 import { EmptyList, ErrorBanner, ListSkeleton, NoAccounts } from "@/components/mail/states";
 import { ThreadView } from "@/components/mail/thread-view";
 import { Button } from "@/components/ui/button";
 import { useCategories } from "@/hooks/use-categories";
+import { useDashboardMail } from "@/hooks/use-dashboard-mail";
 import { useMailbox } from "@/hooks/use-mailbox";
 import { api } from "@/lib/api";
 import { newMessageSeed, type ComposeSeed } from "@/lib/compose";
+import { refreshContacts } from "@/lib/contact-cache";
+import { seedFromDraft, useDrafts } from "@/lib/drafts";
 import { FOLDER_TITLES } from "@/lib/format";
 import { isTypingTarget } from "@/lib/keyboard";
 import { actionsForThread } from "@/lib/row-actions";
+
+const NO_CHECKED: ReadonlySet<string> = new Set();
 
 /** Actions that take a conversation out of the current view. */
 function removesFromView(action: MailAction, folder: MailFolder): boolean {
@@ -44,6 +58,31 @@ function removesFromView(action: MailAction, folder: MailFolder): boolean {
     action === "deleteForever" ||
     (action === "unpin" && folder === "pinned")
   );
+}
+
+/** Actions that move a conversation to another folder. */
+const MOVE_ACTIONS: ReadonlySet<MailAction> = new Set(["archive", "unarchive", "trash", "spam", "deleteForever"]);
+
+/**
+ * The messages of a conversation in a mixed list an action applies to: a move takes the messages
+ * in the folder the conversation is shown in (see `conversationFolder`); flags take them all.
+ */
+function idsForAction(action: MailAction, thread: Thread): string[] {
+  const from = conversationFolder(thread);
+  return thread.messages
+    .filter((message) => !MOVE_ACTIONS.has(action) || message.folder === from)
+    .map((message) => message.id);
+}
+
+const PINNED_COLLAPSED_KEY = "minimail.pinnedCollapsed";
+
+/** Whether the user folded the Pinned heading last time; storage may be unavailable, so never throw. */
+function readPinnedCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(PINNED_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 /** How long a first press of a destructive shortcut waits for its confirming second press. */
@@ -77,6 +116,27 @@ interface ComposeState {
  * conversation view and dialogs.
  */
 export function MailApp() {
+  /** The folders whose mail the Inbox list shows: only the inbox until others are checked. */
+  const [shownFolders, setShownFolders] = useState<readonly ShownFolder[]>(["inbox"]);
+  /** Choices the user has made since launch; the saved ones arriving late must not override them. */
+  const touchedPrefs = useRef(new Set<keyof UiPrefs>());
+  /** Remembers a choice on disk so the app reopens the same way. */
+  const savePrefs = useCallback((patch: Partial<UiPrefs>) => {
+    for (const key of Object.keys(patch)) touchedPrefs.current.add(key as keyof UiPrefs);
+    api.prefs.set(patch).catch(() => undefined); // Only the memory of the choice is lost.
+  }, []);
+  const shownFoldersRef = useRef(shownFolders);
+  shownFoldersRef.current = shownFolders;
+  const toggleShownFolder = useCallback(
+    (name: ShownFolder) => {
+      const current = shownFoldersRef.current;
+      const next = current.includes(name) ? current.filter((entry) => entry !== name) : [...current, name];
+      shownFoldersRef.current = next;
+      setShownFolders(next);
+      savePrefs({ shownFolders: [...next] });
+    },
+    [savePrefs],
+  );
   const {
     accounts,
     accountsLoaded,
@@ -85,7 +145,7 @@ export function MailApp() {
     setScope,
     folder,
     setFolder,
-    threads,
+    threads: allThreads,
     loading,
     errors,
     query,
@@ -93,10 +153,41 @@ export function MailApp() {
     refresh,
     act,
     undo,
-  } = useMailbox();
+    onSettled,
+  } = useMailbox(shownFolders);
+  /** The folder a conversation is in; in the Inbox list that can be Archive, Trash or Spam. */
+  const threadFolder = useCallback(
+    (thread: Thread): MailFolder => (folder === "inbox" ? conversationFolder(thread) : folder),
+    [folder],
+  );
 
   const { categories, ai, setState: setCategoryState } = useCategories();
+  /** The toolbar's unread filter: lists show only conversations with unread mail, in every view and folder. */
+  const [unreadOnly, setUnreadOnlyState] = useState(false);
+  const setUnreadOnly = useCallback(
+    (on: boolean) => {
+      setUnreadOnlyState(on);
+      savePrefs({ unreadOnly: on });
+    },
+    [savePrefs],
+  );
+  const threads = useMemo(
+    () => (unreadOnly ? allThreads.filter((thread) => thread.unread) : allThreads),
+    [allThreads, unreadOnly],
+  );
   const [view, setView] = useState<MailView>("category");
+  // Reopen with the view tab and list filters that were last chosen.
+  useEffect(() => {
+    api.prefs
+      .get()
+      .then((saved) => {
+        const touched = touchedPrefs.current;
+        if (!touched.has("view")) setView(saved.view);
+        if (!touched.has("unreadOnly")) setUnreadOnlyState(saved.unreadOnly);
+        if (!touched.has("shownFolders")) setShownFolders(saved.shownFolders);
+      })
+      .catch(() => undefined); // The defaults are fine if the saved choices cannot be read.
+  }, []);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
 
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
@@ -111,7 +202,124 @@ export function MailApp() {
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const [compose, setCompose] = useState<ComposeState | null>(null);
+  const savedDrafts = useDrafts();
   const [itemMenu, setItemMenu] = useState<ItemMenuState | null>(null);
+  // Learn who the user writes to as soon as accounts are known, so the composer can suggest at once.
+  useEffect(() => {
+    if (accountsLoaded && accounts.length > 0) void refreshContacts();
+  }, [accountsLoaded, accounts.length]);
+
+  // --- Dashboard: statistics over Inbox, Archive, Spam and Trash, and the mail behind them -------
+  const [screen, setScreen] = useState<"mail" | "dashboard">("mail");
+  const onDashboard = screen === "dashboard";
+  const [dashboardRange, setDashboardRange] = useState<DashboardRange>("30d");
+  /** What a Dashboard click picked; its mail is listed instead of the charts. */
+  const [drill, setDrill] = useState<DashboardSelection | null>(null);
+  const [drillThreadId, setDrillThreadId] = useState<string | null>(null);
+  const [drillSelectedKey, setDrillSelectedKey] = useState<string | null>(null);
+  const dashboardMail = useDashboardMail(accounts.length, onDashboard);
+  const { apply: applyToDashboard, reload: reloadDashboard } = dashboardMail;
+
+  // Dashboard actions change its copy at once. Once an action reaches the server, is undone or
+  // fails, the copy is reloaded so it matches the server again.
+  useEffect(
+    () =>
+      onSettled(() => {
+        if (onDashboard) void reloadDashboard(true);
+      }),
+    [onSettled, reloadDashboard, onDashboard],
+  );
+
+  const dashboardMessages = useMemo(() => dropFolderDuplicates(dashboardMail.messages), [dashboardMail.messages]);
+
+  const drillMatches = useMemo(() => {
+    if (!drill) return [];
+    const now = Date.now();
+    return receivedMail(dashboardMessages, accounts.map((account) => account.email)).filter((message) =>
+      matchesDrill(message, drill, now),
+    );
+  }, [drill, dashboardMessages, accounts]);
+
+  /** Whole conversations of the matching mail (the user's own replies included), newest first. */
+  const drillThreads = useMemo(() => {
+    const keys = new Set(drillMatches.map((message) => `${message.accountId}:${message.threadId}`));
+    return groupThreads(
+      dashboardMessages.filter((message) => keys.has(`${message.accountId}:${message.threadId}`)),
+    );
+  }, [drillMatches, dashboardMessages]);
+
+  /** The folder tab of a Dashboard list. */
+  const [drillFolder, setDrillFolder] = useState<DrillFolder>("all");
+
+  /** Matching messages per folder tab, and each conversation's folder (see `conversationFolder`). */
+  const drillByFolder = useMemo(() => {
+    const matchedIn = new Map<string, number>();
+    for (const message of drillMatches) {
+      const key = `${message.accountId}:${message.threadId}`;
+      matchedIn.set(key, (matchedIn.get(key) ?? 0) + 1);
+    }
+    const counts: Record<DrillFolder, number> = { all: 0, inbox: 0, archive: 0, trash: 0, spam: 0 };
+    const folderOf = new Map<string, MailFolder>();
+    for (const thread of drillThreads) {
+      const folder = conversationFolder(thread);
+      folderOf.set(thread.id, folder);
+      const matched = matchedIn.get(thread.id) ?? 0;
+      counts.all += matched;
+      if (folder in counts) counts[folder as DrillFolder] += matched;
+    }
+    return { counts, folderOf };
+  }, [drillMatches, drillThreads]);
+
+  const shownDrillThreads = useMemo(
+    () =>
+      drillFolder === "all"
+        ? drillThreads
+        : drillThreads.filter((thread) => drillByFolder.folderOf.get(thread.id) === drillFolder),
+    [drillFolder, drillThreads, drillByFolder],
+  );
+
+  const drillThread = useMemo(
+    () => (drillThreadId ? drillThreads.find((thread) => thread.id === drillThreadId) : undefined),
+    [drillThreadId, drillThreads],
+  );
+  useEffect(() => {
+    if (drillThreadId && !drillThread) setDrillThreadId(null);
+  }, [drillThreadId, drillThread]);
+
+  const openDashboard = useCallback(() => {
+    setScreen("dashboard");
+    setDrill(null);
+    setDrillThreadId(null);
+  }, []);
+
+  const navigateFolder = useCallback(
+    (next: MailFolder) => {
+      setScreen("mail");
+      setFolder(next);
+    },
+    [setFolder],
+  );
+
+  const openDrill = useCallback((selection: DashboardSelection) => {
+    setDrill(selection);
+    setDrillThreadId(null);
+    setDrillSelectedKey(null);
+    setDrillFolder("all");
+  }, []);
+
+  const actOnDashboardThread = useCallback(
+    (action: MailAction, thread: Thread) => {
+      const ids = idsForAction(action, thread);
+      if (ids.length === 0) return;
+      // A move keeps the row with its new folder (every folder it can go to is loaded);
+      // Undo puts it back through the reload above.
+      applyToDashboard(action, ids);
+      void act(action, ids);
+    },
+    [act, applyToDashboard],
+  );
+
+  const [pinnedCollapsed, setPinnedCollapsed] = useState(readPinnedCollapsed);
   const [accountsDialog, setAccountsDialog] = useState({ open: false, adding: false });
 
   // Section boundaries (Today / Yesterday) are recomputed whenever the data changes.
@@ -121,12 +329,14 @@ export function MailApp() {
   // Categories collapse into group rows on the Inbox only; other folders list by date.
   const focused = view === "category" && folder === "inbox";
 
+  // The group stays open while the unread filter hides all its mail (it then shows the empty state);
+  // it only closes once it has no mail at all.
   const openGroup = useMemo(() => {
     if (!focused || openGroupKind === null) return null;
     const def = groupDefs(categories).find((candidate) => candidate.kind === openGroupKind);
-    const members = threadsInGroup(threads, openGroupKind);
-    return def && members.length > 0 ? { def, threads: members } : null;
-  }, [focused, openGroupKind, categories, threads]);
+    if (!def || threadsInGroup(allThreads, openGroupKind).length === 0) return null;
+    return { def, threads: threadsInGroup(threads, openGroupKind) };
+  }, [focused, openGroupKind, categories, allThreads, threads]);
 
   const senders = useMemo(() => (view === "sender" ? buildSenders(threads) : []), [view, threads]);
   const activeSender =
@@ -147,14 +357,15 @@ export function MailApp() {
   const items: ListItem[] = useMemo(
     () =>
       focused && !openGroup
-        ? buildFocusedList(threads, { now, categories })
+        ? buildFocusedList(threads, { now, categories, pinnedCollapsed })
         : buildFlatList(listThreads, now),
-    [focused, openGroup, threads, listThreads, now, categories],
+    [focused, openGroup, threads, listThreads, now, categories, pinnedCollapsed],
   );
   const navigable = useMemo(() => items.filter((item) => item.type !== "section"), [items]);
   const openThread = useMemo(
-    () => (openThreadId ? threads.find((thread) => thread.id === openThreadId) : undefined),
-    [openThreadId, threads],
+    // Looked up unfiltered: reading a conversation must not make it vanish from under the reader.
+    () => (openThreadId ? allThreads.find((thread) => thread.id === openThreadId) : undefined),
+    [openThreadId, allThreads],
   );
 
   // Keep a valid keyboard selection as the list changes underneath it.
@@ -204,7 +415,7 @@ export function MailApp() {
       if (removesFromView(action, folder)) selectNeighbor(thread);
       void act(
         action,
-        thread.messages.map((message) => message.id),
+        folder === "inbox" ? idsForAction(action, thread) : thread.messages.map((message) => message.id),
       );
     },
     [act, folder, selectNeighbor],
@@ -234,6 +445,19 @@ export function MailApp() {
     [act, threads],
   );
 
+  const toggleSection = useCallback((key: string) => {
+    if (key !== PINNED_SECTION) return;
+    setPinnedCollapsed((previous) => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem(PINNED_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        // Storage is a convenience; the fold still works for this session.
+      }
+      return next;
+    });
+  }, []);
+
   const showGroup = useCallback((kind: GroupKind) => {
     setOpenGroupKind(kind);
     setChecked(new Set());
@@ -248,9 +472,10 @@ export function MailApp() {
 
   const changeView = useCallback((next: MailView) => {
     setView(next);
+    savePrefs({ view: next });
     setOpenGroupKind(null);
     setChecked(new Set());
-  }, []);
+  }, [savePrefs]);
 
   const pickSender = useCallback((key: string) => {
     setSenderKey(key);
@@ -335,7 +560,7 @@ export function MailApp() {
           run: () => setOpenThreadId(thread.id),
         });
       }
-      for (const { action, label, icon, hint } of actionsForThread(folder, thread)) {
+      for (const { action, label, icon, hint } of actionsForThread(threadFolder(thread), thread)) {
         entries.push({
           id: action,
           label,
@@ -382,7 +607,7 @@ export function MailApp() {
       ];
     }
     return [];
-  }, [itemMenu, navigable, openThread, folder, actOnThread, showGroup, toggleChecked, toggleGroupRead]);
+  }, [itemMenu, navigable, openThread, folder, threadFolder, actOnThread, showGroup, toggleChecked, toggleGroupRead]);
 
   // A menu whose item vanished (archived from elsewhere, list refreshed) has nothing left to show.
   useEffect(() => {
@@ -403,6 +628,21 @@ export function MailApp() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey) return;
       if (compose || accountsDialog.open || categoriesOpen) return;
+
+      // The Dashboard has no list shortcuts: Esc steps back out, ⌘Z still takes back the last action.
+      if (onDashboard) {
+        if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "z") {
+          if (!isTypingTarget(event.target) && undo()) event.preventDefault();
+          return;
+        }
+        if (event.key === "Escape" && !isTypingTarget(event.target)) {
+          if (drillThreadId) setDrillThreadId(null);
+          else if (drill) setDrill(null);
+          else return;
+          event.preventDefault();
+        }
+        return;
+      }
 
       // ⌘K / Ctrl+K searches; it works from a text field too, and plain K stays "up".
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "k") {
@@ -428,6 +668,7 @@ export function MailApp() {
       }
 
       const target = openThread ?? selectedThread;
+      const targetFolder = target ? threadFolder(target) : folder;
       const act_ = (action: MailAction) => {
         if (!target) return;
         actOnThread(action, target);
@@ -462,6 +703,15 @@ export function MailApp() {
             setSearchOpen(false);
           } else if (selectMode) setSelectMode(false);
           return;
+        case "Tab": {
+          // Cycles the Smart / Sender / List tabs (Shift+Tab goes back); only while their header shows.
+          if (openThread || openGroup || (accountsLoaded && accounts.length === 0)) return;
+          const at = VIEWS.findIndex((candidate) => candidate.view === view);
+          const step = event.shiftKey ? -1 : 1;
+          changeView(VIEWS[(at + step + VIEWS.length) % VIEWS.length].view);
+          setItemMenu(null);
+          break;
+        }
         case "ArrowDown":
         case "j":
           if (!openThread) moveSelection(1);
@@ -478,20 +728,20 @@ export function MailApp() {
           break;
         case "a":
           // In Archive, A is the way back to the inbox and needs no confirmation.
-          if (folder === "archive") act_("unarchive");
+          if (targetFolder === "archive") act_("unarchive");
           else confirmThenAct("archive", (key) => `Press ${key} again to archive`);
           break;
         case "t":
         case "Backspace":
         case "Delete":
-          if (folder === "trash" || folder === "spam") {
+          if (targetFolder === "trash" || targetFolder === "spam") {
             confirmThenAct("deleteForever", (key) => `Press ${key} again to delete forever`);
           } else {
             confirmThenAct("trash", (key) => `Press ${key} again to move to Trash`);
           }
           break;
         case "s":
-          if (folder === "inbox") confirmThenAct("spam", (key) => `Press ${key} again to report spam`);
+          if (targetFolder === "inbox") confirmThenAct("spam", (key) => `Press ${key} again to report spam`);
           break;
         case "p":
           if (target) act_(target.pinned ? "unpin" : "pin");
@@ -528,6 +778,10 @@ export function MailApp() {
     act,
     actOnThread,
     categoriesOpen,
+    changeView,
+    drill,
+    drillThreadId,
+    onDashboard,
     clearPendingConfirm,
     closeGroup,
     compose,
@@ -541,8 +795,12 @@ export function MailApp() {
     selectedItem,
     selectedThread,
     setQuery,
+    accountsLoaded,
+    accounts.length,
+    view,
     showGroup,
     startCompose,
+    threadFolder,
     toggleChecked,
     toggleGroupRead,
     undo,
@@ -553,19 +811,46 @@ export function MailApp() {
     if (!on) setChecked(new Set());
   };
 
+  const headerActions = {
+    unreadOnly,
+    onUnreadOnlyChange: setUnreadOnly,
+    // Only the Inbox list can show Archive, Trash and Spam mail.
+    shownFolders: folder === "inbox" ? shownFolders : null,
+    onToggleFolder: toggleShownFolder,
+    selectMode,
+    onSelectModeChange: changeSelectMode,
+    searchOpen,
+    onSearchOpenChange: setSearchOpen,
+    query,
+    onQueryChange: setQuery,
+    onCompose: () => startCompose(),
+  };
+
   const showNoAccounts = accountsLoaded && accounts.length === 0;
+  // Drafts written here are kept on this computer; the Drafts folder lists them above the server's.
+  const folderDrafts = useMemo(
+    () =>
+      folder === "drafts"
+        ? savedDrafts.filter((draft) => scope === "all" || draft.accountId === scope)
+        : [],
+    [folder, savedDrafts, scope],
+  );
 
   return (
     <div className="flex h-full w-full bg-background text-foreground">
       <Rail
         folder={folder}
+        dashboard={onDashboard}
+        onOpenDashboard={openDashboard}
         accounts={accounts}
-        onNavigate={setFolder}
+        onNavigate={navigateFolder}
         onOpenAccounts={() => openAccounts(false)}
         onAddAccount={() => openAccounts(true)}
+        onManageCategories={() => setCategoriesOpen(true)}
+        aiOff={ai !== null && !ai.configured}
       />
 
-      {view === "sender" && !showNoAccounts && (
+      {view === "sender" && !showNoAccounts && !onDashboard && (
         <SenderPanel
           senders={senders}
           threads={threads}
@@ -573,16 +858,77 @@ export function MailApp() {
           selectedDomain={activeDomain}
           onSelect={pickSender}
           onSelectDomain={pickDomain}
-          loading={loading && threads.length === 0}
+          loading={loading && allThreads.length === 0}
         />
       )}
 
       <main className="relative flex min-w-0 flex-1 flex-col">
-        {openThread ? (
+        {onDashboard && showNoAccounts ? (
+          <NoAccounts demo={api.system.demo} onAdd={() => openAccounts(true)} />
+        ) : onDashboard && drillThread ? (
+          <ThreadView
+            key={drillThread.id}
+            thread={drillThread}
+            folder={conversationFolder(drillThread)}
+            accounts={accounts}
+            onBack={() => setDrillThreadId(null)}
+            onAction={(action) => {
+              actOnDashboardThread(action, drillThread);
+              if (MOVE_ACTIONS.has(action)) setDrillThreadId(null);
+            }}
+            onCompose={startCompose}
+            shortcutsDisabled={compose !== null || accountsDialog.open || categoriesOpen}
+          />
+        ) : onDashboard && drill ? (
+          <>
+            <DashboardDrillHeader
+              selection={drill}
+              count={drillByFolder.counts[drillFolder]}
+              onBack={() => setDrill(null)}
+              folder={drillFolder}
+              onFolderChange={setDrillFolder}
+              folderCounts={drillByFolder.counts}
+            />
+            {shownDrillThreads.length === 0 ? (
+              <EmptyList folder={drillFolder === "all" ? "inbox" : drillFolder} query="" />
+            ) : (
+              <FocusedList
+                items={buildFlatList(shownDrillThreads, new Date())}
+                folder="inbox"
+                showFolder
+                accounts={accounts}
+                selectedKey={drillSelectedKey}
+                selectMode={false}
+                checked={NO_CHECKED}
+                onSelect={setDrillSelectedKey}
+                onOpenThread={(thread) => setDrillThreadId(thread.id)}
+                onOpenGroup={() => undefined}
+                onOpenThreadById={setDrillThreadId}
+                onToggleGroupRead={() => undefined}
+                onToggleChecked={() => undefined}
+                onThreadAction={actOnDashboardThread}
+                onItemMenu={(key) => setDrillSelectedKey(key)}
+                onToggleSection={() => undefined}
+              />
+            )}
+          </>
+        ) : onDashboard ? (
+          <Dashboard
+            messages={dashboardMessages}
+            accounts={accounts}
+            categories={categories}
+            loading={dashboardMail.loading}
+            errors={dashboardMail.errors}
+            range={dashboardRange}
+            onRangeChange={setDashboardRange}
+            onOpen={openDrill}
+            onRefresh={() => void reloadDashboard(false)}
+          />
+        ) : openThread ? (
           <ThreadView
             key={openThread.id}
             thread={openThread}
-            folder={folder}
+            folder={threadFolder(openThread)}
             accounts={accounts}
             onBack={() => setOpenThreadId(null)}
             onAction={(action) => {
@@ -599,9 +945,7 @@ export function MailApp() {
                 group={openGroup.def}
                 count={openGroup.threads.length}
                 onBack={closeGroup}
-                selectMode={selectMode}
-                onSelectModeChange={changeSelectMode}
-                onCompose={() => startCompose()}
+                {...headerActions}
               />
             ) : (
               <ListHeader
@@ -612,15 +956,7 @@ export function MailApp() {
                 scope={scope}
                 onScopeChange={setScope}
                 onManageAccounts={() => openAccounts(false)}
-                selectMode={selectMode}
-                onSelectModeChange={changeSelectMode}
-                searchOpen={searchOpen}
-                onSearchOpenChange={setSearchOpen}
-                query={query}
-                onQueryChange={setQuery}
-                ai={ai}
-                onManageCategories={() => setCategoriesOpen(true)}
-                onCompose={() => startCompose()}
+                {...headerActions}
               />
             )}
 
@@ -633,12 +969,18 @@ export function MailApp() {
 
             {showNoAccounts ? (
               <NoAccounts demo={api.system.demo} onAdd={() => openAccounts(true)} />
-            ) : loading && threads.length === 0 ? (
+            ) : loading && allThreads.length === 0 ? (
               <ListSkeleton />
-            ) : listThreads.length === 0 ? (
-              <EmptyList folder={folder} query={query} />
+            ) : listThreads.length === 0 && folderDrafts.length === 0 ? (
+              <EmptyList folder={folder} query={query} unreadOnly={unreadOnly} />
             ) : (
               <>
+                {folderDrafts.length > 0 && (
+                  <LocalDrafts
+                    drafts={folderDrafts}
+                    onOpen={(draft) => startCompose(seedFromDraft(draft))}
+                  />
+                )}
                 {activeDomain ? (
                   <SenderHeading domain={activeDomain} count={listThreads.length} />
                 ) : (
@@ -654,10 +996,12 @@ export function MailApp() {
                   onSelect={setSelectedKey}
                   onOpenThread={(thread) => setOpenThreadId(thread.id)}
                   onOpenGroup={showGroup}
+                  onOpenThreadById={setOpenThreadId}
                   onToggleGroupRead={toggleGroupRead}
                   onToggleChecked={toggleChecked}
                   onThreadAction={actOnThread}
                   onItemMenu={openItemMenu}
+                  onToggleSection={toggleSection}
                 />
               </>
             )}

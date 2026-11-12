@@ -56,7 +56,7 @@ function SenderRow({
         ROW,
         "h-12",
         nested && "pl-7",
-        selected ? "bg-sidebar-primary/25" : "hover:bg-accent/50",
+        selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
       )}
       onClick={() => onSelect(sender.key)}
     >
@@ -97,7 +97,11 @@ function DomainRow({
       <button
         type="button"
         aria-expanded={open}
-        className={cn(ROW, "h-11 pr-10", selected ? "bg-sidebar-primary/25" : "hover:bg-accent/50")}
+        className={cn(
+          ROW,
+          "h-11 pr-10",
+          selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
+        )}
         onClick={() => onToggle(group.domain)}
       >
         <ChevronRight
@@ -230,7 +234,7 @@ export function SenderPanel({
               className={cn(
                 "corner-squircle electron-no-drag flex size-9 items-center justify-center rounded-lg transition-colors",
                 byDomain
-                  ? "bg-sidebar-primary/25 text-foreground"
+                  ? "bg-muted text-foreground hover:bg-accent"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
             >

@@ -1,8 +1,8 @@
-import type { Account, Contact, Draft, MessageDetail } from "@shared/types";
+import type { Account, ComposeMode, Contact, Draft, MessageDetail } from "@shared/types";
 
 import { contactLabel, formatFullDate } from "./format";
 
-export type ComposeMode = "new" | "reply" | "replyAll" | "forward";
+export type { ComposeMode };
 
 /** What the composer opens with; every field stays editable by the user. */
 export interface ComposeSeed {
@@ -10,9 +10,24 @@ export interface ComposeSeed {
   accountId: string;
   to: Contact[];
   cc: Contact[];
+  bcc?: Contact[];
+  /** Text left in a recipient box that is not an address yet (restored drafts only). */
+  pendingText?: { to: string; cc: string; bcc: string };
+  /** Set when the composer reopens a saved draft: saving again replaces it, sending removes it. */
+  draftId?: string;
   subject: string;
+  /** What the user types; empty for a reply, whose quoted original lives in `quoted`. */
   body: string;
+  /** The quoted original of a reply, kept apart so it can stay collapsed under the reply. */
+  quoted?: string;
   inReplyTo?: Draft["inReplyTo"];
+}
+
+/** The text that is sent: what the user wrote, then the quoted original if there is one. */
+export function composeText(body: string, quoted: string | undefined): string {
+  const written = body.trimEnd();
+  if (!quoted?.trim()) return body;
+  return written ? `${written}\n\n${quoted}` : `\n\n${quoted}`;
 }
 
 /** Plain-text rendition of a message, used for quoting. */
@@ -107,7 +122,8 @@ export function buildReplySeed(
     to: to.length > 0 ? to : message.to,
     cc,
     subject: withPrefix(message.subject, "Re:"),
-    body: `\n\n${attribution}\n${quote(original)}`,
+    body: "",
+    quoted: `${attribution}\n${quote(original)}`,
     inReplyTo,
   };
 }

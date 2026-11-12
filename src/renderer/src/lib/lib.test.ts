@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Account, MessageDetail, MessageSummary } from "@shared/types";
 
-import { buildReplySeed, formatRecipients, parseRecipients } from "./compose";
+import { buildReplySeed, composeText, formatRecipients, parseRecipients } from "./compose";
 import { formatListTime, initialsOf, normalizeSubject, senderHue } from "./format";
 import { applyOptimistic } from "./optimistic";
 
@@ -95,7 +95,9 @@ describe("buildReplySeed", () => {
     const seed = buildReplySeed(message, "reply", accounts);
     expect(seed.to).toEqual([{ name: "Sam", email: "sam@x.com" }]);
     expect(seed.subject).toBe("Re: Plans");
-    expect(seed.body).toContain("> Line one\n> Line two");
+    expect(seed.body).toBe("");
+    expect(seed.quoted).toContain("> Line one\n> Line two");
+    expect(composeText(seed.body, seed.quoted)).toMatch(/^\n\nOn .* wrote:\n> Line one/);
     expect(seed.inReplyTo).toMatchObject({ messageId: "<m1@x.com>", mode: "reply" });
   });
 

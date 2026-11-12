@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MAIL_WINDOW } from "@shared/mail-window";
 import type { MessageSummary } from "@shared/types";
 
 import type { Cipher } from "./category-store";
@@ -129,8 +130,9 @@ describe("MailCache", () => {
 
   it("caps how many rows one folder keeps", () => {
     const cache = new MailCache(file, fakeCipher());
-    const many = Array.from({ length: 450 }, (_, index) => row(String(index + 1)));
+    const many = Array.from({ length: MAIL_WINDOW + 250 }, (_, index) => row(String(index + 1)));
     cache.forAccount("acc1").save("inbox", { uidValidity: "1", messages: many });
-    expect(cache.forAccount("acc1").load("inbox")?.messages).toHaveLength(200);
+    // The whole list window fits, with some headroom.
+    expect(cache.forAccount("acc1").load("inbox")?.messages).toHaveLength(MAIL_WINDOW + 100);
   });
 });

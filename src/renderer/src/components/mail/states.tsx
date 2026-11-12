@@ -44,12 +44,29 @@ export function ListSkeleton() {
 }
 
 /** Shown when a folder, or a search, has nothing to list. */
-export function EmptyList({ folder, query }: { folder: MailFolder; query: string }) {
+export function EmptyList({
+  folder,
+  query,
+  unreadOnly = false,
+}: {
+  folder: MailFolder;
+  query: string;
+  unreadOnly?: boolean;
+}) {
   if (query) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
         <Search className="size-8 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">No mail matches “{query}”.</p>
+      </div>
+    );
+  }
+  if (unreadOnly) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+        <CircleCheck className="size-10 text-muted-foreground" />
+        <p className="text-sm font-medium">No unread mail</p>
+        <p className="text-xs text-muted-foreground">Turn off the unread filter to see everything.</p>
       </div>
     );
   }
