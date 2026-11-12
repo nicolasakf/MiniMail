@@ -1,6 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title description">
 <title id="title">MiniMail Fold app icon</title><desc id="description">An envelope folded into an M.</desc>
-<g transform="translate(0 0) scale(1)"><rect x="0" y="0" width="128" height="128" rx="28" fill="#2854EB"/><path fill="#ADC3FF" d="M25 42 64 64 103 42v39c0 7-5 12-12 12H37c-7 0-12-5-12-12Z"/>
+<rect x="12" y="12" width="104" height="104" rx="23" fill="#2854EB"/>
+<path fill="#ADC3FF" d="M25 42 64 64 103 42v39c0 7-5 12-12 12H37c-7 0-12-5-12-12Z"/>
 <path fill="#D5E1FF" d="M25 78 64 58l39 20v3c0 7-5 12-12 12H37c-7 0-12-5-12-12Z"/>
-<path fill="#FFFFFF" d="M25 41a5 5 0 0 1 8-4l31 19 31-19a5 5 0 0 1 8 4v15L67 78a6 6 0 0 1-6 0L25 56Z"/></g>
+<path fill="#FFFFFF" d="M25 41a5 5 0 0 1 8-4l31 19 31-19a5 5 0 0 1 8 4v15L67 78a6 6 0 0 1-6 0L25 56Z"/>
 </svg>
