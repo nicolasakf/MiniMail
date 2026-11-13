@@ -1,4 +1,4 @@
-import type { MailFolder, MessageSummary } from "./types";
+import type { MailAction, MailFolder, MessageSummary } from "./types";
 
 export interface Thread {
   /** Stable across refreshes: `${accountId}:${threadId}`. */
@@ -61,6 +61,14 @@ export function groupThreads(messages: readonly MessageSummary[]): Thread[] {
 /** The folders a conversation can be moved between, in the order menus list them. */
 export const MOVE_FOLDERS = ["inbox", "archive", "spam", "trash"] as const;
 export type MoveFolder = (typeof MOVE_FOLDERS)[number];
+
+/** The folder each move action puts a message in (the other actions do not move anything). */
+export const MOVE_DESTINATION: Partial<Record<MailAction, MailFolder>> = {
+  archive: "archive",
+  unarchive: "inbox",
+  spam: "spam",
+  trash: "trash",
+};
 
 /**
  * The one folder a conversation is in, for a list that mixes folders. Like Gmail: it is in

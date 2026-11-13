@@ -1,37 +1,12 @@
-import {
-  FileText,
-  Inbox,
-  LayoutDashboard,
-  Monitor,
-  Moon,
-  Send,
-  Settings2,
-  Sun,
-  UserPlus,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
-import { useTheme } from "next-themes";
+import { FileText, LayoutDashboard, LoaderCircle, Mail, Send, type LucideIcon } from "lucide-react";
 
-import { accountDetail, accountLabel } from "@shared/accounts";
 import type { Account, MailFolder } from "@shared/types";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useLogoSettings } from "@/hooks/use-logo-settings";
+import { useIsMac } from "@/hooks/use-platform";
 import { FOLDER_TITLES } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-import { AccountMark } from "./account-mark";
 
 interface RailButtonProps {
   icon: LucideIcon;
@@ -76,28 +51,26 @@ interface RailProps {
   onOpenDashboard: () => void;
   accounts: readonly Account[];
   onNavigate: (folder: MailFolder) => void;
-  onOpenAccounts: () => void;
-  onAddAccount: () => void;
-  /** The category editor opens from the menu. */
-  onManageCategories: () => void;
-  /** AI sorting is off (no key); flagged on the menu button and its item. */
+  /** The settings dialog opens from the button at the bottom. */
+  onOpenSettings: () => void;
+  /** AI sorting is off (no key); flagged on the settings button. */
   aiOff: boolean;
+  /** Conversations the AI is still sorting; a spinner above Settings shows while this is above 0. */
+  sorting?: number;
 }
 
-/** Slim left navigation: inbox, folder shortcuts, and the account/theme menu. */
+/** Slim left navigation: inbox, folder shortcuts, and the settings button. */
 export function Rail({
   folder,
   dashboard,
   onOpenDashboard,
   accounts,
   onNavigate,
-  onOpenAccounts,
-  onAddAccount,
-  onManageCategories,
+  onOpenSettings,
   aiOff,
+  sorting = 0,
 }: RailProps) {
-  const { theme, setTheme } = useTheme();
-  const { settings: logoSettings, update: updateLogoSettings } = useLogoSettings();
+  const isMac = useIsMac();
   const primary = accounts[0];
 
   return (
@@ -116,8 +89,8 @@ export function Rail({
           />
           <span aria-hidden className="my-1 h-px w-6 bg-sidebar-border" />
           <RailButton
-            icon={Inbox}
-            label="Inbox"
+            icon={Mail}
+            label={FOLDER_TITLES.inbox}
             active={!dashboard && folder === "inbox"}
             onClick={() => onNavigate("inbox")}
           />
@@ -132,13 +105,33 @@ export function Rail({
           ))}
         </div>
 
-        <div className="mt-auto">
-          {/* Non-modal: its items open dialogs, and a modal menu would leave the page unclickable afterwards. */}
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
+        <div className="mt-auto flex flex-col items-center gap-3">
+          {sorting > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  role="status"
+                  aria-label={`Sorting ${sorting} new ${sorting === 1 ? "email" : "emails"}`}
+                  className="electron-no-drag relative flex size-9 items-center justify-center rounded-full text-sidebar-foreground/70"
+                >
+                  <LoaderCircle className="size-5 animate-spin" />
+                  <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-sidebar-primary px-1 text-center text-[10px] font-semibold leading-4 text-sidebar-primary-foreground">
+                    {sorting > 99 ? "99+" : sorting}
+                  </span>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                Sorting {sorting} new {sorting === 1 ? "email" : "emails"} into your categories. They will appear
+                there when done.
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
               <button
                 type="button"
-                aria-label="Accounts and settings"
+                aria-label="Settings"
+                onClick={onOpenSettings}
                 className="electron-no-drag relative rounded-full outline-none ring-offset-sidebar focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <Avatar className="size-9">
@@ -163,89 +156,9 @@ export function Rail({
                   />
                 )}
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="right" align="end" className="w-64">
-              <DropdownMenuLabel>Accounts</DropdownMenuLabel>
-              {accounts.length === 0 && (
-                <div className="px-2 py-1.5 text-sm text-muted-foreground">No accounts yet</div>
-              )}
-              {accounts.map((account) => (
-                <div key={account.id} className="flex items-center gap-2.5 px-2 py-1.5 text-sm">
-                  <AccountMark account={account} size={20} />
-                  <span className="min-w-0 flex-1 truncate" title={accountDetail(account)}>
-                    {accountLabel(account)}
-                  </span>
-                </div>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onAddAccount}>
-                <UserPlus className="mr-2 size-4" />
-                Add account
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={onOpenAccounts}>
-                <Users className="mr-2 size-4" />
-                Manage accounts
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={onManageCategories}>
-                <Settings2 className="mr-2 size-4" />
-                <span className="flex flex-col">
-                  Manage categories…
-                  {aiOff && (
-                    <span className="text-xs font-normal text-muted-foreground">
-                      AI sorting is off: add a Vercel AI Gateway key
-                    </span>
-                  )}
-                </span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Logos</DropdownMenuLabel>
-              <DropdownMenuCheckboxItem
-                checked={logoSettings?.companyLogos ?? true}
-                disabled={!logoSettings}
-                onCheckedChange={(checked) =>
-                  void updateLogoSettings({ companyLogos: checked === true })
-                }
-                onSelect={(event) => event.preventDefault()}
-              >
-                <span className="flex flex-col">
-                  Company logos
-                  <span className="text-xs font-normal text-muted-foreground">
-                    Fetched from each sender's own site
-                  </span>
-                </span>
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={logoSettings?.personPhotos ?? false}
-                disabled={!logoSettings}
-                onCheckedChange={(checked) =>
-                  void updateLogoSettings({ personPhotos: checked === true })
-                }
-                onSelect={(event) => event.preventDefault()}
-              >
-                <span className="flex flex-col">
-                  People's photos
-                  <span className="text-xs font-normal text-muted-foreground">
-                    Looked up on Gravatar; shares a hash of each sender's address
-                  </span>
-                </span>
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Appearance</DropdownMenuLabel>
-              <DropdownMenuItem onSelect={() => setTheme("light")}>
-                <Sun className="mr-2 size-4" />
-                Light{theme === "light" ? " ✓" : ""}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setTheme("dark")}>
-                <Moon className="mr-2 size-4" />
-                Dark{theme === "dark" ? " ✓" : ""}
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setTheme("system")}>
-                <Monitor className="mr-2 size-4" />
-                System{theme === "system" ? " ✓" : ""}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            </TooltipTrigger>
+            <TooltipContent side="right">Settings ({isMac ? "⌘," : "Ctrl+,"})</TooltipContent>
+          </Tooltip>
         </div>
       </nav>
     </div>

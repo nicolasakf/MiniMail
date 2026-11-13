@@ -104,7 +104,7 @@ export function accountFor(accounts: readonly Account[], accountId: string): Acc
 }
 
 export const FOLDER_TITLES: Record<MailFolder, string> = {
-  inbox: "Inbox",
+  inbox: "All Mail",
   pinned: "Pinned",
   drafts: "Drafts",
   sent: "Sent",

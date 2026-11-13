@@ -1,4 +1,6 @@
-import { CircleCheck, Inbox, Mail, Search, TriangleAlert } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { CircleCheck, Inbox, Mail, Search } from "lucide-react";
+import { toast } from "sonner";
 
 import { accountLabel } from "@shared/accounts";
 import type { Account, AccountError, MailFolder } from "@shared/types";
@@ -49,7 +51,8 @@ export function EmptyList({
   query,
   unreadOnly = false,
 }: {
-  folder: MailFolder;
+  /** Null for a list that is not a folder (the mail behind a Dashboard click). */
+  folder: MailFolder | null;
   query: string;
   unreadOnly?: boolean;
 }) {
@@ -70,6 +73,14 @@ export function EmptyList({
       </div>
     );
   }
+  if (folder === null) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+        <Inbox className="size-10 text-muted-foreground" />
+        <p className="text-sm font-medium">No mail left here</p>
+      </div>
+    );
+  }
   const Icon = folder === "inbox" ? CircleCheck : Inbox;
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
@@ -84,8 +95,12 @@ export function EmptyList({
   );
 }
 
-/** Lists accounts that failed to load, so one broken account never hides the others. */
-export function ErrorBanner({
+/**
+ * Shows each account that failed to load as a persistent error toast, so one broken account
+ * never hides the others and the list is not pushed down by a banner. A toast stays until the
+ * account loads again or it is dismissed, and is not re-shown for the same unchanged error.
+ */
+export function AccountErrorToasts({
   errors,
   accounts,
   onRetry,
@@ -96,30 +111,38 @@ export function ErrorBanner({
   onRetry: () => void;
   onManage: () => void;
 }) {
-  if (errors.length === 0) return null;
-  return (
-    <div
-      role="alert"
-      className="corner-squircle mx-6 mb-2 flex items-start gap-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm"
-    >
-      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-red-300" />
-      <ul className="min-w-0 flex-1 space-y-1">
-        {errors.map((error, index) => {
-          const account = accounts.find((candidate) => candidate.id === error.accountId);
-          return (
-            <li key={`${error.accountId}-${index}`} className="break-words text-red-200">
-              {account ? <strong className="font-semibold">{accountLabel(account)}: </strong> : null}
-              {error.message}
-            </li>
-          );
-        })}
-      </ul>
-      <Button size="sm" variant="outline" className="h-7" onClick={onRetry}>
-        Retry
-      </Button>
-      <Button size="sm" variant="ghost" className="h-7" onClick={onManage}>
-        Accounts
-      </Button>
-    </div>
-  );
+  // The latest callbacks, so a toast raised earlier never calls a stale closure.
+  const actions = useRef({ onRetry, onManage });
+  actions.current = { onRetry, onManage };
+  // What each account's toast last said; a dismissed toast stays dismissed until that changes.
+  const shown = useRef(new Map<string, string>());
+
+  useEffect(() => {
+    // Several lists can fail at once with the same error; say each distinct message once.
+    const messages = new Map<string, Set<string>>();
+    for (const error of errors) {
+      messages.set(error.accountId, (messages.get(error.accountId) ?? new Set()).add(error.message));
+    }
+    const current = new Map([...messages].map(([accountId, set]) => [accountId, [...set].join("\n")]));
+    for (const [accountId, message] of current) {
+      if (shown.current.get(accountId) === message) continue;
+      shown.current.set(accountId, message);
+      const account = accounts.find((candidate) => candidate.id === accountId);
+      toast.error("Couldn't load mail", {
+        id: `account-error-${accountId}`,
+        description: account ? `${accountLabel(account)}: ${message}` : message,
+        duration: Infinity,
+        action: { label: "Retry", onClick: () => actions.current.onRetry() },
+        cancel: { label: "Accounts", onClick: () => actions.current.onManage() },
+      });
+    }
+    // Accounts that recovered: close their toast and forget it so a new failure shows again.
+    for (const accountId of [...shown.current.keys()]) {
+      if (current.has(accountId)) continue;
+      shown.current.delete(accountId);
+      toast.dismiss(`account-error-${accountId}`);
+    }
+  }, [errors, accounts]);
+
+  return null;
 }

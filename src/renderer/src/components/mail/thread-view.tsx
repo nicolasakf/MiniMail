@@ -1,30 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import {
-  ArrowLeft,
-  Forward,
-  Loader2,
-  Paperclip,
-  Reply,
-  ReplyAll,
-} from "lucide-react";
+import { ArrowLeft, Forward, Loader2, Paperclip, Reply, ReplyAll } from "lucide-react";
+import { toast } from "sonner";
 
 import { accountLabel } from "@shared/accounts";
 import { logoRequestFor } from "@shared/logos";
 import type { Thread } from "@shared/threads";
-import type { Account, MailAction, MailFolder, MessageDetail } from "@shared/types";
+import type { Account, InvitationResponse, MailAction, MailFolder, MessageDetail } from "@shared/types";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmPopover } from "@/components/ui/confirm-popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
+import { collectArtifacts, withAnswer, type ThreadAttachment, type ThreadInvitation } from "@/lib/artifacts";
 import { buildReplySeed, type ComposeSeed } from "@/lib/compose";
 import { accountFor, contactLabel, formatFullDate, normalizeSubject } from "@/lib/format";
 import { isTypingTarget } from "@/lib/keyboard";
 import { actionsForThread } from "@/lib/row-actions";
+import { DELETE_FOREVER_CONFIRM } from "@/lib/delete-confirm";
 import { withTimeout } from "@/lib/timeout";
 import { cn } from "@/lib/utils";
 
 import { MessageBody } from "./message-body";
+import { FolderBadge } from "./folder-badge";
+import { ThreadCard } from "./thread-card";
 import { SenderAvatar } from "./sender-avatar";
 
 interface ThreadViewProps {
@@ -42,25 +42,37 @@ function ToolbarButton({
   label,
   hint,
   onClick,
+  confirm,
   children,
 }: {
   label: string;
   hint?: string;
   onClick: () => void;
+  /** Asks first: the button opens this card, and `onClick` runs only when it is confirmed. */
+  confirm?: { title: string; description: string; confirmLabel: string };
   children: React.ReactNode;
 }) {
+  const trigger = (
+    <TooltipTrigger asChild>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={confirm ? undefined : onClick}
+        className="corner-squircle electron-no-drag flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        {children}
+      </button>
+    </TooltipTrigger>
+  );
   return (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          onClick={onClick}
-          className="corner-squircle electron-no-drag flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          {children}
-        </button>
-      </TooltipTrigger>
+      {confirm ? (
+        <ConfirmPopover {...confirm} onConfirm={onClick} side="bottom" align="start">
+          {trigger}
+        </ConfirmPopover>
+      ) : (
+        trigger
+      )}
       <TooltipContent side="bottom">
         {label}
         {hint ? <span className="ml-2 text-muted-foreground">{hint}</span> : null}
@@ -74,8 +86,8 @@ const SLOW_AFTER_MS = 5_000;
 /** After this long the view stops waiting and offers a retry (the download carries on behind it). */
 const GIVE_UP_AFTER_MS = 60_000;
 
-/** What is already known about a conversation while its full text is still downloading. */
-function KnownMessages({ thread, slow }: { thread: Thread; slow: boolean }) {
+/** One placeholder card per message while the full conversation downloads. */
+function MessageSkeletons({ thread, slow }: { thread: Thread; slow: boolean }) {
   return (
     <div className="space-y-3" aria-busy="true">
       {thread.messages.map((message, index) => {
@@ -89,39 +101,36 @@ function KnownMessages({ thread, slow }: { thread: Thread; slow: boolean }) {
             )}
           >
             <div className="flex items-center gap-3">
-              <SenderAvatar contact={message.from} size={36} logo={logoRequestFor(message)} />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-baseline gap-2">
-                  <span className="truncate font-semibold">{contactLabel(message.from)}</span>
-                  <span className="truncate text-xs text-muted-foreground">{message.from.email}</span>
-                </div>
-                <div className="truncate text-xs text-muted-foreground">
-                  {formatFullDate(message.date)}
-                </div>
+              <Skeleton className="size-9 shrink-0 rounded-full" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-3.5 w-[clamp(120px,30%,260px)]" />
+                <Skeleton className="h-3 w-[clamp(80px,18%,160px)]" />
               </div>
+              <Skeleton className="h-3 w-24 shrink-0" />
             </div>
-            {last && message.snippet && (
-              <p className="mt-3 line-clamp-6 whitespace-pre-wrap text-sm text-foreground/80">
-                {message.snippet}
-              </p>
+            {last && (
+              <div className="mt-4 space-y-2">
+                <Skeleton className="h-3.5 w-full" />
+                <Skeleton className="h-3.5 w-[92%]" />
+                <Skeleton className="h-3.5 w-[96%]" />
+                <Skeleton className="h-3.5 w-[60%]" />
+              </div>
             )}
           </article>
         );
       })}
-      <p className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
-        <Loader2 className="size-3.5 animate-spin" />
-        {slow
-          ? "The mail server is slow to respond. Still waiting for the full message…"
-          : "Loading the full message…"}
+      <p className="text-xs text-muted-foreground" role="status">
+        {slow ? (
+          <span className="flex items-center gap-2">
+            <Loader2 className="size-3.5 animate-spin" />
+            The mail server is slow to respond. Still waiting for the full message…
+          </span>
+        ) : (
+          <span className="sr-only">Loading the full message…</span>
+        )}
       </p>
     </div>
   );
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** Full conversation: toolbar, subject, and each message (older ones collapsed). */
@@ -217,6 +226,40 @@ export function ThreadView({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [accounts, latest, onCompose, shortcutsDisabled]);
 
+  // What the conversation holds, listed in the card beside it.
+  const artifacts = useMemo(() => (details ? collectArtifacts(details) : null), [details]);
+  const expecting = {
+    attachments: !error && thread.messages.some((message) => message.hasAttachments),
+    invitations: !error && thread.messages.some((message) => message.signal === "invitation"),
+  };
+  const cardShown = artifacts
+    ? artifacts.attachments.length > 0 || artifacts.invitations.length > 0
+    : expecting.attachments || expecting.invitations;
+
+  const openAttachment = async (attachment: ThreadAttachment) => {
+    try {
+      await api.mail.openAttachment(attachment.messageId, attachment.id);
+    } catch (failure) {
+      toast.error(`Couldn't open ${attachment.filename}`, { description: failure instanceof Error ? failure.message : String(failure) });
+    }
+  };
+  const saveAttachment = async (attachment: ThreadAttachment) => {
+    try {
+      await api.mail.saveAttachment(attachment.messageId, attachment.id);
+    } catch (failure) {
+      toast.error(`Couldn't save ${attachment.filename}`, { description: failure instanceof Error ? failure.message : String(failure) });
+    }
+  };
+  const respond = async (entry: ThreadInvitation, response: InvitationResponse) => {
+    try {
+      await api.mail.respondToInvitation(entry.messageId, response);
+      setDetails((previous) => previous && withAnswer(previous, entry.invitation.uid, response));
+      toast.success({ accepted: "You accepted the invitation", tentative: "You answered maybe", declined: "You declined the invitation" }[response]);
+    } catch (failure) {
+      toast.error("Couldn't send your answer", { description: failure instanceof Error ? failure.message : String(failure) });
+    }
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="electron-window-drag flex h-[88px] shrink-0 items-end justify-between px-6 pb-3 pt-10">
@@ -226,10 +269,17 @@ export function ThreadView({
           </ToolbarButton>
           <span className="mx-1 h-5 w-px bg-border" />
           {actions.map(({ action, label, icon: Icon, hint }) => (
-            <ToolbarButton key={action} label={label} hint={hint} onClick={() => onAction(action)}>
+            <ToolbarButton
+              key={action}
+              label={label}
+              hint={hint}
+              onClick={() => onAction(action)}
+              confirm={action === "deleteForever" ? DELETE_FOREVER_CONFIRM : undefined}
+            >
               <Icon className="size-[18px]" />
             </ToolbarButton>
           ))}
+          <FolderBadge folder={folder} />
         </div>
         <div className="flex items-center gap-1">
           <ToolbarButton label="Reply" hint="R" onClick={() => startCompose("reply")}>
@@ -245,96 +295,95 @@ export function ThreadView({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-16">
-        <div className="mx-auto max-w-3xl">
-          <h1 className="mb-1 text-2xl font-semibold leading-tight">
-            {normalizeSubject(thread.latest.subject)}
-          </h1>
-          <p className="mb-6 text-sm text-muted-foreground">
-            {thread.count} {thread.count === 1 ? "message" : "messages"}
-            {accounts.length > 1 && owner ? ` · ${accountLabel(owner)}` : ""}
-          </p>
+        <div className={cn("mx-auto flex items-start gap-8", cardShown ? "max-w-[68rem]" : "max-w-3xl")}>
+          <div className="min-w-0 flex-1">
+            <h1 className="mb-1 text-2xl font-semibold leading-tight">
+              {normalizeSubject(thread.latest.subject)}
+            </h1>
+            <p className="mb-6 text-sm text-muted-foreground">
+              {thread.count} {thread.count === 1 ? "message" : "messages"}
+              {accounts.length > 1 && owner ? ` · ${accountLabel(owner)}` : ""}
+            </p>
 
-          {error && (
-            <div className="flex items-center gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm">
-              <span className="min-w-0 flex-1">Could not load this conversation: {error}</span>
-              <Button size="sm" variant="outline" onClick={() => setAttempt((count) => count + 1)}>
-                Try again
-              </Button>
-            </div>
-          )}
+            {error && (
+              <div className="flex items-center gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm">
+                <span className="min-w-0 flex-1">Could not load this conversation: {error}</span>
+                <Button size="sm" variant="outline" onClick={() => setAttempt((count) => count + 1)}>
+                  Try again
+                </Button>
+              </div>
+            )}
 
-          {!details && !error && <KnownMessages thread={thread} slow={slow} />}
+            {!details && !error && <MessageSkeletons thread={thread} slow={slow} />}
 
-          <div className="space-y-3">
-            {details?.map((message) => {
-              const open = expanded.has(message.id);
-              return (
-                <article
-                  key={message.id}
-                  className={cn(
-                    "corner-squircle rounded-xl border border-border",
-                    open ? "bg-card" : "bg-card/40 hover:bg-card/70",
-                  )}
-                >
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 p-4 text-left"
-                    onClick={() =>
-                      setExpanded((previous) => {
-                        const next = new Set(previous);
-                        if (next.has(message.id)) next.delete(message.id);
-                        else next.add(message.id);
-                        return next;
-                      })
-                    }
-                  >
-                    <SenderAvatar contact={message.from} size={36} logo={logoRequestFor(message)} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2">
-                        <span className="truncate font-semibold">{contactLabel(message.from)}</span>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {message.from.email}
-                        </span>
-                      </div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {open
-                          ? `to ${message.to.map(contactLabel).join(", ") || "me"}${
-                              message.cc.length ? `, cc ${message.cc.map(contactLabel).join(", ")}` : ""
-                            }`
-                          : message.snippet}
-                      </div>
-                    </div>
-                    {message.attachments.length > 0 && (
-                      <Paperclip className="size-4 shrink-0 text-muted-foreground" />
+            <div className="space-y-3">
+              {details?.map((message) => {
+                const open = expanded.has(message.id);
+                return (
+                  <article
+                    key={message.id}
+                    className={cn(
+                      "corner-squircle rounded-xl border border-border",
+                      open ? "bg-card" : "bg-card/40 hover:bg-card/70",
                     )}
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {formatFullDate(message.date)}
-                    </span>
-                  </button>
-
-                  {open && (
-                    <div className="space-y-4 px-4 pb-4">
-                      <MessageBody message={message} />
-                      {message.attachments.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {message.attachments.map((attachment, index) => (
-                            <span
-                              key={`${attachment.filename}-${index}`}
-                              className="corner-squircle inline-flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-1.5 text-xs"
-                            >
-                              <Paperclip className="size-3.5 text-muted-foreground" />
-                              {attachment.filename}
-                              <span className="text-muted-foreground">{formatSize(attachment.size)}</span>
-                            </span>
-                          ))}
+                  >
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-3 p-4 text-left"
+                      onClick={() =>
+                        setExpanded((previous) => {
+                          const next = new Set(previous);
+                          if (next.has(message.id)) next.delete(message.id);
+                          else next.add(message.id);
+                          return next;
+                        })
+                      }
+                    >
+                      <SenderAvatar contact={message.from} size={36} logo={logoRequestFor(message)} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline gap-2">
+                          <span className="truncate font-semibold">{contactLabel(message.from)}</span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {message.from.email}
+                          </span>
                         </div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {open
+                            ? `to ${message.to.map(contactLabel).join(", ") || "me"}${
+                                message.cc.length ? `, cc ${message.cc.map(contactLabel).join(", ")}` : ""
+                              }`
+                            : message.snippet}
+                        </div>
+                      </div>
+                      {message.attachments.length > 0 && (
+                        <Paperclip className="size-4 shrink-0 text-muted-foreground" />
                       )}
-                    </div>
-                  )}
-                </article>
-              );
-            })}
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {formatFullDate(message.date)}
+                      </span>
+                    </button>
+
+                    {open && (
+                      <div className="space-y-4 px-4 pb-4">
+                        <MessageBody message={message} />
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
           </div>
+          {cardShown && (
+            <aside className="sticky top-0 w-72 shrink-0">
+              <ThreadCard
+                artifacts={artifacts}
+                expecting={expecting}
+                onOpenAttachment={openAttachment}
+                onSaveAttachment={saveAttachment}
+                onRespond={respond}
+              />
+            </aside>
+          )}
         </div>
       </div>
     </div>

@@ -1,8 +1,16 @@
 import { ImapFlow, type FetchMessageObject, type MessageStructureObject } from "imapflow";
 import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
-import nodemailer from "nodemailer";
+import nodemailer, { type SendMailOptions } from "nodemailer";
 
 import { classifyMessage } from "@shared/classify";
+import {
+  buildReplyIcs,
+  invitationFromIcs,
+  parseIcs,
+  replyRecipient,
+  replyWording,
+  type IcsEvent,
+} from "@shared/ics";
 import { firstHeader, isAuthenticated } from "@shared/logos";
 import { makeMessageId } from "@shared/ids";
 import { MAIL_WINDOW } from "@shared/mail-window";
@@ -10,6 +18,8 @@ import type {
   Account,
   Contact,
   Draft,
+  Invitation,
+  InvitationResponse,
   MailAction,
   MailFolder,
   MessageDetail,
@@ -18,7 +28,7 @@ import type {
 
 import { perfLog } from "../perf";
 import { nativeIdOf, patchSummaries, type SummaryStore } from "./summary-cache";
-import { describeError, makeSnippet, type MailAuth, type MailProvider } from "./types";
+import { describeError, makeSnippet, type AttachmentFile, type MailAuth, type MailProvider } from "./types";
 
 /** Bytes of each message fetched for the list view (enough for headers + a preview). */
 const PREVIEW_BYTES = 24 * 1024;
@@ -42,6 +52,26 @@ export function nextBatchSize(msPerMessage: number): number {
 const MAX_REMEMBERED = 60;
 /** Messages per header-only command when backfilling sender authentication. */
 const HEADER_BATCH = 50;
+
+/**
+ * The files a message lists as attachments, in the order `AttachmentInfo.id` counts them. Inline
+ * images are part of the body, and the calendar part is shown as an invitation instead.
+ */
+export function listedAttachments(parsed: ParsedMail): ParsedMail["attachments"] {
+  return parsed.attachments.filter(
+    (attachment) => !attachment.related && !/^text\/calendar/i.test(attachment.contentType),
+  );
+}
+
+/** The calendar event in a message, if it has a `text/calendar` part. */
+function calendarEventOf(parsed: ParsedMail): IcsEvent | null {
+  for (const attachment of parsed.attachments) {
+    if (!/^text\/calendar/i.test(attachment.contentType)) continue;
+    const event = parseIcs(attachment.content.toString("utf8"));
+    if (event) return event;
+  }
+  return null;
+}
 
 const byNewest = (rows: Iterable<MessageSummary>): MessageSummary[] =>
   [...rows].sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
@@ -650,13 +680,13 @@ export class ImapProvider implements MailProvider {
               references: normalizeReferences(parsed.references),
               html: parsed.html ? inlineCidImages(parsed.html, parsed) : null,
               text: parsed.text ?? null,
-              attachments: parsed.attachments
-                .filter((attachment) => !attachment.related)
-                .map((attachment) => ({
-                  filename: attachment.filename ?? "attachment",
-                  contentType: attachment.contentType,
-                  size: attachment.size,
-                })),
+              attachments: listedAttachments(parsed).map((attachment, index) => ({
+                id: String(index),
+                filename: attachment.filename ?? "attachment",
+                contentType: attachment.contentType,
+                size: attachment.size,
+              })),
+              invitation: this.invitationOf(parsed),
             };
             found.set(String(message.uid), detail);
             this.remember(folder, String(message.uid), detail);
@@ -668,6 +698,63 @@ export class ImapProvider implements MailProvider {
       });
     }
     return nativeIds.flatMap((nativeId) => found.get(nativeId) ?? []);
+  }
+
+  /** The invitation in a message; the user's answer is filled in later, from what they chose here. */
+  private invitationOf(parsed: ParsedMail): Invitation | null {
+    const event = calendarEventOf(parsed);
+    return event ? invitationFromIcs(event) : null;
+  }
+
+  /** Downloads and parses one message in full. */
+  private async fetchParsed(folder: MailFolder, nativeId: string): Promise<ParsedMail> {
+    const uid = Number(nativeId);
+    if (!Number.isInteger(uid)) throw new Error("This message is no longer available.");
+    let source: Buffer | undefined;
+    await this.connection.use(async (client) => {
+      const paths = await this.resolveFolders(client);
+      const path = paths[folder === "pinned" ? "inbox" : folder];
+      if (!path) return;
+      const lock = await client.getMailboxLock(path, { readOnly: true });
+      try {
+        const message = await client.fetchOne(String(uid), { source: true }, { uid: true });
+        if (message) source = message.source;
+      } finally {
+        lock.release();
+      }
+    });
+    if (!source) throw new Error("This message is no longer on the server.");
+    return simpleParser(source);
+  }
+
+  async attachment(folder: MailFolder, nativeId: string, attachmentId: string): Promise<AttachmentFile> {
+    const parsed = await this.fetchParsed(folder, nativeId);
+    const file = listedAttachments(parsed)[Number(attachmentId)];
+    if (!file) throw new Error("This attachment is no longer in the message.");
+    return { filename: file.filename ?? "attachment", contentType: file.contentType, data: file.content };
+  }
+
+  async respondToInvitation(folder: MailFolder, nativeId: string, response: InvitationResponse): Promise<void> {
+    const parsed = await this.fetchParsed(folder, nativeId);
+    const event = calendarEventOf(parsed);
+    if (!event) throw new Error("This message has no calendar invitation to answer.");
+    const sender = contactsFrom(parsed.from)[0] ?? { name: "", email: "" };
+    const recipient = replyRecipient(event, sender);
+    if (!recipient.email) throw new Error("The invitation does not say who to reply to.");
+    // The guest the user answers as: the account's address, or another address the invitation was sent to.
+    const own = [this.account.email, ...contactsFrom(parsed.to).map((contact) => contact.email)];
+    const name = this.account.displayName || this.account.email;
+    const invitation = invitationFromIcs(event);
+    const wording = replyWording(response, invitation?.title ?? parsed.subject ?? "Invitation", name);
+    await this.sendMail({
+      to: [{ name: recipient.name, address: recipient.email }],
+      subject: wording.subject,
+      text: wording.text,
+      icalEvent: {
+        method: "REPLY",
+        content: buildReplyIcs(event, response, own, name),
+      },
+    });
   }
 
   private remember(folder: MailFolder, nativeId: string, detail: MessageDetail): void {
@@ -767,7 +854,8 @@ export class ImapProvider implements MailProvider {
     }
   }
 
-  async send(draft: Draft): Promise<void> {
+  /** Sends one message over this account's SMTP server. */
+  private async sendMail(message: SendMailOptions): Promise<void> {
     const auth = await this.getAuth();
     const transport = nodemailer.createTransport({
       host: this.endpoints.smtpHost,
@@ -777,10 +865,18 @@ export class ImapProvider implements MailProvider {
         ? { type: "OAuth2", user: this.account.email, accessToken: auth.accessToken }
         : { user: this.account.email, pass: auth.pass },
     });
+    try {
+      await transport.sendMail({ from: { name: this.account.displayName, address: this.account.email }, ...message });
+    } catch (error) {
+      throw new Error(`Could not send: ${describeError(error)}`);
+    } finally {
+      transport.close();
+    }
+  }
 
+  async send(draft: Draft): Promise<void> {
     const toAddress = (contact: Contact) => ({ name: contact.name, address: contact.email });
     const mail = {
-      from: { name: this.account.displayName, address: this.account.email },
       to: draft.to.map(toAddress),
       cc: draft.cc.map(toAddress),
       bcc: draft.bcc.map(toAddress),
@@ -799,13 +895,7 @@ export class ImapProvider implements MailProvider {
         : {}),
     };
 
-    try {
-      await transport.sendMail(mail);
-    } catch (error) {
-      throw new Error(`Could not send: ${describeError(error)}`);
-    } finally {
-      transport.close();
-    }
+    await this.sendMail(mail);
 
     // Gmail and Zoho both file sent mail themselves (Zoho: Settings > Mail Accounts > SMTP >
     // "Save copy of sent emails", on by default), so nothing is appended to Sent here.

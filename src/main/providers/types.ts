@@ -1,4 +1,18 @@
-import type { Draft, MailAction, MailFolder, MessageDetail, MessageSummary } from "@shared/types";
+import type {
+  Draft,
+  InvitationResponse,
+  MailAction,
+  MailFolder,
+  MessageDetail,
+  MessageSummary,
+} from "@shared/types";
+
+/** A downloaded attachment. */
+export interface AttachmentFile {
+  filename: string;
+  contentType: string;
+  data: Buffer;
+}
 
 /** One mailbox on one provider. All ids passed in are provider-native (UID / Graph id). */
 export interface MailProvider {
@@ -10,6 +24,10 @@ export interface MailProvider {
   get(folder: MailFolder, nativeIds: string[]): Promise<MessageDetail[]>;
   act(action: MailAction, folder: MailFolder, nativeIds: string[]): Promise<void>;
   send(draft: Draft): Promise<void>;
+  /** Downloads one attachment of a message, named by the `id` in its `AttachmentInfo`. */
+  attachment(folder: MailFolder, nativeId: string, attachmentId: string): Promise<AttachmentFile>;
+  /** Answers the invitation in a message and tells the organizer. */
+  respondToInvitation(folder: MailFolder, nativeId: string, response: InvitationResponse): Promise<void>;
   /**
    * Starts listening for changes the server pushes (new, removed or re-flagged mail) and calls
    * `onChange` for each burst. Providers that cannot be pushed to omit it and are polled instead.

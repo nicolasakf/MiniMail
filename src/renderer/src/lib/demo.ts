@@ -1,5 +1,6 @@
 import { normalizeAlias } from "@shared/accounts";
 import { trustKey } from "@shared/trust";
+import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "@shared/notifications";
 import { DEFAULT_LOGO_SETTINGS, isFreemail, logoKey, type LogoRequest, type LogoSettings } from "@shared/logos";
 import type { AccountCapabilities, MiniMailApi } from "@shared/api";
 import { categoryProblems, defaultCategories, ruleBasedCategoryId } from "@shared/categories";
@@ -18,6 +19,8 @@ import type {
   CategoryState,
   Contact,
   Draft,
+  Invitation,
+  InvitationResponse,
   MailAction,
   MailFolder,
   MessageDetail,
@@ -61,6 +64,14 @@ const ME_ZOHO: Account = {
   zohoWorkplace: true,
 };
 
+/** Timestamp `days` days from now at the given local time. */
+function inDays(days: number, hour: number, minute = 0): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  date.setHours(hour, minute, 0, 0);
+  return date.toISOString();
+}
+
 /** Timestamp `daysAgo` days before now at the given local time. */
 function at(daysAgo: number, hour: number, minute = 0): string {
   const date = new Date();
@@ -103,6 +114,9 @@ interface Seed {
   unread?: boolean;
   pinned?: boolean;
   attachments?: boolean;
+  /** Files listed as attachments, when the single default one will not do: name, type, size. */
+  files?: [string, string, number][];
+  invitation?: Invitation;
   signal?: SmartCategory;
   answered?: boolean;
   text?: string;
@@ -247,6 +261,11 @@ function seedMessages(): MessageDetail[] {
       date: at(4, 9, 12),
       text: "Dear Professor Duarte, attached is the revised outline. I restructured chapter 3 around your comments.",
       attachments: true,
+      files: [
+        ["outline-v2.pdf", "application/pdf", 482_113],
+        ["references.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 58_320],
+        ["chapter-3-draft.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", 214_902],
+      ],
     },
     {
       key: "thesis-2",
@@ -271,6 +290,11 @@ function seedMessages(): MessageDetail[] {
       subject: "Photos from the weekend",
       date: at(5, 20, 3),
       attachments: true,
+      files: [
+        ["lake.jpg", "image/jpeg", 2_412_880],
+        ["trail.png", "image/png", 1_104_221],
+        ["all-photos.zip", "application/zip", 18_220_114],
+      ],
       text: "Finally sorted through them, here are my favourites. The one at the lake is unreal.",
     },
     {
@@ -422,6 +446,17 @@ function seedMessages(): MessageDetail[] {
       unread: true,
       signal: "invitation",
       text: "You have been invited to Project sync.\n\nWhen: Tue Nov 10, 3pm-3:30pm\nWhere: Google Meet",
+      invitation: {
+        uid: "invite-1@demo",
+        method: "REQUEST",
+        title: "Project sync",
+        start: inDays(1, 15, 0),
+        end: inDays(1, 15, 30),
+        allDay: false,
+        location: "Google Meet",
+        organizer: person("Priya Nair", "priya.nair@university.example"),
+        response: null,
+      },
     },
     {
       key: "invite-2",
@@ -431,6 +466,48 @@ function seedMessages(): MessageDetail[] {
       date: at(1, 16, 20),
       signal: "invitation",
       text: "Dana invited you to Quarterly review.",
+      invitation: {
+        uid: "invite-2@demo",
+        method: "REQUEST",
+        title: "Quarterly review",
+        start: inDays(3, 11, 0),
+        end: inDays(3, 12, 0),
+        allDay: false,
+        location: "ClientCo, 4th floor",
+        organizer: person("Dana Whitfield", "dana@clientco.example"),
+        response: "accepted",
+      },
+    },
+    {
+      key: "invite-3",
+      account: ME_GMAIL,
+      from: person("Marcus Chen", "marcus.chen@example.com"),
+      subject: "Cancelled: Board game night @ Sat Nov 14",
+      date: at(1, 18, 40),
+      signal: "invitation",
+      text: "Marcus cancelled Board game night.",
+      invitation: {
+        uid: "invite-3@demo",
+        method: "CANCEL",
+        title: "Board game night",
+        start: inDays(2, 19, 0),
+        end: inDays(2, 22, 0),
+        allDay: false,
+        location: null,
+        organizer: person("Marcus Chen", "marcus.chen@example.com"),
+        response: null,
+      },
+    },
+    {
+      key: "spam-1",
+      folder: "spam",
+      account: ME_GMAIL,
+      from: person("Prize Desk", "winner@prizes-now.example"),
+      subject: "You won a free cruise: claim today",
+      date: at(1, 3, 12),
+      attachments: true,
+      files: [["claim-form.pdf", "application/pdf", 91_204]],
+      text: "Congratulations! Open the attached form and send us your details to claim your prize.",
     },
     {
       key: "response-1",
@@ -487,8 +564,14 @@ function seedMessages(): MessageDetail[] {
       html: seed.html ?? null,
       text: seed.text ?? null,
       attachments: seed.attachments
-        ? [{ filename: "outline-v2.pdf", contentType: "application/pdf", size: 482_113 }]
+        ? (seed.files ?? [["outline-v2.pdf", "application/pdf", 482_113]]).map(([filename, contentType, size], index) => ({
+            id: String(index),
+            filename,
+            contentType,
+            size,
+          }))
         : [],
+      invitation: seed.invitation ?? null,
     };
   });
 }
@@ -521,6 +604,16 @@ function demoCategoryId(message: MessageSummary, categories: readonly Category[]
 const wait = (ms = 140) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /** Builds a fresh demo backend with three fictional accounts. */
+/** The made-up content of an attachment in the demo: a short text file with the attachment's name. */
+function demoFile(messages: MessageDetail[], messageId: string, attachmentId: string): { name: string; blob: Blob } {
+  const attachment = messages.find((message) => message.id === messageId)?.attachments.find((file) => file.id === attachmentId);
+  if (!attachment) throw new Error("This attachment is no longer in the message.");
+  return {
+    name: attachment.filename,
+    blob: new Blob([`Demo attachment: ${attachment.filename}\n`], { type: "text/plain" }),
+  };
+}
+
 export function createDemoApi(): MiniMailApi {
   let accounts: Account[] = [ME_GMAIL, ME_UNIVERSITY, ME_ZOHO];
   let messages = seedMessages();
@@ -537,6 +630,7 @@ export function createDemoApi(): MiniMailApi {
     html: _html,
     text: _text,
     attachments: _attachments,
+    invitation: _invitation,
     ...summary
   }: MessageDetail): MessageSummary => summary;
 
@@ -562,9 +656,12 @@ export function createDemoApi(): MiniMailApi {
   };
 
   let categories: Category[] = defaultCategories();
+  /** Conversations the user filed by hand (`accountId:threadId`); null is "no category". */
+  const manualCategories = new Map<string, string | null>();
   const trustedSenders = new Set<string>();
   // Like everything else in the demo, drafts and the saved view and filters last until the page is reloaded.
   let demoDrafts: SavedDraft[] = [];
+  let demoNotifications: NotificationSettings = structuredClone(DEFAULT_NOTIFICATION_SETTINGS);
   let demoPrefs: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"] };
   let aiConfigured = false;
   // A pretend "sort again" so the progress toast can be seen without a key.
@@ -655,7 +752,14 @@ export function createDemoApi(): MiniMailApi {
         return {
           messages: rows
             .map(summarize)
-            .map((message) => ({ ...message, categoryId: demoCategoryId(message, categories) }))
+            .map((message) => {
+              const key = `${message.accountId}:${message.threadId}`;
+              const manual = manualCategories.get(key);
+              return {
+                ...message,
+                categoryId: manual !== undefined ? manual : demoCategoryId(message, categories),
+              };
+            })
             .sort((a, b) => Date.parse(b.date) - Date.parse(a.date))
             .slice(0, query.limit ?? 200),
           errors: [],
@@ -671,6 +775,30 @@ export function createDemoApi(): MiniMailApi {
           throw new Error("Simulated server error.");
         }
         return ids.flatMap((id) => messages.filter((message) => message.id === id));
+      },
+      async openAttachment(messageId, attachmentId) {
+        const file = demoFile(messages, messageId, attachmentId);
+        await wait(150);
+        window.open(URL.createObjectURL(file.blob), "_blank", "noopener");
+      },
+      async saveAttachment(messageId, attachmentId) {
+        const file = demoFile(messages, messageId, attachmentId);
+        await wait(150);
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(file.blob);
+        link.download = file.name;
+        link.click();
+        return true;
+      },
+      async respondToInvitation(messageId, response: InvitationResponse) {
+        await wait(500);
+        const target = messages.find((message) => message.id === messageId);
+        if (!target?.invitation) throw new Error("This message has no invitation to answer.");
+        const { uid } = target.invitation;
+        // The answer belongs to the meeting, so every message about it shows it.
+        messages = messages.map((message) =>
+          message.invitation?.uid === uid ? { ...message, invitation: { ...message.invitation, response } } : message,
+        );
       },
       async verificationCodes(ids) {
         // The demo reads with the same rules as the app and has no model to fall back on.
@@ -845,6 +973,11 @@ export function createDemoApi(): MiniMailApi {
         sortStartedAt = Date.now();
         notify();
       },
+      async assign(threads, categoryId) {
+        await wait(40);
+        for (const key of threads) manualCategories.set(key, categoryId);
+        notify();
+      },
       async sortCounts(options) {
         await wait(40);
         const since = options?.since ? Date.parse(options.since) : null;
@@ -855,6 +988,23 @@ export function createDemoApi(): MiniMailApi {
               .map((message) => `${message.accountId}:${message.threadId}`),
           ).size;
         return { inbox: count("inbox"), archive: count("archive"), spam: count("spam"), trash: count("trash") };
+      },
+    },
+    notifications: {
+      async settings() {
+        return structuredClone(demoNotifications);
+      },
+      async setSettings(next) {
+        demoNotifications = structuredClone(next);
+        return structuredClone(demoNotifications);
+      },
+      async test() {
+        if (typeof Notification !== "undefined" && Notification.permission === "default") {
+          await Notification.requestPermission();
+        }
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification("MiniMail", { body: "This is how a notification will look." });
+        }
       },
     },
     system: {

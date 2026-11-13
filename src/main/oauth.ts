@@ -49,6 +49,9 @@ const MICROSOFT_SCOPES = [
   "offline_access",
   "https://graph.microsoft.com/Mail.ReadWrite",
   "https://graph.microsoft.com/Mail.Send",
+  // Lets MiniMail read a meeting request's event and answer it. Accounts added before this
+  // keep working: a refresh asks for no scope, so it returns what was granted at sign-in.
+  "https://graph.microsoft.com/Calendars.ReadWrite",
   "https://graph.microsoft.com/User.Read",
 ].join(" ");
 
@@ -340,7 +343,6 @@ export async function refreshAccessToken(
         client_id: config.microsoftClientId,
         refresh_token: refreshToken,
         grant_type: "refresh_token",
-        scope: MICROSOFT_SCOPES,
       },
       refreshToken,
     );

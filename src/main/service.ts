@@ -4,11 +4,13 @@ import { MAX_AVATAR_BYTES, normalizeAlias } from "@shared/accounts";
 import { buildContactIndex, type ContactEntry } from "@shared/contacts";
 import { parseMessageId } from "@shared/ids";
 import { MAIL_WINDOW } from "@shared/mail-window";
+import { MOVE_DESTINATION } from "@shared/threads";
 import type {
   Account,
   AccountError,
   AddAccountInput,
   Draft,
+  InvitationResponse,
   ListQuery,
   ListResult,
   MailAction,
@@ -29,11 +31,13 @@ import {
 } from "./oauth";
 import type { Categorizer } from "./categorizer";
 import { sniffImage } from "./logos/icon-finder";
+import type { InvitationAnswers } from "./invitation-answers";
 import type { MailCache } from "./mail-cache";
 import { GraphProvider } from "./providers/graph";
 import { ImapProvider } from "./providers/imap";
 import type { SummaryStore } from "./providers/summary-cache";
-import { describeError, type MailAuth, type MailProvider } from "./providers/types";
+import { describeError, type AttachmentFile, type MailAuth, type MailProvider } from "./providers/types";
+import { logEvent } from "./log";
 import { perfLog, perfTime } from "./perf";
 import type { AccountSecret, AccountStore } from "./store";
 
@@ -68,6 +72,8 @@ export class MailService {
     private readonly categorizer: Categorizer,
     /** Copies of recent lists kept between launches; omit to keep them in memory only. */
     private readonly mailCache?: MailCache,
+    /** How the user answered invitations on accounts whose server does not record it; omit to forget them. */
+    private readonly invitationAnswers?: InvitationAnswers,
   ) {}
 
   listAccounts(): Account[] {
@@ -178,7 +184,11 @@ export class MailService {
     const errors: AccountError[] = [];
     settled.forEach((outcome, index) => {
       if (outcome.status === "fulfilled") messages.push(...outcome.value);
-      else errors.push({ accountId: accounts[index].id, message: describeError(outcome.reason) });
+      else {
+        const message = describeError(outcome.reason);
+        logEvent("sync", `list ${query.folder} failed for ${accounts[index].provider}: ${message}`);
+        errors.push({ accountId: accounts[index].id, message });
+      }
     });
     messages.sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
     const categorized = this.categorizer.apply(messages, query.folder);
@@ -224,7 +234,7 @@ export class MailService {
           () => this.providerForId(accountId).get(folder, nativeIds),
           (found) => `${found.length} returned`,
         );
-        for (const detail of details) fetched.set(detail.id, detail);
+        for (const detail of details) fetched.set(detail.id, this.withAnswer(detail));
       }),
     );
     return ids.flatMap((id) => {
@@ -233,10 +243,40 @@ export class MailService {
     });
   }
 
+  /** Fills in the user's answer to an invitation when the account's server does not report one. */
+  private withAnswer(detail: MessageDetail): MessageDetail {
+    const invitation = detail.invitation;
+    if (!invitation || invitation.response || invitation.method !== "REQUEST") return detail;
+    const answer = this.invitationAnswers?.get(detail.accountId, invitation.uid) ?? null;
+    return answer ? { ...detail, invitation: { ...invitation, response: answer } } : detail;
+  }
+
+  /** Downloads one attachment of a message. */
+  async attachment(id: string, attachmentId: string): Promise<AttachmentFile> {
+    const ref = parseMessageId(id);
+    if (!ref) throw new Error("That message no longer exists.");
+    return this.providerForId(ref.accountId).attachment(ref.folder, ref.nativeId, attachmentId);
+  }
+
+  /** Answers the invitation in a message, and remembers the answer where the server will not. */
+  async respondToInvitation(id: string, response: InvitationResponse): Promise<void> {
+    const ref = parseMessageId(id);
+    if (!ref) throw new Error("That message no longer exists.");
+    const provider = this.providerForId(ref.accountId);
+    const [detail] = await provider.get(ref.folder, [ref.nativeId]);
+    const invitation = detail?.invitation;
+    if (!invitation || invitation.method !== "REQUEST") throw new Error("This message has no invitation to answer.");
+    await provider.respondToInvitation(ref.folder, ref.nativeId, response);
+    this.invitationAnswers?.set(ref.accountId, invitation.uid, response);
+  }
+
   async act(action: MailAction, ids: string[]): Promise<void> {
     const byProvider = this.groupByProviderFolder(ids);
+    // Moving a message to the folder it is already in changes nothing: skip it rather than ask
+    // the server (some refuse) or patch the local copies as if the message had left.
+    const groups = [...byProvider.values()].filter(({ folder }) => MOVE_DESTINATION[action] !== folder);
     await Promise.all(
-      [...byProvider.values()].map(({ accountId, folder, nativeIds }) =>
+      groups.map(({ accountId, folder, nativeIds }) =>
         this.providerForId(accountId).act(action, folder, nativeIds),
       ),
     );

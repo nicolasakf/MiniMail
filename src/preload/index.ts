@@ -36,6 +36,9 @@ const api: MiniMailApi = {
     act: (action, ids) => invoke(IPC.mailAct, action, ids),
     send: (draft) => invoke(IPC.mailSend, draft),
     contacts: () => invoke(IPC.mailContacts),
+    openAttachment: (messageId, attachmentId) => invoke(IPC.mailOpenAttachment, messageId, attachmentId),
+    saveAttachment: (messageId, attachmentId) => invoke(IPC.mailSaveAttachment, messageId, attachmentId),
+    respondToInvitation: (messageId, response) => invoke(IPC.mailRespond, messageId, response),
     verificationCodes: (ids) => invoke(IPC.mailVerificationCodes, ids),
     onChanged: (listener) => {
       const handler = () => listener();
@@ -53,6 +56,7 @@ const api: MiniMailApi = {
     testGateway: () => invoke(IPC.categoriesTest),
     reclassify: (options) => invoke(IPC.categoriesReclassify, options),
     sortCounts: (options) => invoke(IPC.categoriesSortCounts, options),
+    assign: (threads, categoryId) => invoke(IPC.categoriesAssign, { threads, categoryId }),
   },
   senders: {
     trusted: () => invoke(IPC.sendersTrusted),
@@ -72,6 +76,11 @@ const api: MiniMailApi = {
     get: (requests) => invoke(IPC.logosGet, requests),
     settings: () => invoke(IPC.logosSettings),
     setSettings: (settings) => invoke(IPC.logosSetSettings, settings),
+  },
+  notifications: {
+    settings: () => invoke(IPC.notificationsGet),
+    setSettings: (settings) => invoke(IPC.notificationsSet, settings),
+    test: () => invoke(IPC.notificationsTest),
   },
   system: {
     openExternal: (url) => invoke(IPC.openExternal, url),

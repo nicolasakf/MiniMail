@@ -1,4 +1,4 @@
-import { icons, Tag, type LucideProps } from "lucide-react";
+import { icons, Tag, type LucideIcon, type LucideProps } from "lucide-react";
 
 /** Every Lucide icon by its exported name, sorted; what the picker offers. */
 export const ICON_NAMES: readonly string[] = Object.keys(icons).sort();
@@ -15,6 +15,11 @@ export function searchIcons(query: string): string[] {
     const text = SEARCH_TEXT.get(name) ?? "";
     return words.every((word) => text.includes(word));
   });
+}
+
+/** The Lucide icon behind a category's icon name; an unknown or missing name gives a tag. */
+export function categoryMenuIcon(icon: string | null | undefined): LucideIcon {
+  return (icon ? icons[icon as keyof typeof icons] : undefined) ?? Tag;
 }
 
 /** A category's icon by name; an unknown or missing name shows a tag. */

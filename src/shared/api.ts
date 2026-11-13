@@ -4,6 +4,7 @@ import type {
   Category,
   CategoryState,
   Draft,
+  InvitationResponse,
   ListQuery,
   ListResult,
   MailAction,
@@ -16,6 +17,7 @@ import type {
 } from "./types";
 import type { ContactEntry } from "./contacts";
 import type { LogoRequest, LogoSettings } from "./logos";
+import type { NotificationSettings } from "./notifications";
 
 /** Which sign-in methods this build can offer (OAuth needs client ids at build time). */
 export interface AccountCapabilities {
@@ -49,6 +51,12 @@ export interface MiniMailApi {
      * An id is missing when the lookup failed and may be tried again later.
      */
     verificationCodes(ids: string[]): Promise<Record<string, string | null>>;
+    /** Downloads one attachment and opens it with the app the system picks (risky types are shown in their folder instead). */
+    openAttachment(messageId: string, attachmentId: string): Promise<void>;
+    /** Downloads one attachment to a place the user chooses; false when they cancel. */
+    saveAttachment(messageId: string, attachmentId: string): Promise<boolean>;
+    /** Answers the calendar invitation in a message; the organizer is told. */
+    respondToInvitation(messageId: string, response: InvitationResponse): Promise<void>;
     /** Everyone we have sent mail to or received mail from, for recipient suggestions. */
     contacts(): Promise<ContactEntry[]>;
     /** Fires when the main process thinks the mailbox changed (server push, poll tick, window focus). */
@@ -72,6 +80,11 @@ export interface MiniMailApi {
     reclassify(options?: SortOptions): Promise<void>;
     /** How many conversations a sort with these options would send to Jev, per folder. */
     sortCounts(options?: Pick<SortOptions, "since">): Promise<SortCounts>;
+    /**
+     * Files conversations (`accountId:threadId`) under a category by hand, or under none (null).
+     * Sorting again leaves such conversations where the user put them.
+     */
+    assign(threads: string[], categoryId: string | null): Promise<void>;
   };
   senders: {
     /** Addresses whose remote images load without asking (lowercase). */
@@ -101,6 +114,13 @@ export interface MiniMailApi {
     get(requests: LogoRequest[]): Promise<Record<string, string | null>>;
     settings(): Promise<LogoSettings>;
     setSettings(settings: LogoSettings): Promise<LogoSettings>;
+  };
+  notifications: {
+    settings(): Promise<NotificationSettings>;
+    /** Replaces the settings; answers with what was stored. Rejects invalid values. */
+    setSettings(settings: NotificationSettings): Promise<NotificationSettings>;
+    /** Shows a sample notification so the user can check that the system lets MiniMail show them. */
+    test(): Promise<void>;
   };
   system: {
     openExternal(url: string): Promise<void>;

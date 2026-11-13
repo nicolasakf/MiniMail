@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { MAX_ALIAS_LENGTH, MAX_AVATAR_BYTES, normalizeAlias } from "./accounts";
 import type { LogoRequest, LogoSettings } from "./logos";
+import { MAX_MUTED_SENDERS, MAX_NOTIFICATION_IDS, NOTIFY_FOLDERS, parseClock, type NotificationSettings } from "./notifications";
 import { MAIL_WINDOW } from "./mail-window";
 import {
   categoryProblems,
@@ -77,6 +78,13 @@ export const addAccountSchema: z.ZodType<AddAccountInput> = z.union([
     alias: aliasSchema.optional(),
   }),
 ]);
+
+export const invitationResponseSchema = z.enum(["accepted", "tentative", "declined"]);
+
+export const attachmentRefSchema = z.object({
+  messageId: z.string().min(1),
+  attachmentId: z.string().min(1).max(2048),
+});
 
 export const listQuerySchema: z.ZodType<ListQuery> = z.object({
   accountIds: z.array(z.string()).optional(),
@@ -190,6 +198,26 @@ export const logoSettingsSchema: z.ZodType<LogoSettings> = z.object({
   personPhotos: z.boolean(),
 });
 
+const clockSchema = z.string().refine((value) => parseClock(value) !== null, "Use a time like 22:00.");
+
+/** Every choice on the Notifications page; the whole object is replaced on each change. */
+export const notificationSettingsSchema: z.ZodType<NotificationSettings> = z.object({
+  enabled: z.boolean(),
+  folders: z.array(z.enum(NOTIFY_FOLDERS)).max(NOTIFY_FOLDERS.length),
+  mutedAccountIds: z.array(z.string().min(1).max(128)).max(MAX_NOTIFICATION_IDS),
+  categories: z.object({
+    mode: z.enum(["all", "only", "except"]),
+    ids: z.array(z.string().min(1).max(64)).max(MAX_NOTIFICATION_IDS),
+  }),
+  mutedSenders: z.array(z.string().min(3).max(320)).max(MAX_MUTED_SENDERS),
+  content: z.enum(["full", "sender", "hidden"]),
+  sound: z.boolean(),
+  dockBadge: z.boolean(),
+  muteWhenFocused: z.boolean(),
+  groupBursts: z.boolean(),
+  quietHours: z.object({ enabled: z.boolean(), start: clockSchema, end: clockSchema }),
+});
+
 /** Vercel AI Gateway API key typed by the user. */
 export const gatewayKeySchema = z.string().trim().min(8).max(300);
 
@@ -217,6 +245,13 @@ export const reclassifySchema = z
     folders: z.array(z.enum(["inbox", "archive", "spam", "trash"])).max(4).optional(),
   })
   .optional();
+
+/** Conversations (`accountId:threadId`) the user files by hand; a null category means "none". */
+export const assignCategorySchema = z.object({
+  threads: z.array(z.string().min(1).max(600)).min(1).max(500),
+  categoryId: z.string().min(1).max(64).nullable(),
+  sorting: z.boolean().optional(),
+});
 
 /** One or more message ids; capped so a bad call cannot ask for thousands of fetches. */
 export const idsSchema = z.array(z.string()).min(1).max(500);

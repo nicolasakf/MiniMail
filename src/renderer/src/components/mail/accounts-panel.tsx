@@ -9,13 +9,6 @@ import type { Account, AddAccountInput, Provider, ZohoRegion } from "@shared/typ
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -28,6 +21,8 @@ import {
 import { api } from "@/lib/api";
 import { fileToAvatar } from "@/lib/avatar-image";
 import { cn } from "@/lib/utils";
+
+import { SettingsPageHeader } from "../settings/fields";
 
 import { AccountMark } from "./account-mark";
 import { InfoLabel } from "./info-label";
@@ -69,24 +64,20 @@ function describeAccount(account: Account): string {
   return account.auth === "password" ? "App password" : "Google sign-in";
 }
 
-interface AccountsDialogProps {
-  open: boolean;
+interface AccountsPanelProps {
   /** Open straight on the add-account picker instead of the list. */
   startAdding: boolean;
   accounts: readonly Account[];
-  onOpenChange: (open: boolean) => void;
   onChanged: () => void;
+  /** Tells the dialog an alias is being edited, so Escape cancels the edit instead of closing it. */
+  onRenamingChange?: (renaming: boolean) => void;
 }
 
 /** Lists connected accounts and walks through adding Gmail, Outlook (personal or school) or Zoho. */
-export function AccountsDialog({
-  open,
-  startAdding,
-  accounts,
-  onOpenChange,
-  onChanged,
-}: AccountsDialogProps) {
-  const [view, setView] = useState<View>({ name: "list" });
+export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChange }: AccountsPanelProps) {
+  const [view, setView] = useState<View>(() =>
+    startAdding || accounts.length === 0 ? { name: "choose" } : { name: "list" },
+  );
   const [capabilities, setCapabilities] = useState<AccountCapabilities>({
     googleOAuth: false,
     microsoftOAuth: false,
@@ -99,14 +90,13 @@ export function AccountsDialog({
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!open) return;
-    setView(startAdding || accounts.length === 0 ? { name: "choose" } : { name: "list" });
-    setConfirmRemove(null);
-    setRenaming(null);
     api.accounts.capabilities().then(setCapabilities).catch(() => undefined);
-    // Only re-seed the view when the dialog opens, not whenever the account list refreshes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, startAdding]);
+  }, []);
+
+  useEffect(() => {
+    onRenamingChange?.(renaming !== null);
+    return () => onRenamingChange?.(false);
+  }, [renaming, onRenamingChange]);
 
   const choosePicture = async (file: File | undefined) => {
     const accountId = pictureFor.current;
@@ -143,25 +133,13 @@ export function AccountsDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className="max-w-xl"
-        onEscapeKeyDown={(event) => {
-          // Escape while renaming cancels the rename; the dialog stays open.
-          if (renaming) {
-            event.preventDefault();
-            setRenaming(null);
-          }
-        }}
-      >
+    <div className="flex max-w-2xl flex-col gap-4 p-6">
         {view.name === "list" && (
           <>
-            <DialogHeader>
-              <DialogTitle>Accounts</DialogTitle>
-              <DialogDescription>
-                Mail accounts connected to MiniMail. Give each an alias and a picture to tell them apart.
-              </DialogDescription>
-            </DialogHeader>
+            <SettingsPageHeader
+              title="Accounts"
+              description="Mail accounts connected to MiniMail. Give each an alias and a picture to tell them apart."
+            />
             <ul className="space-y-2">
               {accounts.map((account) => (
                 <li
@@ -289,12 +267,11 @@ export function AccountsDialog({
             onAdded={(account) => {
               toast.success(`Connected ${accountLabel(account)}`);
               onChanged();
-              onOpenChange(false);
+              setView({ name: "list" });
             }}
           />
         )}
-      </DialogContent>
-    </Dialog>
+    </div>
   );
 }
 
@@ -338,6 +315,8 @@ function AliasEditor({
           if (event.key === "Enter") {
             event.preventDefault();
             void save();
+          } else if (event.key === "Escape") {
+            onCancel(); // The settings dialog sees the same key and stays open while an alias is edited.
           }
         }}
       />
@@ -423,10 +402,7 @@ function ChooseProvider({
 }) {
   return (
     <>
-      <DialogHeader>
-        <DialogTitle>Add an account</DialogTitle>
-        <DialogDescription>Choose where your mail lives.</DialogDescription>
-      </DialogHeader>
+      <SettingsPageHeader title="Add an account" description="Choose where your mail lives." />
       <div className="grid gap-2">
         {CHOICES.map(({ choice, provider, title, subtitle }) => (
           <button
@@ -503,10 +479,7 @@ function AddAccountForm({
 
   return (
     <>
-      <DialogHeader>
-        <DialogTitle>{FORM_TITLES[choice]}</DialogTitle>
-        <DialogDescription className="sr-only">Sign in to add this account.</DialogDescription>
-      </DialogHeader>
+      <SettingsPageHeader title={FORM_TITLES[choice]} description="Sign in to add this account." />
 
       <div className="space-y-4">
         {(choice === "gmail" || choice === "outlook-personal" || choice === "outlook-work") && (

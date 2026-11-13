@@ -1,3 +1,4 @@
+import { MOVE_DESTINATION } from "@shared/threads";
 import type { MailAction, MailFolder, MessageSummary } from "@shared/types";
 
 /**
@@ -33,13 +34,16 @@ export function applyOptimistic(
   }
 }
 
-/** Where each move action puts a message. */
-const MOVED_TO: Partial<Record<MailAction, MailFolder>> = {
-  archive: "archive",
-  unarchive: "inbox",
-  spam: "spam",
-  trash: "trash",
-};
+/** Files whole conversations (`accountId:threadId`) under a category, or under none, in the local list. */
+export function applyCategory(
+  messages: readonly MessageSummary[],
+  threads: ReadonlySet<string>,
+  categoryId: string | null,
+): MessageSummary[] {
+  return messages.map((m) =>
+    threads.has(`${m.accountId}:${m.threadId}`) ? { ...m, categoryId } : m,
+  );
+}
 
 /**
  * Like `applyOptimistic`, for a list that also holds Archive, Spam and Trash mail (the Inbox with
@@ -52,7 +56,7 @@ export function applyOptimisticKeepingFolders(
   ids: ReadonlySet<string>,
   folder: MailFolder,
 ): MessageSummary[] {
-  const to = MOVED_TO[action];
+  const to = MOVE_DESTINATION[action];
   if (!to) return applyOptimistic(messages, action, ids, folder);
   return messages.map((m) => (ids.has(m.id) ? { ...m, folder: to } : m));
 }

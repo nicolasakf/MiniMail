@@ -50,7 +50,7 @@ function buildDocument(body: string, allowRemote: boolean): string {
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${images}; style-src 'unsafe-inline'; font-src data:;">
 <style>
-  html,body{margin:0;padding:0;background:#fff;color:#1f2328;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-wrap:anywhere}
+  html,body{margin:0;padding:0;overflow:hidden;background:#fff;color:#1f2328;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-wrap:anywhere}
   body{padding:16px}
   img{max-width:100%;height:auto}
   a{color:#0b57d0}
@@ -80,9 +80,13 @@ function HtmlBody({ html, from, authenticated }: { html: string } & Sender) {
     const doc = frameRef.current?.contentDocument;
     if (!doc) return;
 
-    const resize = () => setHeight(Math.ceil(doc.documentElement.scrollHeight));
+    const resize = () =>
+      setHeight(Math.ceil(Math.max(doc.documentElement.scrollHeight, doc.body.scrollHeight)));
     resize();
-    new ResizeObserver(resize).observe(doc.body);
+    const observer = new ResizeObserver(resize);
+    observer.observe(doc.documentElement);
+    observer.observe(doc.body);
+    doc.querySelectorAll("img").forEach((img) => img.addEventListener("load", resize));
 
     doc.addEventListener("click", (event) => {
       const anchor = (event.target as Element | null)?.closest("a");
@@ -138,6 +142,7 @@ function HtmlBody({ html, from, authenticated }: { html: string } & Sender) {
         title="Message content"
         // allow-same-origin lets us measure the content; with no allow-scripts nothing inside can run.
         sandbox="allow-same-origin"
+        scrolling="no"
         srcDoc={document_}
         onLoad={handleLoad}
         className="w-full overflow-hidden rounded-lg border-0 bg-white"

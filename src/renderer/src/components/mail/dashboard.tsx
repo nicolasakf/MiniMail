@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 
-import { ArrowLeft, AtSign, Bot, CornerUpLeft, MailWarning, Paperclip, RefreshCw, UserRound } from "lucide-react";
+import { AtSign, Bot, CornerUpLeft, MailWarning, Paperclip, RefreshCw, UserRound } from "lucide-react";
 
 import { accountLabel } from "@shared/accounts";
 import {
@@ -15,7 +15,6 @@ import {
   type TimeUnit,
 } from "@shared/dashboard";
 import { MAIL_WINDOW } from "@shared/mail-window";
-import type { MoveFolder } from "@shared/threads";
 import type { Account, AccountError, Category, MessageSummary } from "@shared/types";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -453,80 +452,5 @@ function DashboardSkeleton() {
       <Skeleton className="col-span-12 h-[320px] rounded-xl lg:col-span-6" />
       <Skeleton className="col-span-12 h-[320px] rounded-xl lg:col-span-6" />
     </div>
-  );
-}
-
-/** Above the mail a Dashboard click opened: the way back, what was picked, and how much matched. */
-/** Which folder a Dashboard list shows: every one, or a single folder. */
-export type DrillFolder = "all" | MoveFolder;
-
-const DRILL_FOLDERS: readonly { folder: DrillFolder; label: string }[] = [
-  { folder: "all", label: "All" },
-  { folder: "inbox", label: "Inbox" },
-  { folder: "archive", label: "Archive" },
-  { folder: "trash", label: "Trash" },
-  { folder: "spam", label: "Spam" },
-];
-
-export function DashboardDrillHeader({
-  selection,
-  count,
-  onBack,
-  folder,
-  onFolderChange,
-  folderCounts,
-}: {
-  selection: DashboardSelection;
-  /** Messages shown, in the chosen folder. */
-  count: number;
-  onBack: () => void;
-  folder: DrillFolder;
-  onFolderChange: (folder: DrillFolder) => void;
-  /** Matching messages per folder tab, "all" included. */
-  folderCounts: Readonly<Record<DrillFolder, number>>;
-}) {
-  return (
-    <header className="electron-window-drag flex h-[88px] shrink-0 items-end gap-3 px-6 pb-3 pt-10">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label="Back to Dashboard"
-            onClick={onBack}
-            className="corner-squircle electron-no-drag flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <ArrowLeft className="size-[18px]" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          Back to Dashboard <span className="ml-2 text-muted-foreground">Esc</span>
-        </TooltipContent>
-      </Tooltip>
-      <div className="electron-no-drag min-w-0">
-        <div className="text-[11px] text-muted-foreground">Dashboard</div>
-        <h1 className="flex min-w-0 items-baseline gap-2 text-base font-semibold">
-          <span className="truncate">{selection.title}</span>
-          <span className="shrink-0 text-xs font-normal text-muted-foreground">
-            {formatCount(count)} message{count === 1 ? "" : "s"} · {selection.subtitle}
-          </span>
-        </h1>
-      </div>
-      <Tabs
-        value={folder}
-        onValueChange={(next) => onFolderChange(next as DrillFolder)}
-        className="electron-no-drag ml-auto shrink-0"
-      >
-        <TabsList aria-label="Folder" className="h-9">
-          {DRILL_FOLDERS.map((option) => (
-            <TabsTrigger key={option.folder} value={option.folder} className="h-7 gap-1.5 py-0">
-              {option.label}
-              <span className="text-[11px] font-normal tabular-nums opacity-60">
-                {formatCount(folderCounts[option.folder])}
-              </span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
-    </header>
   );
 }

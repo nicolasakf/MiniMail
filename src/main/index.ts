@@ -1,13 +1,16 @@
+import { execFile } from "node:child_process";
 import { join } from "node:path";
 
 import { promises as dns } from "node:dns";
 
-import { app, BrowserWindow, safeStorage, shell } from "electron";
+import { app, BrowserWindow, dialog, Notification, safeStorage, shell } from "electron";
 
 import { senderDomain } from "@shared/categories";
 import { IPC } from "@shared/ipc";
 
 import { AiSettingsStore } from "./ai-settings";
+import { AttachmentFiles } from "./attachment-files";
+import { InvitationAnswers } from "./invitation-answers";
 import { createCodeFallback } from "./code-fallback";
 import { Categorizer } from "./categorizer";
 import { VerificationCodes } from "./verification-codes";
@@ -15,6 +18,7 @@ import { CategoryStore, GatewayKeyStore } from "./category-store";
 import { registerIpc } from "./ipc";
 import { createJevClassifier } from "./jev";
 import type { OAuthConfig } from "./oauth";
+import { initLog, logEvent } from "./log";
 import { perfLog } from "./perf";
 import { findGravatar, findSiteIcon } from "./logos/icon-finder";
 import { LogoCache } from "./logos/logo-cache";
@@ -22,6 +26,8 @@ import { LogoService } from "./logos/logo-service";
 import { LogoSettingsStore } from "./logos/logo-settings";
 import { safeFetch } from "./logos/net-guard";
 import { DraftStore } from "./draft-store";
+import { NotificationSettingsStore } from "./notification-settings";
+import { Notifier } from "./notifier";
 import { UiPrefsStore } from "./ui-prefs";
 import { TrustedSenders } from "./trusted-senders";
 import { MailCache } from "./mail-cache";
@@ -53,6 +59,10 @@ let categoryStore: CategoryStore | null = null;
 let mailCache: MailCache | null = null;
 let logoCache: LogoCache | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
+let notifier: Notifier | null = null;
+let attachmentFiles: AttachmentFiles | null = null;
+/** Notifications on screen; Electron drops the click handler of one that is garbage collected. */
+const liveNotifications = new Set<Notification>();
 
 /** Opens http(s) and mailto links in the user's default handler; ignores everything else. */
 async function openExternalSafely(url: string): Promise<void> {
@@ -124,11 +134,36 @@ function createWindow(): void {
   }
 }
 
+/** The unread count on the Dock icon (macOS) or launcher (where the platform has one). */
+function setDockBadge(count: number): void {
+  if (process.platform === "darwin") app.dock?.setBadge(count > 0 ? String(count) : "");
+  else app.setBadgeCount(count);
+}
+
+/** Shows an operating-system notification; clicking it brings MiniMail to the front. */
+function showNotification({ title, body, silent }: { title: string; body: string; silent: boolean }): void {
+  if (!Notification.isSupported()) return;
+  const notification = new Notification({ title, body, silent });
+  liveNotifications.add(notification);
+  const done = (): void => void liveNotifications.delete(notification);
+  notification.on("close", done);
+  notification.on("failed", done);
+  notification.on("click", () => {
+    done();
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+  notification.show();
+}
+
 function startPolling(): void {
   let lastRefresh = Date.now();
   const refresh = (): void => {
     lastRefresh = Date.now();
     mainWindow?.webContents.send(IPC.mailChanged);
+    void notifier?.check();
   };
   // Server pushes (IMAP IDLE) refresh at once; the timer below covers the rest.
   service?.watch(refresh);
@@ -151,6 +186,8 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(() => {
     perfLog("electron ready");
+    initLog(app.getPath("logs"));
+    logEvent("app", `MiniMail ${app.getVersion()} started`);
     const userData = app.getPath("userData");
     const store = new AccountStore(join(userData, "accounts.json"));
     categoryStore = new CategoryStore(join(userData, "categories.json"));
@@ -163,11 +200,41 @@ if (!app.requestSingleInstanceLock()) {
       sortFolders: () => aiSettings.sortFolders(),
       classify: createJevClassifier(() => keys.get()),
       // New answers change what the list should show, so ask the page to refresh.
-      onUpdated: () => mainWindow?.webContents.send(IPC.mailChanged),
+      onUpdated: () => {
+        mainWindow?.webContents.send(IPC.mailChanged);
+        void notifier?.check(); // A message waiting for its category may be ready now.
+      },
     });
     mailCache = new MailCache(join(userData, "mail-cache.json"), safeStorage);
     perfLog("stores loaded", `${store.list().length} accounts`);
-    service = new MailService(store, oauthConfig, openExternalSafely, categorizer, mailCache);
+    service = new MailService(
+      store,
+      oauthConfig,
+      openExternalSafely,
+      categorizer,
+      mailCache,
+      new InvitationAnswers(join(userData, "invitation-answers.json")),
+    );
+    attachmentFiles = new AttachmentFiles({
+      tempRoot: join(app.getPath("temp"), "minimail-attachments"),
+      openPath: (path) => shell.openPath(path),
+      showInFolder: (path) => shell.showItemInFolder(path),
+      chooseSavePath: async (suggestedName) => {
+        const options = { defaultPath: join(app.getPath("downloads"), suggestedName) };
+        const chosen = mainWindow ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options);
+        return chosen.canceled || !chosen.filePath ? null : chosen.filePath;
+      },
+      // Marks the file as downloaded, so macOS asks before running anything that could run.
+      quarantine:
+        process.platform === "darwin"
+          ? (path) =>
+              new Promise((resolve) => {
+                const stamp = `0081;${Math.floor(Date.now() / 1000).toString(16)};MiniMail;`;
+                execFile("/usr/bin/xattr", ["-w", "com.apple.quarantine", stamp, path], () => resolve());
+              })
+          : undefined,
+    });
+    void attachmentFiles.cleanup(); // Files opened in an earlier session.
     const codes = new VerificationCodes({
       load: (ids) => service!.get(ids),
       fallback: () => {
@@ -186,8 +253,21 @@ if (!app.requestSingleInstanceLock()) {
       findSite: (domain) => findSiteIcon(domain, finder),
       findPerson: (email) => findGravatar(email, finder),
     });
+    const notificationSettings = new NotificationSettingsStore(join(userData, "notification-settings.json"));
+    notifier = new Notifier({
+      settings: () => notificationSettings.get(),
+      list: (folder) => service!.list({ folder, limit: 40 }),
+      accountIds: () => service!.listAccounts().map((account) => account.id),
+      focused: () => BrowserWindow.getFocusedWindow() !== null,
+      sortingBusy: () => categorizer.state().ai.pending > 0,
+      setBadge: setDockBadge,
+      show: showNotification,
+    });
     registerIpc({
       service,
+      attachmentFiles,
+      notifier,
+      notificationSettings,
       categorizer,
       aiSettings,
       codes,
@@ -215,8 +295,10 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on("before-quit", () => {
     if (pollTimer) clearInterval(pollTimer);
+    setDockBadge(0);
     categoryStore?.flush();
     mailCache?.flush();
+    void attachmentFiles?.cleanup();
     logoCache?.flush();
     void service?.dispose();
   });

@@ -39,42 +39,13 @@ export const VIEWS: readonly { view: MailView; label: string }[] = [
 interface ListHeaderProps extends HeaderActionsProps {
   title: string;
   view: MailView;
+  /** False where the list is always plain (Drafts, Sent): no Smart / Sender / List tabs. */
+  showViews?: boolean;
   onViewChange: (view: MailView) => void;
   accounts: readonly Account[];
   scope: AccountScope;
   onScopeChange: (scope: AccountScope) => void;
   onManageAccounts: () => void;
-}
-
-/** Pill switch with a check in its thumb: toggles multi-select on the list. */
-function SelectSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={on}
-          aria-label="Select multiple conversations"
-          onClick={() => onChange(!on)}
-          className={cn(
-            "electron-no-drag relative h-6 w-10 rounded-full transition-colors",
-            on ? "bg-sidebar-primary" : "bg-muted",
-          )}
-        >
-          <span
-            className={cn(
-              "absolute left-0.5 top-0.5 flex size-5 items-center justify-center rounded-full bg-background text-foreground shadow transition-transform",
-              on && "translate-x-4",
-            )}
-          >
-            <Check className="size-3" />
-          </span>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">Select multiple</TooltipContent>
-    </Tooltip>
-  );
 }
 
 function HeaderIconButton({
@@ -244,8 +215,6 @@ interface HeaderActionsProps {
   /** The folders checked in the Inbox list; null when this list cannot show other folders. */
   shownFolders: readonly ShownFolder[] | null;
   onToggleFolder: (folder: ShownFolder) => void;
-  selectMode: boolean;
-  onSelectModeChange: (on: boolean) => void;
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
   query: string;
@@ -314,8 +283,6 @@ function HeaderActions({
   onUnreadOnlyChange,
   shownFolders,
   onToggleFolder,
-  selectMode,
-  onSelectModeChange,
   searchOpen,
   onSearchOpenChange,
   query,
@@ -368,7 +335,6 @@ function HeaderActions({
         </div>
       ) : (
         <>
-          <SelectSwitch on={selectMode} onChange={onSelectModeChange} />
           <HeaderIconButton label="Search" hint="⌘K" onClick={() => onSearchOpenChange(true)}>
             <Search className="size-[18px]" />
           </HeaderIconButton>
@@ -383,6 +349,7 @@ function HeaderActions({
 export function ListHeader({
   title,
   view,
+  showViews = true,
   onViewChange,
   accounts,
   scope,
@@ -402,19 +369,26 @@ export function ListHeader({
           onManageAccounts={onManageAccounts}
         />
 
-        <Tabs value={view} onValueChange={(next) => onViewChange(next as MailView)}>
-          <TabsList aria-label="View" className="h-9 shrink-0">
-            {VIEWS.map((option) => (
-              <TabsTrigger key={option.view} value={option.view} className="h-7 py-0">
-                {option.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        {showViews && <ViewTabs view={view} onViewChange={onViewChange} />}
       </div>
 
       <HeaderActions {...actions} />
     </header>
+  );
+}
+
+/** The Smart / Sender / List tabs. */
+function ViewTabs({ view, onViewChange }: { view: MailView; onViewChange: (view: MailView) => void }) {
+  return (
+    <Tabs value={view} onValueChange={(next) => onViewChange(next as MailView)}>
+      <TabsList aria-label="View" className="h-9 shrink-0">
+        {VIEWS.map((option) => (
+          <TabsTrigger key={option.view} value={option.view} className="h-7 py-0">
+            {option.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
   );
 }
 
@@ -446,6 +420,56 @@ export function GroupHeader({
           {group.label}
           <span className="ml-2 text-xs font-normal text-muted-foreground">{count}</span>
         </h1>
+      </div>
+
+      <HeaderActions {...actions} />
+    </header>
+  );
+}
+
+interface DrillHeaderProps extends HeaderActionsProps {
+  /** What the Dashboard click picked, e.g. "Last 7 days". */
+  title: string;
+  onBack: () => void;
+  view: MailView;
+  onViewChange: (view: MailView) => void;
+  accounts: readonly Account[];
+  scope: AccountScope;
+  onScopeChange: (scope: AccountScope) => void;
+  onManageAccounts: () => void;
+}
+
+/**
+ * Top bar of the mail behind a Dashboard click: the Inbox's own bar (account switcher, view tabs
+ * and header actions), with a way back to the Dashboard and what was picked in place of the title.
+ */
+export function DrillHeader({
+  title,
+  onBack,
+  view,
+  onViewChange,
+  accounts,
+  scope,
+  onScopeChange,
+  onManageAccounts,
+  ...actions
+}: DrillHeaderProps) {
+  return (
+    <header className="electron-window-drag flex h-[88px] shrink-0 items-end justify-between px-8 pb-3 pt-10">
+      <div className="electron-no-drag -ml-2 flex min-w-0 items-center gap-4 px-2">
+        <HeaderIconButton label="Back to Dashboard" hint="Esc" onClick={onBack}>
+          <ArrowLeft className="size-[18px]" />
+        </HeaderIconButton>
+        <h1 className="min-w-0 max-w-64 shrink-0 truncate text-base font-semibold">{title}</h1>
+
+        <AccountSwitcher
+          accounts={accounts}
+          scope={scope}
+          onScopeChange={onScopeChange}
+          onManageAccounts={onManageAccounts}
+        />
+
+        <ViewTabs view={view} onViewChange={onViewChange} />
       </div>
 
       <HeaderActions {...actions} />

@@ -255,8 +255,8 @@ describe("GraphProvider", () => {
         internetMessageId: "<abc@mail>",
         internetMessageHeaders: [{ name: "References", value: "<r1@x> <r2@x>" }],
         attachments: [
-          { name: "notes.pdf", contentType: "application/pdf", size: 10, isInline: false },
-          { name: "logo.png", contentType: "image/png", size: 3, isInline: true },
+          { id: "att-1", name: "notes.pdf", contentType: "application/pdf", size: 10, isInline: false },
+          { id: "att-2", name: "logo.png", contentType: "image/png", size: 3, isInline: true },
         ],
       }),
     );
@@ -269,7 +269,91 @@ describe("GraphProvider", () => {
       messageId: "<abc@mail>",
       references: ["<r1@x>", "<r2@x>"],
       cc: [{ name: "Lee", email: "lee@x.com" }],
-      attachments: [{ filename: "notes.pdf", contentType: "application/pdf", size: 10 }],
+      attachments: [{ id: "att-1", filename: "notes.pdf", contentType: "application/pdf", size: 10 }],
+    });
+  });
+
+  it("downloads one attachment", async () => {
+    const calls = stubFetch(() =>
+      json({ name: "notes.pdf", contentType: "application/pdf", contentBytes: Buffer.from("PDF!").toString("base64") }),
+    );
+    const file = await provider().attachment("inbox", "AAMk-1=", "att/1");
+    expect(calls[0].url).toBe("https://graph.microsoft.com/v1.0/me/messages/AAMk-1%3D/attachments/att%2F1");
+    expect(file.filename).toBe("notes.pdf");
+    expect(file.data.toString()).toBe("PDF!");
+  });
+
+  it("refuses an attachment that has no file content", async () => {
+    stubFetch(() => json({ name: "Other mail", contentType: "message/rfc822" }));
+    await expect(provider().attachment("inbox", "AAMk-1=", "att-1")).rejects.toThrow("cannot be downloaded");
+  });
+
+  describe("invitations", () => {
+    const eventMessage = (type: string, response = "notResponded") => ({
+      ...graphMessage,
+      meetingMessageType: type,
+      event: {
+        id: "EVT-1",
+        subject: "Sync",
+        start: { dateTime: "2026-11-12T15:00:00.0000000", timeZone: "UTC" },
+        end: { dateTime: "2026-11-12T16:00:00.0000000", timeZone: "UTC" },
+        isAllDay: false,
+        location: { displayName: "Room 4" },
+        organizer: { emailAddress: { name: "Priya", address: "priya@university.edu" } },
+        responseStatus: { response },
+      },
+    });
+    const full = { ...graphMessage, body: { contentType: "html", content: "<p>Hi</p>" }, attachments: [] };
+
+    it("reads the meeting a request is about", async () => {
+      const calls = stubFetch((call) =>
+        json(call.url.includes("eventMessage") ? eventMessage("meetingRequest", "tentativelyAccepted") : full),
+      );
+      const [detail] = await provider().get("inbox", ["AAMk-1="]);
+      expect(calls.some((call) => decodeURIComponent(call.url).includes("$expand=microsoft.graph.eventMessage/event"))).toBe(true);
+      expect(detail.invitation).toEqual({
+        uid: "EVT-1",
+        method: "REQUEST",
+        title: "Sync",
+        start: "2026-11-12T15:00:00.000Z",
+        end: "2026-11-12T16:00:00.000Z",
+        allDay: false,
+        location: "Room 4",
+        organizer: { name: "Priya", email: "priya@university.edu" },
+        response: "tentative",
+      });
+    });
+
+    it("recognises a cancellation and ignores replies from guests", async () => {
+      stubFetch((call) => json(call.url.includes("eventMessage") ? eventMessage("meetingCancelled") : full));
+      expect((await provider().get("inbox", ["AAMk-1="]))[0].invitation?.method).toBe("CANCEL");
+      stubFetch((call) => json(call.url.includes("eventMessage") ? eventMessage("meetingAccepted") : full));
+      expect((await provider().get("inbox", ["AAMk-1="]))[0].invitation).toBeNull();
+    });
+
+    it("still shows the invitation when the calendar permission is missing", async () => {
+      stubFetch((call) =>
+        call.url.includes("eventMessage") ? json({ error: { code: "ErrorAccessDenied" } }, 403) : json(full),
+      );
+      const [detail] = await provider().get("inbox", ["AAMk-1="]);
+      expect(detail.invitation).toMatchObject({ method: "REQUEST", title: graphMessage.subject, start: null });
+    });
+
+    it("answers through the event", async () => {
+      const calls = stubFetch((call) =>
+        call.method === "POST" ? new Response(null, { status: 202 }) : json(eventMessage("meetingRequest")),
+      );
+      await provider().respondToInvitation("inbox", "AAMk-1=", "tentative");
+      const post = calls.find((call) => call.method === "POST")!;
+      expect(post.url).toBe("https://graph.microsoft.com/v1.0/me/events/EVT-1/tentativelyAccept");
+      expect(JSON.parse(post.body ?? "")).toEqual({ sendResponse: true });
+    });
+
+    it("explains a missing permission when answering", async () => {
+      stubFetch(() => json({ error: { code: "ErrorAccessDenied" } }, 403));
+      await expect(provider().respondToInvitation("inbox", "AAMk-1=", "accepted")).rejects.toThrow(
+        "Remove the account and add it again",
+      );
     });
   });
 
@@ -410,6 +494,37 @@ describe("GraphProvider", () => {
     const calls = stubFetch(() => json({ error: { code: "ServiceUnavailable" } }, 503));
     const p = new GraphProvider(outlookAccount, async () => "tok", undefined, async () => undefined);
     await expect(p.act("markRead", "inbox", ["x"])).rejects.toThrow("ServiceUnavailable");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("retries a read that hits Graph's bare 500 UnknownError", async () => {
+    let attempts = 0;
+    stubFetch(() => {
+      attempts += 1;
+      return attempts < 3 ? json({ error: { code: "UnknownError", message: "" } }, 500) : json({ value: [] });
+    });
+    const p = new GraphProvider(outlookAccount, async () => "tok", undefined, async () => undefined);
+    await expect(p.list("inbox", 10)).resolves.toEqual([]);
+    expect(attempts).toBe(3);
+  });
+
+  it("gives up on a failing server after a couple of tries, so opening a message never hangs", async () => {
+    const calls = stubFetch(() => new Response("<html>Bad Gateway</html>", { status: 502 }));
+    const p = new GraphProvider(outlookAccount, async () => "tok", undefined, async () => undefined);
+    await expect(p.get("inbox", ["m1"])).rejects.toThrow("HTTP 502");
+    expect(calls).toHaveLength(3);
+  });
+
+  it("keeps the HTTP status when Graph gives an error code without a message", async () => {
+    stubFetch(() => json({ error: { code: "UnknownError", message: "" } }, 500));
+    const p = new GraphProvider(outlookAccount, async () => "tok", undefined, async () => undefined);
+    await expect(p.list("inbox", 10)).rejects.toThrow("UnknownError (HTTP 500)");
+  });
+
+  it("does not repeat a write after a 500", async () => {
+    const calls = stubFetch(() => json({ error: { code: "UnknownError" } }, 500));
+    const p = new GraphProvider(outlookAccount, async () => "tok", undefined, async () => undefined);
+    await expect(p.act("markRead", "inbox", ["x"])).rejects.toThrow("HTTP 500");
     expect(calls).toHaveLength(1);
   });
 

@@ -126,6 +126,8 @@ export class Categorizer {
     const problems = categoryProblems(categories);
     if (problems.length > 0) throw new Error(problems[0]);
     this.deps.store.setCategories(categories);
+    // A conversation the user put in a category that is now gone goes back to the classifier.
+    this.deps.store.dropManualNotIn(new Set(categories.map((category) => category.id)));
     // Conversations filed under a deleted category are re-classified on the next refresh.
     this.queue.clear();
     this.scheduleUpdate();
@@ -194,6 +196,23 @@ export class Categorizer {
     this.scheduleUpdate();
   }
 
+  /**
+   * Files conversations (keys are `accountId:threadId`) under a category the user chose, or under
+   * none (`null`). Such a choice is final: sorting again, new replies and a changed key leave it alone.
+   */
+  assign(keys: readonly string[], categoryId: string | null): CategoryState {
+    if (categoryId !== null && !this.deps.store.categories().some((category) => category.id === categoryId)) {
+      throw new Error("That category no longer exists.");
+    }
+    const at = this.now();
+    for (const key of keys) {
+      this.queue.delete(key);
+      this.deps.store.setClassification(key, { categoryId, probability: 1, at, manual: true });
+    }
+    this.scheduleUpdate();
+    return this.state();
+  }
+
   /** Ends the current run, remembering how far it got so the UI can show the outcome. */
   private finishRun(error: string | null): void {
     const run = this.run;
@@ -209,7 +228,9 @@ export class Categorizer {
     const keys = new Set<string>();
     for (const message of messages) {
       if (since !== null && Date.parse(message.date) < since) continue;
-      keys.add(threadKey(message));
+      const key = threadKey(message);
+      if (this.deps.store.classification(key)?.manual) continue;
+      keys.add(key);
     }
     return keys.size;
   }
@@ -249,7 +270,7 @@ export class Categorizer {
         if (Date.parse(message.date) < resort.since) continue;
         const key = threadKey(message);
         const stored = this.deps.store.classification(key);
-        if (stored && stored.at < resort.startedAt) redo.add(key);
+        if (stored && !stored.manual && stored.at < resort.startedAt) redo.add(key);
       }
     }
 
@@ -264,11 +285,16 @@ export class Categorizer {
       const key = threadKey(message);
       const stored = this.deps.store.classification(key);
       if (stored && (stored.categoryId === null || known.has(stored.categoryId))) {
-        if (redo.has(key)) wanted(key, message);
+        if (redo.has(key) && !stored.manual) wanted(key, message);
         return { ...message, categoryId: stored.categoryId };
       }
       if (canClassify) wanted(key, message);
-      return { ...message, categoryId: ruleBasedCategoryId(message.signal, categories) };
+      const sorting = canClassify || this.queue.has(key) || this.running.has(key);
+      return {
+        ...message,
+        categoryId: ruleBasedCategoryId(message.signal, categories),
+        ...(sorting ? { sorting: true } : {}),
+      };
     });
 
     for (const [key, message] of oldestUnclassified) this.enqueue({ key, message });
@@ -318,6 +344,8 @@ export class Categorizer {
         this.deps.store.categories(),
       );
       if (generation !== this.generation) return;
+      // The user may have chosen a category while the model was thinking: their choice wins.
+      if (this.deps.store.classification(key)?.manual) return;
       this.deps.store.setClassification(key, {
         categoryId: outcome.categoryId,
         probability: outcome.probability,

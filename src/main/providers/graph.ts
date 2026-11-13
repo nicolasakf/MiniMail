@@ -7,14 +7,17 @@ import type {
   Account,
   Contact,
   Draft,
+  Invitation,
+  InvitationResponse,
   MailAction,
   MailFolder,
   MessageDetail,
   MessageSummary,
 } from "@shared/types";
 
+import { logEvent } from "../log";
 import { patchSummaries, type SummaryStore } from "./summary-cache";
-import { makeSnippet, type MailProvider } from "./types";
+import { makeSnippet, type AttachmentFile, type MailProvider } from "./types";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
@@ -60,6 +63,7 @@ const messageSchema = z.object({
   attachments: z
     .array(
       z.object({
+        id: z.string(),
         name: z.string().nullish(),
         contentType: z.string().nullish(),
         size: z.number().nullish(),
@@ -67,6 +71,31 @@ const messageSchema = z.object({
       }),
     )
     .nullish(),
+});
+
+const eventTimeSchema = z.object({ dateTime: z.string(), timeZone: z.string().nullish() });
+
+/** A meeting request or cancellation, with the calendar event it belongs to. */
+const eventMessageSchema = z.object({
+  meetingMessageType: z.string().nullish(),
+  event: z
+    .object({
+      id: z.string(),
+      subject: z.string().nullish(),
+      start: eventTimeSchema.nullish(),
+      end: eventTimeSchema.nullish(),
+      isAllDay: z.boolean().nullish(),
+      location: z.object({ displayName: z.string().nullish() }).nullish(),
+      organizer: recipientSchema.nullish(),
+      responseStatus: z.object({ response: z.string().nullish() }).nullish(),
+    })
+    .nullish(),
+});
+
+const attachmentFileSchema = z.object({
+  name: z.string().nullish(),
+  contentType: z.string().nullish(),
+  contentBytes: z.string().nullish(),
 });
 
 const listSchema = z.object({
@@ -120,6 +149,11 @@ function toContact(recipient: z.infer<typeof recipientSchema> | null | undefined
 /** Graph accepts file attachments up to this size in a single request. */
 const GRAPH_INLINE_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
+/** A request path for the log: no query string, and message ids replaced. */
+function describePath(path: string): string {
+  return path.split("?")[0].replace(/\/(messages|attachments)\/[^/]+/g, "/$1/:id");
+}
+
 class GraphError extends Error {
   constructor(
     message: string,
@@ -132,9 +166,18 @@ class GraphError extends Error {
 
 /** Graph ids are stable until a message moves, so the saved copy never needs invalidating. */
 const CACHE_VALIDITY = "graph";
-/** Extra attempts after Graph throttles (429) or a read hits a busy server (503/504). */
+/** Extra attempts after Graph throttles (429). */
 const MAX_RETRIES = 4;
 const MAX_RETRY_WAIT_MS = 8000;
+/**
+ * A read that meets a server fault (500/502/503/504) is tried again only briefly: these are often
+ * a blip, but when Graph is down for the mailbox, a long retry loop leaves a message that is being
+ * opened loading forever and adds load to a service that is already struggling.
+ */
+const MAX_SERVER_FAULT_RETRIES = 2;
+const SERVER_FAULT_BUDGET_MS = 12_000;
+/** One request that has not answered by now is abandoned, so nothing waits on it indefinitely. */
+const REQUEST_TIMEOUT_MS = 20_000;
 /** Messages of one conversation downloaded at a time. */
 const GET_CONCURRENCY = 4;
 /**
@@ -210,7 +253,7 @@ export class GraphProvider implements MailProvider {
 
   async get(folder: MailFolder, nativeIds: string[]): Promise<MessageDetail[]> {
     const select =
-      `${LIST_FIELDS},body,ccRecipients,replyTo,internetMessageId&$expand=attachments($select=name,contentType,size,isInline),${EXPAND_LAST_VERB}`;
+      `${LIST_FIELDS},body,ccRecipients,replyTo,internetMessageId&$expand=attachments($select=id,name,contentType,size,isInline),${EXPAND_LAST_VERB}`;
     const fetchOne = async (nativeId: string): Promise<MessageDetail> => {
       const raw = await this.request(
         "GET",
@@ -226,6 +269,7 @@ export class GraphProvider implements MailProvider {
         .filter(Boolean);
 
       const isHtml = message.body?.contentType.toLowerCase() === "html";
+      const invitation = summary.signal === "invitation" ? await this.invitationOf(nativeId, summary.subject) : null;
       return {
         ...summary,
         cc: (message.ccRecipients ?? []).map(toContact),
@@ -237,10 +281,12 @@ export class GraphProvider implements MailProvider {
         attachments: (message.attachments ?? [])
           .filter((attachment) => !attachment.isInline)
           .map((attachment) => ({
+            id: attachment.id,
             filename: attachment.name ?? "attachment",
             contentType: attachment.contentType ?? "application/octet-stream",
             size: attachment.size ?? 0,
           })),
+        invitation,
       };
     };
 
@@ -252,6 +298,92 @@ export class GraphProvider implements MailProvider {
       );
     }
     return details;
+  }
+
+  /** The meeting request or cancellation in a message, with its calendar event; null for any other message. */
+  private async eventMessage(nativeId: string): Promise<z.infer<typeof eventMessageSchema>> {
+    const raw = await this.request(
+      "GET",
+      `/me/messages/${encodeURIComponent(nativeId)}?$expand=${encodeURIComponent("microsoft.graph.eventMessage/event")}`,
+      undefined,
+      { Prefer: 'outlook.timezone="UTC"' },
+    );
+    return eventMessageSchema.parse(raw);
+  }
+
+  private async invitationOf(nativeId: string, subject: string): Promise<Invitation | null> {
+    let found: z.infer<typeof eventMessageSchema>;
+    try {
+      found = await this.eventMessage(nativeId);
+    } catch (error) {
+      // Reading the event needs the calendar permission, which accounts added before it was asked for lack.
+      // The message is still an invitation then, so the card shows it; answering explains what is missing.
+      if (error instanceof GraphError && (error.status === 401 || error.status === 403)) {
+        return { uid: nativeId, method: "REQUEST", title: subject, start: null, end: null, allDay: false, location: null, organizer: null, response: null };
+      }
+      logEvent("graph", `could not read the event of an invitation: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+    const method =
+      found.meetingMessageType === "meetingRequest"
+        ? "REQUEST"
+        : found.meetingMessageType === "meetingCancelled"
+          ? "CANCEL"
+          : null;
+    if (!method) return null;
+    const event = found.event;
+    const time = (value: z.infer<typeof eventTimeSchema> | null | undefined): string | null => {
+      if (!value) return null;
+      const iso = value.dateTime.replace(/(\.\d{3})\d+/, "$1");
+      return new Date(`${iso}Z`).toISOString();
+    };
+    const allDay = Boolean(event?.isAllDay);
+    const start = time(event?.start);
+    const end = time(event?.end);
+    const response = { accepted: "accepted", tentativelyAccepted: "tentative", declined: "declined" }[
+      event?.responseStatus?.response ?? ""
+    ] as Invitation["response"] | undefined;
+    return {
+      uid: event?.id ?? nativeId,
+      method,
+      title: event?.subject ?? subject,
+      start: allDay && start ? start.slice(0, 10) : start,
+      end: allDay && end ? end.slice(0, 10) : end,
+      allDay,
+      location: event?.location?.displayName || null,
+      organizer: event?.organizer ? toContact(event.organizer) : null,
+      response: response ?? null,
+    };
+  }
+
+  async respondToInvitation(_folder: MailFolder, nativeId: string, response: InvitationResponse): Promise<void> {
+    const endpoint = { accepted: "accept", tentative: "tentativelyAccept", declined: "decline" }[response];
+    try {
+      const { event } = await this.eventMessage(nativeId);
+      if (!event) throw new Error("This invitation has no event on your calendar to answer.");
+      await this.request("POST", `/me/events/${encodeURIComponent(event.id)}/${endpoint}`, { sendResponse: true });
+    } catch (error) {
+      if (error instanceof GraphError && (error.status === 401 || error.status === 403)) {
+        throw new Error(
+          "MiniMail does not have permission to answer invitations for this account yet. Remove the account and add it again to allow it.",
+        );
+      }
+      throw error;
+    }
+  }
+
+  async attachment(_folder: MailFolder, nativeId: string, attachmentId: string): Promise<AttachmentFile> {
+    const raw = await this.request(
+      "GET",
+      `/me/messages/${encodeURIComponent(nativeId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    );
+    const file = attachmentFileSchema.parse(raw);
+    if (!file.contentBytes) throw new Error("This kind of attachment cannot be downloaded.");
+    return {
+      filename: file.name ?? "attachment",
+      contentType: file.contentType ?? "application/octet-stream",
+      data: Buffer.from(file.contentBytes, "base64"),
+    };
   }
 
   async act(action: MailAction, folder: MailFolder, nativeIds: string[]): Promise<void> {
@@ -455,6 +587,7 @@ export class GraphProvider implements MailProvider {
     extraHeaders: Record<string, string> = {},
   ): Promise<unknown> {
     let response: Response;
+    const started = Date.now();
     for (let attempt = 0; ; attempt += 1) {
       response = await fetch(`${GRAPH}${path}`, {
         method,
@@ -464,15 +597,25 @@ export class GraphProvider implements MailProvider {
           ...extraHeaders,
         },
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-      // A throttled call was not carried out, so any method can go again; a busy server may
-      // have carried it out, so only reads are repeated.
+      // A throttled call was not carried out, so any method can go again; a failing server may
+      // have carried it out, so only reads are repeated. Graph answers a transient backend fault
+      // with a bare 500 `UnknownError`, so that is retried like a 502/503/504.
+      const throttled = response.status === 429;
+      const serverFault = method === "GET" && [500, 502, 503, 504].includes(response.status);
       const retryable =
-        response.status === 429 ||
-        (method === "GET" && (response.status === 503 || response.status === 504));
-      if (!retryable || attempt >= MAX_RETRIES) break;
+        (throttled && attempt < MAX_RETRIES) ||
+        (serverFault &&
+          attempt < MAX_SERVER_FAULT_RETRIES &&
+          Date.now() - started < SERVER_FAULT_BUDGET_MS);
+      if (!retryable) break;
       const seconds = Number(response.headers.get("retry-after"));
       const delay = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 1000 * (attempt + 1);
+      logEvent(
+        "graph",
+        `${method} ${describePath(path)} -> HTTP ${response.status}, retry ${attempt + 1}/${MAX_RETRIES}`,
+      );
       await this.wait(Math.min(delay, MAX_RETRY_WAIT_MS));
     }
 
@@ -481,9 +624,16 @@ export class GraphProvider implements MailProvider {
       const message = z
         .object({ error: z.object({ code: z.string().optional(), message: z.string().optional() }) })
         .safeParse(detail);
-      const text = message.success
-        ? [message.data.error.code, message.data.error.message].filter(Boolean).join(": ")
-        : `HTTP ${response.status}`;
+      const code = message.success ? message.data.error.code : undefined;
+      const reason = message.success ? message.data.error.message : undefined;
+      // Graph's 500 UnknownError arrives with an empty message; keep the status so it can be told apart.
+      const text = reason
+        ? [code, reason].filter(Boolean).join(": ")
+        : `${code ?? "Error"} (HTTP ${response.status})`;
+      logEvent(
+        "graph",
+        `${method} ${describePath(path)} failed: HTTP ${response.status} ${code ?? "no code"}${reason ? `: ${reason}` : ""}`,
+      );
       throw new GraphError(this.explain(response.status, text), response.status);
     }
     if (response.status === 204 || response.status === 202) return undefined;

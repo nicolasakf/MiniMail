@@ -4,7 +4,7 @@ import { toast } from "sonner";
 
 import { FIRST_PAGE, MAIL_WINDOW } from "@shared/mail-window";
 import { dropFolderDuplicates } from "@shared/dashboard";
-import { groupThreads, type Thread } from "@shared/threads";
+import { groupThreads, MOVE_DESTINATION, type Thread } from "@shared/threads";
 import type {
   Account,
   AccountError,
@@ -16,7 +16,7 @@ import type {
 
 import { api } from "@/lib/api";
 import { groupByAccount, mergeAccountRows, mergeErrors } from "@/lib/merge";
-import { applyOptimistic, applyOptimisticKeepingFolders } from "@/lib/optimistic";
+import { applyCategory, applyOptimistic, applyOptimisticKeepingFolders } from "@/lib/optimistic";
 
 /** Every folder whose mail the Inbox list can show, in display order. */
 export const SHOWN_FOLDERS: readonly ShownFolder[] = ["inbox", "archive", "trash", "spam"];
@@ -24,22 +24,30 @@ export const SHOWN_FOLDERS: readonly ShownFolder[] = ["inbox", "archive", "trash
 /** "all" means every account; otherwise an account id. */
 export type AccountScope = "all" | string;
 
-/** How long an archive, trash, spam or delete waits for an Undo before it reaches the server. */
+/** How long an archive, trash or spam waits for an Undo before it reaches the server. */
 const UNDO_WINDOW_MS = 6000;
-/** What the toast says once the action is done, by action. */
+/**
+ * What the toast says once the action is done, by action. Deleting forever has none: it asks
+ * for confirmation first and then happens at once.
+ */
 const UNDOABLE: Partial<Record<MailAction, string>> = {
   archive: "archived",
   trash: "moved to Trash",
   spam: "reported as spam",
-  deleteForever: "deleted forever",
 };
 
-/** An undoable action that is hidden from the list and waiting out its Undo window. */
+/**
+ * An undoable action waiting out its Undo window. Its rows are hidden from the list, except a
+ * move in the Inbox list: that one shows the rows in their new folder (`moveTo`), and they stay
+ * visible whenever that folder is shown.
+ */
 interface PendingAction {
   token: number;
   action: MailAction;
   ids: string[];
   folder: MailFolder;
+  /** The folder the rows show as being in while they wait; unset when they are hidden instead. */
+  moveTo?: MailFolder;
   toastId: string;
   timer: ReturnType<typeof setTimeout>;
   /** True once the request has been sent: it can no longer be undone. */
@@ -69,7 +77,7 @@ function errorText(error: unknown): string {
 }
 
 /** True when a message matches every word of the search query. */
-function matchesQuery(message: MessageSummary, words: string[]): boolean {
+export function matchesQuery(message: MessageSummary, words: string[]): boolean {
   const haystack = [
     message.subject,
     message.from.name,
@@ -265,8 +273,11 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
   messagesRef.current = messages;
   const pending = useRef(new Map<number, PendingAction>());
   const nextToken = useRef(0);
-  /** Ids of messages whose archive / trash / spam / delete is pending: hidden from every list. */
+  /** Ids of messages whose delete (or a move out of a single-folder list) is pending: hidden. */
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
+  /** Messages whose move is pending in the Inbox list, and the folder they are shown in meanwhile. */
+  const [pendingFolders, setPendingFolders] = useState<ReadonlyMap<string, MailFolder>>(new Map());
+  const pendingFoldersRef = useRef<ReadonlyMap<string, MailFolder>>(pendingFolders);
   /**
    * Told how each action ended: an archive / trash / spam / delete once the server took it or
    * it was undone, and any action the server refused. Lets another copy of the mail follow.
@@ -282,7 +293,15 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
     for (const listener of settledListeners.current) listener(outcome, action, ids);
   }, []);
   const syncPendingIds = useCallback(() => {
-    setPendingIds(new Set([...pending.current.values()].flatMap((entry) => entry.ids)));
+    const entries = [...pending.current.values()];
+    setPendingIds(new Set(entries.filter((entry) => !entry.moveTo).flatMap((entry) => entry.ids)));
+    // Oldest first, so the latest move of a message wins.
+    const folders = new Map<string, MailFolder>();
+    for (const entry of entries) {
+      if (entry.moveTo) for (const id of entry.ids) folders.set(id, entry.moveTo);
+    }
+    pendingFoldersRef.current = folders;
+    setPendingFolders(folders);
   }, []);
 
   /** Sends a pending action to the server and, once it answers, drops its rows for good. */
@@ -349,7 +368,18 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
   }, []);
 
   const act = useCallback(
-    async (action: MailAction, ids: string[]): Promise<void> => {
+    async (action: MailAction, requested: string[]): Promise<void> => {
+      // Moving a message to the folder it is already in is a no-op: leave it out, so nothing
+      // is sent, no toast claims it moved, and the row never flickers.
+      const destination = MOVE_DESTINATION[action];
+      let ids = requested;
+      if (destination) {
+        const wanted = new Set(requested);
+        const known = new Map(
+          messagesRef.current.filter((m) => wanted.has(m.id)).map((m) => [m.id, m.folder] as const),
+        );
+        ids = requested.filter((id) => (pendingFoldersRef.current.get(id) ?? known.get(id)) !== destination);
+      }
       if (ids.length === 0) return;
 
       const done = UNDOABLE[action];
@@ -366,6 +396,9 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
           action,
           ids,
           folder,
+          // The Inbox list also shows the other folders' mail: a move there shows the rows in
+          // their new folder. They leave only if that folder is not shown (see `visibleMessages`).
+          moveTo: folder === "inbox" ? destination : undefined,
           toastId,
           sent: false,
           timer: setTimeout(() => void commit(token), UNDO_WINDOW_MS),
@@ -394,19 +427,42 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
     [commit, folder, notifySettled, refresh, syncPendingIds, undoToken],
   );
 
+  /** Files conversations (ids as in `Thread.id`) under a category by hand, or under none (null). */
+  const assignCategory = useCallback(
+    async (threadIds: string[], categoryId: string | null): Promise<void> => {
+      if (threadIds.length === 0) return;
+      setMessages((previous) => applyCategory(previous, new Set(threadIds), categoryId));
+      try {
+        await api.categories.assign(threadIds, categoryId);
+      } catch (error) {
+        toast.error(`Could not change the category: ${errorText(error)}`);
+        void refresh(true);
+      }
+    },
+    [refresh],
+  );
+
   const visibleMessages = useMemo(() => {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-    const shown = pendingIds.size === 0 ? messages : messages.filter((m) => !pendingIds.has(m.id));
+    const hidden = pendingIds.size === 0 ? messages : messages.filter((m) => !pendingIds.has(m.id));
+    const shown =
+      pendingFolders.size === 0
+        ? hidden
+        : hidden.map((m) => {
+            const moved = pendingFolders.get(m.id);
+            return moved ? { ...m, folder: moved } : m;
+          });
     // The Inbox list holds only the folders checked; a message moved elsewhere stays out of sight.
     // Duplicates go first so a message that is in the inbox is not shown again from Archive.
     const inFolders =
       folder === "inbox"
         ? dropFolderDuplicates(shown).filter(
-            (m) => !SHOWN_FOLDERS.includes(m.folder as ShownFolder) || shownKey.split(",").includes(m.folder),
+            (m) =>
+              !m.sorting && (!SHOWN_FOLDERS.includes(m.folder as ShownFolder) || shownKey.split(",").includes(m.folder)),
           )
         : shown;
     return words.length === 0 ? inFolders : inFolders.filter((m) => matchesQuery(m, words));
-  }, [messages, query, pendingIds, folder, shownKey]);
+  }, [messages, query, pendingIds, pendingFolders, folder, shownKey]);
 
   const threads: Thread[] = useMemo(() => groupThreads(visibleMessages), [visibleMessages]);
 
@@ -426,8 +482,9 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
     setQuery,
     refresh,
     act,
+    assignCategory,
     undo,
-    /** Ids hidden while their archive / trash / spam / delete waits out its Undo window. */
+    /** Ids hidden while their delete (or a move out of a single-folder list) waits out its Undo window. */
     pendingIds,
     onSettled,
   };

@@ -525,6 +525,64 @@ describe("Categorizer", () => {
     expect(store.classification("a1:1")?.categoryId).toBe("newsletters");
   });
 
+  describe("manual categories", () => {
+    it("keeps a category or no category the user chose when mail is sorted again", async () => {
+      categorizer.apply([msg({ id: "1" }), msg({ id: "2" }), msg({ id: "3" })], "inbox");
+      await settle();
+      categorizer.assign(["a1:1"], "notifications");
+      categorizer.assign(["a1:2"], null);
+      classify.mockClear();
+
+      categorizer.reclassify();
+      const result = categorizer.apply([msg({ id: "1" }), msg({ id: "2" }), msg({ id: "3" })], "inbox");
+      await settle();
+
+      expect(result.map((m) => m.categoryId)).toEqual(["notifications", null, null]);
+      // Only the conversation nobody filed by hand goes back to the model.
+      expect(classify).toHaveBeenCalledTimes(1);
+      expect(store.classification("a1:1")).toMatchObject({ categoryId: "notifications", manual: true });
+      expect(store.classification("a1:2")).toMatchObject({ categoryId: null, manual: true });
+      expect(store.classification("a1:3")?.categoryId).toBe("newsletters");
+    });
+
+    it("is not redone by a sort since a date either", async () => {
+      categorizer.apply([msg({ id: "1" })], "inbox");
+      await settle();
+      categorizer.assign(["a1:1"], "notifications");
+      classify.mockClear();
+
+      vi.advanceTimersByTime(60_000);
+      categorizer.reclassify(new Date(2026, 10, 1).getTime());
+      categorizer.apply([msg({ id: "1" })], "inbox");
+      await settle();
+
+      expect(classify).not.toHaveBeenCalled();
+      expect(store.classification("a1:1")).toMatchObject({ categoryId: "notifications", manual: true });
+    });
+
+    it("beats an answer that was still in flight", async () => {
+      let release: (value: { categoryId: string; probability: number }) => void = () => undefined;
+      classify.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+      categorizer.apply([msg({ id: "1" })], "inbox");
+      categorizer.assign(["a1:1"], null);
+      release({ categoryId: "newsletters", probability: 1 });
+      await settle();
+      expect(store.classification("a1:1")).toMatchObject({ categoryId: null, manual: true });
+    });
+
+    it("does not count hand-filed conversations in what a sort would send to the model", () => {
+      categorizer.assign(["a1:1"], null);
+      expect(categorizer.countToSort([msg({ id: "1" }), msg({ id: "2" })], null)).toBe(1);
+    });
+
+    it("rejects a category that does not exist and returns a deleted one's mail to the classifier", async () => {
+      expect(() => categorizer.assign(["a1:1"], "nope")).toThrow();
+      categorizer.assign(["a1:1"], "notifications");
+      categorizer.saveCategories(store.categories().filter((c) => c.id !== "notifications"));
+      expect(store.classification("a1:1")).toBeUndefined();
+    });
+  });
+
   it("limits concurrent calls", async () => {
     let active = 0;
     let peak = 0;

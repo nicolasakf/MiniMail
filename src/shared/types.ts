@@ -182,12 +182,39 @@ export interface MessageSummary {
   signal: SmartCategory;
   /** The user's category for this conversation, or null when none applies. Set by the main process. */
   categoryId: string | null;
+  /**
+   * True while the model has not yet filed this new conversation. The Inbox list leaves such
+   * mail out (the rail shows a sorting spinner instead) so it never appears and then jumps.
+   */
+  sorting?: boolean;
 }
 
 export interface AttachmentInfo {
+  /** Names the file to the provider (an IMAP list position, a Graph attachment id); pass it back to `mail.openAttachment`. */
+  id: string;
   filename: string;
   contentType: string;
   size: number;
+}
+
+/** How the user answers an invitation. */
+export type InvitationResponse = "accepted" | "tentative" | "declined";
+
+/** The meeting a calendar invitation (or its cancellation) in a message is about. */
+export interface Invitation {
+  /** The event's UID; the same across updates of one meeting. */
+  uid: string;
+  /** REQUEST asks for an answer; CANCEL says the organizer called the meeting off. */
+  method: "REQUEST" | "CANCEL";
+  title: string;
+  /** An ISO timestamp, or `YYYY-MM-DD` when `allDay`. Null when the invitation gives none. */
+  start: string | null;
+  end: string | null;
+  allDay: boolean;
+  location: string | null;
+  organizer: Contact | null;
+  /** The user's answer so far, or null when they have not answered. */
+  response: InvitationResponse | null;
 }
 
 export interface MessageDetail extends MessageSummary {
@@ -199,6 +226,8 @@ export interface MessageDetail extends MessageSummary {
   html: string | null;
   text: string | null;
   attachments: AttachmentInfo[];
+  /** The meeting this message invites to or cancels, if it is a calendar invitation. */
+  invitation?: Invitation | null;
 }
 
 export type MailAction =

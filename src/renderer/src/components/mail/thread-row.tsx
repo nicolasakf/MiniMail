@@ -1,24 +1,17 @@
-import { memo, useRef, useState } from "react";
+import { memo, useRef, useState, type CSSProperties } from "react";
 
-import { Archive, ChevronDown, Inbox, Paperclip, ShieldAlert, Trash2, type LucideIcon } from "lucide-react";
+import { Archive, Inbox, Paperclip, ShieldAlert, Trash2, type LucideIcon } from "lucide-react";
 
 import { accountDetail } from "@shared/accounts";
 import { logoRequestFor } from "@shared/logos";
 import { conversationFolder, MOVE_FOLDERS, type MoveFolder, type Thread } from "@shared/threads";
 import type { Account, MailAction, MailFolder } from "@shared/types";
 
-import { Checkbox } from "@/components/ui/checkbox";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useAppearance } from "@/lib/appearance";
 import { accountFor, formatListTime, normalizeSubject, threadSenderLabel } from "@/lib/format";
 import { folderStyle } from "@/lib/folder-style";
-import { actionsForThread } from "@/lib/row-actions";
+import { rowHoverActions } from "@/lib/row-actions";
 import { cn } from "@/lib/utils";
 
 import { AccountMark } from "./account-mark";
@@ -26,13 +19,23 @@ import { CodeChip } from "./code-chip";
 import { ReadToggle } from "./read-toggle";
 import { SenderAvatar } from "./sender-avatar";
 
+/** Keys held during a click on a row. */
+export interface SelectModifiers {
+  range: boolean;
+  toggle: boolean;
+}
+
 interface ThreadRowProps {
   thread: Thread;
   folder: MailFolder;
   accounts: readonly Account[];
+  /** The row with the cursor (keyboard focus, last click). */
   selected: boolean;
-  selectMode: boolean;
+  /** Part of a multi-selection (shift-click, shift+arrows, ⌘-click). */
   checked: boolean;
+  /** The row above / below is highlighted too: the corners between them stay square. */
+  joinTop?: boolean;
+  joinBottom?: boolean;
   /** Show a dot for the owning account (only useful with several accounts). */
   showAccountDot: boolean;
   /**
@@ -40,73 +43,37 @@ interface ThreadRowProps {
    * button names the folder the conversation is in and moves it to another.
    */
   showFolder?: boolean;
+  /** Double-click: opens the conversation. */
   onOpen: (thread: Thread) => void;
-  onSelect: (key: string) => void;
+  /** Click: selects the row; shift extends from the anchor, ⌘/Ctrl adds or removes it. */
+  onSelect: (key: string, modifiers?: SelectModifiers) => void;
   rowKey: string;
-  onToggleChecked: (threadId: string) => void;
   onAction: (action: MailAction, thread: Thread) => void;
   /** Right-click: opens the row's menu at the pointer. */
   onMenu: (key: string, x: number, y: number) => void;
 }
 
-const FOLDER_INFO: Record<MoveFolder, { icon: LucideIcon; label: string; action: MailAction }> = {
-  inbox: { icon: Inbox, label: "Inbox", action: "unarchive" },
-  archive: { icon: Archive, label: "Archive", action: "archive" },
-  spam: { icon: ShieldAlert, label: "Spam", action: "spam" },
-  trash: { icon: Trash2, label: "Trash", action: "trash" },
+const FOLDER_INFO: Record<MoveFolder, { icon: LucideIcon; label: string }> = {
+  inbox: { icon: Inbox, label: "Inbox" },
+  archive: { icon: Archive, label: "Archive" },
+  spam: { icon: ShieldAlert, label: "Spam" },
+  trash: { icon: Trash2, label: "Trash" },
 };
 
 function isMoveFolder(folder: MailFolder): folder is MoveFolder {
   return (MOVE_FOLDERS as readonly MailFolder[]).includes(folder);
 }
 
-/** Names the conversation's folder; opens a "Move to…" menu of the others. */
-function MoveMenu({ thread, onAction }: { thread: Thread; onAction: (action: MailAction, thread: Thread) => void }) {
-  const current = conversationFolder(thread);
-  const info = isMoveFolder(current) ? FOLDER_INFO[current] : null;
+/** Names the folder a conversation is in (lists that mix folders). */
+function FolderBadge({ folder }: { folder: MailFolder }) {
+  const info = isMoveFolder(folder) ? FOLDER_INFO[folder] : null;
   const Icon = info?.icon ?? Inbox;
   return (
-    // Events inside the menu (portaled, but still inside this React tree) must not reach the row.
-    <span
-      className="flex"
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => event.stopPropagation()}
-      onContextMenu={(event) => event.stopPropagation()}
-    >
-      <DropdownMenu modal={false}>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={`In ${info?.label ?? current}. Move to…`}
-            className="corner-squircle flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground"
-          >
-            <Icon className="size-3.5" />
-            {info?.label ?? current}
-            <ChevronDown className="size-3 opacity-70" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-40">
-          <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Move to…</DropdownMenuLabel>
-          {MOVE_FOLDERS.filter((folder) => folder !== current).map((folder) => {
-            const { icon: TargetIcon, label, action } = FOLDER_INFO[folder];
-            return (
-              <DropdownMenuItem key={folder} onSelect={() => onAction(action, thread)}>
-                <TargetIcon className="mr-2 size-4" />
-                {label}
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
+    <span className="flex h-6 items-center gap-1 px-1.5 text-[11px] font-medium text-muted-foreground">
+      <Icon className="size-3.5" />
+      {info?.label ?? folder}
     </span>
   );
-}
-
-/** Sort key that puts pin ahead of archive; every other action keeps its place (sort is stable). */
-function hoverRank(action: MailAction): number {
-  if (action === "pin" || action === "unpin") return 0;
-  if (action === "archive" || action === "unarchive") return 1;
-  return 2;
 }
 
 /** One conversation in the list: avatar, sender, subject, preview and time. */
@@ -115,18 +82,19 @@ export const ThreadRow = memo(function ThreadRow({
   folder,
   accounts,
   selected,
-  selectMode,
   checked,
+  joinTop = false,
+  joinBottom = false,
   showAccountDot,
   showFolder = false,
   onOpen,
   onSelect,
   rowKey,
-  onToggleChecked,
   onAction,
   onMenu,
 }: ThreadRowProps) {
   const [hovered, setHovered] = useState(false);
+  const { showPreviews } = useAppearance();
   /**
    * A press that started on this row. Picking from the Move menu closes it under the pointer,
    * and the browser then delivers that click to whichever row is below: only a click whose
@@ -136,9 +104,18 @@ export const ThreadRow = memo(function ThreadRow({
   const { latest } = thread;
   // The Inbox list can also show Archive, Trash and Spam mail: each conversation then acts and
   // is marked by the folder it is actually in.
-  const rowFolder = folder === "inbox" ? conversationFolder(thread) : folder;
+  const rowFolder = folder === "inbox" || folder === "pinned" ? conversationFolder(thread) : folder;
   const rowStyle = folder === "inbox" && !showFolder ? folderStyle(rowFolder) : undefined;
   const account = accountFor(accounts, thread.accountId);
+  const actions = hovered ? rowHoverActions(rowFolder, thread) : [];
+  // Each action button is 24px wide with a 2px gap; the fade starts 20px before the first one.
+  const actionsWidth = actions.length * 26 + 4;
+  const hoverFade: CSSProperties | undefined = hovered
+    ? (() => {
+        const mask = `linear-gradient(to right, black calc(100% - ${actionsWidth + 20}px), transparent calc(100% - ${actionsWidth}px))`;
+        return { maskImage: mask, WebkitMaskImage: mask };
+      })()
+    : undefined;
   const avatarContact =
     folder === "sent" || folder === "drafts" ? (latest.to[0] ?? latest.from) : latest.from;
 
@@ -148,9 +125,13 @@ export const ThreadRow = memo(function ThreadRow({
       data-row-key={rowKey}
       aria-selected={selected}
       className={cn(
-        // Lists hold up to MAIL_WINDOW conversations per account: rows off screen skip layout and paint.
-        "group relative mx-2 flex h-10 cursor-default items-center gap-2.5 rounded-md px-3 text-[13px] [contain-intrinsic-size:auto_40px] [content-visibility:auto]",
-        selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
+        "group relative mx-2 flex select-none h-10 cursor-default items-center gap-2.5 rounded-md px-3 text-[13px]",
+        selected || checked
+          ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25"
+          : "hover:bg-accent/50",
+        // A run of highlighted rows reads as one block: only its first and last rows are rounded.
+        (selected || checked) && joinTop && "rounded-t-none",
+        (selected || checked) && joinBottom && "rounded-b-none",
       )}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -161,31 +142,25 @@ export const ThreadRow = memo(function ThreadRow({
       onPointerDown={() => {
         pressed.current = true;
       }}
-      onClick={() => {
+      onClick={(event) => {
         const started = pressed.current;
         pressed.current = false;
         if (showFolder && !started) return;
-        onSelect(rowKey);
-        if (selectMode) onToggleChecked(thread.id);
-        else onOpen(thread);
+        onSelect(rowKey, { range: event.shiftKey, toggle: event.metaKey || event.ctrlKey });
+      }}
+      onDoubleClick={(event) => {
+        // A double-click on a button (read dot, hover actions, Move menu) is not a request to open.
+        if ((event.target as HTMLElement).closest("button, [role=menuitem]")) return;
+        onOpen(thread);
       }}
     >
       <span className="-mx-1 flex size-6 shrink-0 items-center justify-center">
-        {selectMode ? (
-          <Checkbox
-            checked={checked}
-            aria-label="Select conversation"
-            onClick={(event) => event.stopPropagation()}
-            onCheckedChange={() => onToggleChecked(thread.id)}
-          />
-        ) : (
-          <ReadToggle
-            unread={thread.unread}
-            noun="conversation"
-            hint="U"
-            onToggle={() => onAction(thread.unread ? "markRead" : "markUnread", thread)}
-          />
-        )}
+        <ReadToggle
+          unread={thread.unread}
+          noun="conversation"
+          hint="U"
+          onToggle={() => onAction(thread.unread ? "markRead" : "markUnread", thread)}
+        />
       </span>
 
       <SenderAvatar
@@ -205,7 +180,11 @@ export const ThreadRow = memo(function ThreadRow({
         )}
       </span>
 
-      <div className="flex min-w-0 flex-1 items-center gap-2">
+      <div
+        className="flex min-w-0 flex-1 items-center gap-2"
+        // Under the hover actions the text fades out instead of running behind the buttons.
+        style={hoverFade}
+      >
         <span className={cn("shrink truncate", thread.unread ? "font-semibold" : "font-medium")}>
           {normalizeSubject(latest.subject)}
         </span>
@@ -216,51 +195,53 @@ export const ThreadRow = memo(function ThreadRow({
           </span>
         )}
         {latest.hasAttachments && <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />}
-        <span className="min-w-0 flex-1 truncate text-muted-foreground">{latest.snippet}</span>
+        {showPreviews ? (
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">{latest.snippet}</span>
+        ) : (
+          <span className="flex-1" />
+        )}
       </div>
 
       <div
         className={cn("relative flex h-full shrink-0 items-center justify-end", showFolder ? "w-44" : "w-24")}
       >
-        {hovered && !selectMode && !showFolder ? (
-          <div className="flex items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
-            {actionsForThread(rowFolder, thread)
-              .filter(({ action }) => action !== "markRead" && action !== "markUnread")
-              // Pin / unpin comes before archive / move to inbox in the row's hover buttons.
-              .sort((a, b) => hoverRank(a.action) - hoverRank(b.action))
-              .slice(0, 4)
-              .map(({ action, label, icon: Icon, hint }) => (
-                <Tooltip key={action}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={label}
-                      className="corner-squircle flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                      onClick={() => onAction(action, thread)}
-                    >
-                      <Icon className="size-3.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {label}
-                    {hint ? <span className="ml-2 text-muted-foreground">{hint}</span> : null}
-                  </TooltipContent>
-                </Tooltip>
-              ))}
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            {showFolder && <MoveMenu thread={thread} onAction={onAction} />}
-            {showAccountDot && account && (
-              <span title={accountDetail(account)} className="flex">
-                <AccountMark account={account} size={16} />
-              </span>
-            )}
-            <span className="text-[11px] font-semibold text-muted-foreground">
-              {formatListTime(latest.date)}
-            </span>
+        {/* Hover actions sit just left of the time / account mark, over the end of the preview. */}
+        {hovered && (
+          <div
+            className="absolute right-full top-0 flex h-full items-center gap-0.5 pr-1"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {actions.map(({ action, label, icon: Icon, hint }) => (
+              <Tooltip key={action}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={label}
+                    className="corner-squircle flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    onClick={() => onAction(action, thread)}
+                  >
+                    <Icon className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {label}
+                  {hint ? <span className="ml-2 text-muted-foreground">{hint}</span> : null}
+                </TooltipContent>
+              </Tooltip>
+            ))}
           </div>
         )}
+        <div className="flex items-center gap-2">
+          {showFolder && <FolderBadge folder={rowFolder} />}
+          {showAccountDot && account && (
+            <span title={accountDetail(account)} className="flex">
+              <AccountMark account={account} size={16} />
+            </span>
+          )}
+          <span className="text-[11px] font-semibold text-muted-foreground">
+            {formatListTime(latest.date)}
+          </span>
+        </div>
       </div>
     </div>
   );

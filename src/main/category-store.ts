@@ -37,6 +37,8 @@ export interface StoredClassification {
   probability: number;
   /** Epoch milliseconds, used to drop the oldest entries first. */
   at: number;
+  /** Chosen by the user: sorting again never replaces it, and it is the last to be dropped. */
+  manual?: boolean;
 }
 
 const MAX_CLASSIFICATIONS = 5000;
@@ -49,7 +51,12 @@ const fileSchema = z.object({
   offered: z.array(z.string()).optional(),
   classifications: z.record(
     z.string(),
-    z.object({ categoryId: z.string().nullable(), probability: z.number(), at: z.number() }),
+    z.object({
+      categoryId: z.string().nullable(),
+      probability: z.number(),
+      at: z.number(),
+      manual: z.boolean().optional(),
+    }),
   ),
 });
 
@@ -89,17 +96,33 @@ export class CategoryStore {
   setClassification(key: string, value: StoredClassification): void {
     this.results.set(key, value);
     if (this.results.size > MAX_CLASSIFICATIONS) {
+      // The user's own choices go last: they cannot be recomputed.
       const oldest = [...this.results.entries()]
-        .sort((a, b) => a[1].at - b[1].at)
+        .sort((a, b) => Number(a[1].manual === true) - Number(b[1].manual === true) || a[1].at - b[1].at)
         .slice(0, this.results.size - MAX_CLASSIFICATIONS);
       for (const [oldKey] of oldest) this.results.delete(oldKey);
     }
     this.saveSoon();
   }
 
+  /** Forgets the classifier's answers; what the user chose by hand stays. */
   clearClassifications(): void {
-    this.results.clear();
+    for (const [key, value] of [...this.results]) {
+      if (!value.manual) this.results.delete(key);
+    }
     this.saveNow();
+  }
+
+  /** Forgets manual choices of categories that no longer exist, so those conversations are sorted again. */
+  dropManualNotIn(categoryIds: ReadonlySet<string>): void {
+    let changed = false;
+    for (const [key, value] of [...this.results]) {
+      if (value.manual && value.categoryId !== null && !categoryIds.has(value.categoryId)) {
+        this.results.delete(key);
+        changed = true;
+      }
+    }
+    if (changed) this.saveNow();
   }
 
   /** Writes pending changes now; called on quit. */

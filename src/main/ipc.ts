@@ -7,6 +7,7 @@ import {
   addAccountSchema,
   aliasSchema,
   avatarSchema,
+  assignCategorySchema,
   categoryListSchema,
   codeIdsSchema,
   codeModelSchema,
@@ -16,21 +17,27 @@ import {
   gatewayKeySchema,
   reclassifySchema,
   idsSchema,
+  invitationResponseSchema,
+  attachmentRefSchema,
   listQuerySchema,
   logoRequestsSchema,
   logoSettingsSchema,
+  notificationSettingsSchema,
   savedDraftSchema,
   uiPrefsPatchSchema,
 } from "@shared/schemas";
 import type { MailAction } from "@shared/types";
 
 import type { AiSettingsStore } from "./ai-settings";
+import type { AttachmentFiles } from "./attachment-files";
 import type { Categorizer } from "./categorizer";
 import type { DraftStore } from "./draft-store";
 import type { UiPrefsStore } from "./ui-prefs";
 import type { VerificationCodes } from "./verification-codes";
 import type { LogoService } from "./logos/logo-service";
 import type { LogoSettingsStore } from "./logos/logo-settings";
+import type { NotificationSettingsStore } from "./notification-settings";
+import type { Notifier } from "./notifier";
 import type { TrustedSenders } from "./trusted-senders";
 import { oauthCapabilities, type OAuthConfig } from "./oauth";
 import type { MailService } from "./service";
@@ -47,6 +54,9 @@ const senderEmail = z.string().email().max(320);
 
 export function registerIpc(options: {
   service: MailService;
+  attachmentFiles: AttachmentFiles;
+  notifier: Notifier;
+  notificationSettings: NotificationSettingsStore;
   categorizer: Categorizer;
   aiSettings: AiSettingsStore;
   codes: VerificationCodes;
@@ -59,7 +69,7 @@ export function registerIpc(options: {
   rendererUrl: string | undefined;
   openExternal: (url: string) => Promise<void>;
 }): void {
-  const { service, categorizer, aiSettings, codes, logos, logoSettings, trusted, drafts, prefs, oauthConfig, rendererUrl, openExternal } = options;
+  const { service, attachmentFiles, notifier, notificationSettings, categorizer, aiSettings, codes, logos, logoSettings, trusted, drafts, prefs, oauthConfig, rendererUrl, openExternal } = options;
 
   const handle = <Args extends unknown[], Result>(
     channel: string,
@@ -84,10 +94,22 @@ export function registerIpc(options: {
 
   handle(IPC.mailList, (query: unknown) => service.list(listQuerySchema.parse(query)));
   handle(IPC.mailGet, (ids: unknown) => service.get(idsSchema.parse(ids)));
-  handle(IPC.mailAct, (action: unknown, ids: unknown) =>
-    service.act(actionSchema.parse(action) as MailAction, idsSchema.parse(ids)),
-  );
+  handle(IPC.mailAct, async (action: unknown, ids: unknown) => {
+    await service.act(actionSchema.parse(action) as MailAction, idsSchema.parse(ids));
+    notifier.userMoved(); // Mail the user filed away must not announce itself in its new folder.
+  });
   handle(IPC.mailSend, (draft: unknown) => service.send(draftSchema.parse(draft)));
+  handle(IPC.mailOpenAttachment, (messageId: unknown, attachmentId: unknown) => {
+    const ref = attachmentRefSchema.parse({ messageId, attachmentId });
+    return service.attachment(ref.messageId, ref.attachmentId).then((file) => attachmentFiles.open(file));
+  });
+  handle(IPC.mailSaveAttachment, (messageId: unknown, attachmentId: unknown) => {
+    const ref = attachmentRefSchema.parse({ messageId, attachmentId });
+    return service.attachment(ref.messageId, ref.attachmentId).then((file) => attachmentFiles.save(file));
+  });
+  handle(IPC.mailRespond, (messageId: unknown, response: unknown) =>
+    service.respondToInvitation(z.string().min(1).parse(messageId), invitationResponseSchema.parse(response)),
+  );
   handle(IPC.mailContacts, () => service.contacts());
   handle(IPC.mailVerificationCodes, (ids: unknown) => codes.get(codeIdsSchema.parse(ids)));
   handle(IPC.categoriesGet, () => categorizer.state());
@@ -115,6 +137,10 @@ export function registerIpc(options: {
     const since = reclassifySchema.parse(options)?.since;
     return service.sortCounts(since === undefined ? null : Date.parse(since));
   });
+  handle(IPC.categoriesAssign, (request: unknown) => {
+    const { threads, categoryId } = assignCategorySchema.parse(request);
+    categorizer.assign(threads, categoryId);
+  });
   handle(IPC.sendersTrusted, () => trusted.list());
   handle(IPC.sendersTrust, (email: unknown) => trusted.add(senderEmail.parse(email)));
   handle(IPC.sendersUntrust, (email: unknown) => trusted.remove(senderEmail.parse(email)));
@@ -126,5 +152,12 @@ export function registerIpc(options: {
   handle(IPC.logosGet, (requests: unknown) => logos.get(logoRequestsSchema.parse(requests)));
   handle(IPC.logosSettings, () => logoSettings.get());
   handle(IPC.logosSetSettings, (settings: unknown) => logoSettings.set(logoSettingsSchema.parse(settings)));
+  handle(IPC.notificationsGet, () => notificationSettings.get());
+  handle(IPC.notificationsSet, (settings: unknown) => {
+    const saved = notificationSettings.set(notificationSettingsSchema.parse(settings));
+    void notifier.check(true); // The Dock badge and what counts as new follow the change at once.
+    return saved;
+  });
+  handle(IPC.notificationsTest, () => notifier.test());
   handle(IPC.openExternal, (url: unknown) => openExternal(z.string().parse(url)));
 }

@@ -46,6 +46,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
           toast:
             "corner-squircle group toast group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
           description: "group-[.toast]:text-muted-foreground",
+          error:
+            // A red wash over the solid toast background, so the list never shows through.
+            "group-[.toaster]:border-red-500/40 group-[.toaster]:bg-[linear-gradient(rgb(239_68_68/0.1),rgb(239_68_68/0.1))]",
+          icon: "group-data-[type=error]:text-red-400",
           actionButton:
             "corner-squircle rounded-md group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
           cancelButton:

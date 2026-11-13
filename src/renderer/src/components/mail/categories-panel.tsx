@@ -17,13 +17,6 @@ import { CODE_MODEL_PATTERN, DEFAULT_CODE_MODEL } from "@shared/verification-cod
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ColorPicker } from "@/components/ui/color-picker";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
@@ -31,6 +24,8 @@ import { hexToHue, hslToHex } from "@/lib/color";
 import { sortMailAgain } from "@/lib/sort-progress";
 import { retryMissingCodes } from "@/lib/verification-codes";
 import { cn } from "@/lib/utils";
+
+import { SettingsPageHeader } from "../settings/fields";
 
 import { CategoryIcon } from "./category-icon";
 import { IconPicker } from "./icon-picker";
@@ -481,9 +476,7 @@ function CategoryCard({
   );
 }
 
-interface CategoriesDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+interface CategoriesPanelProps {
   categories: readonly Category[];
   ai: AiStatus | null;
   /** Receives the new state after a save, so the list and filters update right away. */
@@ -491,21 +484,11 @@ interface CategoriesDialogProps {
 }
 
 /** Create, rename, delete and redefine categories, and connect the AI that sorts mail into them. */
-export function CategoriesDialog({ open, onOpenChange, categories, ai, onState }: CategoriesDialogProps) {
-  const [draft, setDraft] = useState<Category[]>([]);
+export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProps) {
+  const [draft, setDraft] = useState<Category[]>(() => categories.map((category) => ({ ...category })));
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
-
-  // Each opening starts from what is saved, never from an abandoned edit.
-  useEffect(() => {
-    if (open) {
-      setDraft(categories.map((category) => ({ ...category })));
-      setEditingId(null);
-      setDragId(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
 
   const problems = useMemo(() => categoryProblems(draft), [draft]);
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(categories), [draft, categories]);
@@ -552,7 +535,7 @@ export function CategoriesDialog({ open, onOpenChange, categories, ai, onState }
         return before !== undefined && before.criteria.trim() !== category.criteria.trim();
       });
       onState(await api.categories.save(draft));
-      onOpenChange(false);
+      setEditingId(null);
       toast.success("Categories saved", {
         description:
           criteriaChanged && ai?.configured
@@ -571,17 +554,13 @@ export function CategoriesDialog({ open, onOpenChange, categories, ai, onState }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl gap-4">
-        <DialogHeader>
-          <DialogTitle>Categories</DialogTitle>
-          <DialogDescription>
-            Every new conversation goes into the category whose criteria fit it best, or stays a normal
-            conversation when none does.
-          </DialogDescription>
-        </DialogHeader>
+    <div className="flex max-w-2xl flex-col gap-4 p-6">
+      <SettingsPageHeader
+        title="Categories"
+        description="Every new conversation goes into the category whose criteria fit it best, or stays a normal conversation when none does."
+      />
 
-        <div className="max-h-[62vh] space-y-4 overflow-y-auto pr-1">
+        <div className="space-y-4">
           <AiSection ai={ai} onState={onState} />
 
           <section className="space-y-3" aria-label="Category list">
@@ -649,8 +628,16 @@ export function CategoriesDialog({ open, onOpenChange, categories, ai, onState }
             <span />
           )}
           <div className="flex gap-2">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
-              Cancel
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={!dirty || saving}
+              onClick={() => {
+                setDraft(categories.map((category) => ({ ...category })));
+                setEditingId(null);
+              }}
+            >
+              Revert
             </Button>
             <Button type="button" onClick={() => void save()} disabled={!dirty || problems.length > 0 || saving}>
               {saving && <Loader2 className="animate-spin" />}
@@ -658,7 +645,6 @@ export function CategoriesDialog({ open, onOpenChange, categories, ai, onState }
             </Button>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+    </div>
   );
 }

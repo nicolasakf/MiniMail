@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MAIL_WINDOW } from "@shared/mail-window";
+import { MOVE_DESTINATION } from "@shared/threads";
 import type { AccountError, MailAction, MailFolder, MessageSummary } from "@shared/types";
 
 import { api } from "@/lib/api";
@@ -8,14 +9,6 @@ import { applyOptimistic } from "@/lib/optimistic";
 
 /** Every folder received mail can be in: the same tabs the rail offers. */
 export const DASHBOARD_FOLDERS: readonly MailFolder[] = ["inbox", "archive", "spam", "trash"];
-
-/** Where each move action puts a message. */
-const MOVED_TO: Partial<Record<MailAction, MailFolder>> = {
-  archive: "archive",
-  unarchive: "inbox",
-  spam: "spam",
-  trash: "trash",
-};
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -113,7 +106,7 @@ export function useDashboardMail(accountCount: number, active: boolean) {
     const idSet = new Set(ids);
     setMessages((previous) => {
       // Every folder it can move to is loaded: the message changes folder instead of leaving.
-      const to = MOVED_TO[action];
+      const to = MOVE_DESTINATION[action];
       if (to) return previous.map((m) => (idSet.has(m.id) ? { ...m, folder: to } : m));
       return applyOptimistic(previous, action, idSet, "inbox");
     });
