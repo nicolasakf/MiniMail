@@ -1,4 +1,5 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { HOVER_ON_TINT } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 
 interface ReadToggleProps {
@@ -24,7 +25,7 @@ export function ReadToggle({ unread, noun, onToggle, hint, all = false }: ReadTo
         <button
           type="button"
           aria-label={`${label} (${noun})`}
-          className="group/read -mx-1 flex size-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-accent"
+          className={cn("group/read -mx-1 flex size-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-accent", HOVER_ON_TINT)}
           onClick={(event) => {
             event.stopPropagation();
             onToggle();

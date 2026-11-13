@@ -12,6 +12,7 @@ import { useAppearance } from "@/lib/appearance";
 import { accountFor, formatListTime, normalizeSubject, threadSenderLabel } from "@/lib/format";
 import { folderStyle } from "@/lib/folder-style";
 import { rowHoverActions } from "@/lib/row-actions";
+import { HOVER_ON_TINT } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 
 import { AccountMark } from "./account-mark";
@@ -132,7 +133,7 @@ export const ThreadRow = memo(function ThreadRow({
         <button
           type="button"
           aria-label={label}
-          className="corner-squircle flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className={cn("corner-squircle flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground", HOVER_ON_TINT)}
           onClick={() => onAction(action, thread)}
         >
           <Icon className="size-3.5" />
@@ -162,6 +163,7 @@ export const ThreadRow = memo(function ThreadRow({
       role="row"
       data-row-key={rowKey}
       aria-selected={selected}
+      data-tinted={selected || checked || undefined}
       className={cn(
         "group relative mx-2 flex select-none cursor-default gap-2.5 rounded-md px-3 text-[13px]",
         compact ? "items-center py-2" : "h-10 items-center",
@@ -171,6 +173,8 @@ export const ThreadRow = memo(function ThreadRow({
         // A run of highlighted rows reads as one block: only its first and last rows are rounded.
         (selected || checked) && joinTop && "rounded-t-none",
         (selected || checked) && joinBottom && "rounded-b-none",
+        // The cursor row (where the arrows are) gets an outline, like the focused sender.
+        selected && "ring-1 ring-inset ring-sidebar-primary/60",
       )}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}

@@ -10,6 +10,7 @@ import {
 } from "@shared/focus-list";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { HOVER_ON_TINT } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 
 import { CategoryIcon } from "./category-icon";
@@ -106,6 +107,7 @@ export const GroupRow = memo(function GroupRow({
         role="row"
         data-row-key={group.key}
         aria-selected={selected}
+        data-tinted={selected || undefined}
         className={cn(
           "group relative mx-2 flex h-9 cursor-default items-center gap-2.5 rounded-md px-3 text-[13px]",
           selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
@@ -148,6 +150,7 @@ export const GroupRow = memo(function GroupRow({
       role="row"
       data-row-key={group.key}
       aria-selected={selected}
+      data-tinted={selected || undefined}
       className={cn(
         "group corner-squircle relative mx-2 flex h-[52px] cursor-default items-center gap-3 rounded-lg border border-border px-3 text-sm",
         selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
@@ -189,7 +192,7 @@ export const GroupRow = memo(function GroupRow({
             <button
               type="button"
               title={chip.count > 1 ? `Open the latest email from ${chip.name}` : `Open email from ${chip.name}`}
-              className="inline-flex h-7 max-w-full shrink-0 cursor-default items-center gap-1.5 rounded-md px-1.5 outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+              className={cn("inline-flex h-7 max-w-full shrink-0 cursor-default items-center gap-1.5 rounded-md px-1.5 outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring", HOVER_ON_TINT)}
               onClick={(event) => {
                 // Opens this email only; the row's own click would open the whole category.
                 event.stopPropagation();
@@ -255,6 +258,7 @@ export const GroupCard = memo(function GroupCard({
       role="row"
       data-row-key={group.key}
       aria-selected={selected}
+      data-tinted={selected || undefined}
       className={cn(
         "group corner-squircle relative flex min-w-0 cursor-default flex-col rounded-xl border pb-1.5 text-sm transition-colors",
         selected
@@ -275,7 +279,7 @@ export const GroupCard = memo(function GroupCard({
           <button
             type="button"
             aria-label={`${readLabel} (${group.label.toLowerCase()})`}
-            className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full text-muted-foreground opacity-0 outline-none transition-[color,background-color,opacity] hover:bg-accent hover:text-unread focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+            className={cn("absolute right-2 top-2 flex size-7 items-center justify-center rounded-full text-muted-foreground opacity-0 outline-none transition-[color,background-color,opacity] hover:bg-accent hover:text-unread focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100", HOVER_ON_TINT)}
             onClick={(event) => {
               event.stopPropagation();
               onToggleRead(group.kind, group.hasUnread);
@@ -304,7 +308,7 @@ export const GroupCard = memo(function GroupCard({
             <button
               type="button"
               title={chip.count > 1 ? `Open the latest email from ${chip.name}` : `Open email from ${chip.name}`}
-              className="flex h-7 min-w-0 flex-1 cursor-default items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+              className={cn("flex h-7 min-w-0 flex-1 cursor-default items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring", HOVER_ON_TINT)}
               onClick={(event) => {
                 // Opens this email only; the card's own click would open the whole category.
                 event.stopPropagation();
