@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
 
-import { imapSettingsSchema, type ImapSettings, type MailServer } from "@shared/imap-settings";
+import { imapSettingsSchema, zohoSettings, type ImapSettings, type MailServer } from "@shared/imap-settings";
 import { accountEmailSchema } from "@shared/schemas";
 import type { Account } from "@shared/types";
 
@@ -12,8 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
-import { SettingsPageHeader } from "../settings/fields";
+import { ProviderFormHeader } from "./add-account-shared";
 
 function emptySettings(email: string): ImapSettings {
   return {
@@ -23,74 +24,126 @@ function emptySettings(email: string): ImapSettings {
   };
 }
 
+/** Moves the sign-in names along with the address, but only where the user has not changed them. */
+function followEmail(settings: ImapSettings, previous: string, next: string): ImapSettings {
+  const follow = (server: MailServer): MailServer =>
+    server.username === previous ? { ...server, username: next } : server;
+  return { ...settings, incoming: follow(settings.incoming), outgoing: follow(settings.outgoing) };
+}
+
+const SERVER_HELP = "We couldn't find the mail servers for this address. Enter them under Advanced settings.";
+
+/**
+ * Sets up a password account. The mail servers are looked up from the address when the user
+ * connects; they only appear, editable, under Advanced settings.
+ */
 export function ImapAccountForm({
-  initialEmail,
+  provider,
   onBack,
   onAdded,
 }: {
-  initialEmail: string;
+  provider: "imap" | "zoho";
   onBack: () => void;
   onAdded: (account: Account) => void;
 }) {
-  const [email, setEmail] = useState(initialEmail.trim());
+  const zoho = provider === "zoho";
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [lookup, setLookup] = useState(() => accountEmailSchema.safeParse(initialEmail).data);
-  const [settings, setSettings] = useState(() => emptySettings(initialEmail.trim()));
-  const [finding, setFinding] = useState(Boolean(lookup));
-  const [manual, setManual] = useState(false);
-  const [connecting, setConnecting] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
+  const [settings, setSettings] = useState<ImapSettings>(() => emptySettings(""));
+  /** Whether `settings` came from a lookup or an edit, rather than still being blank. */
+  const [filled, setFilled] = useState(false);
+  const [busy, setBusy] = useState<"finding" | "connecting" | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!lookup) return;
-    let current = true;
-    void api.accounts.discoverImap(lookup).catch(() => null).then((found) => {
-      if (!current) return;
-      setSettings(found ?? emptySettings(lookup));
-      setManual(!found);
-      setFinding(false);
-    });
-    return () => { current = false; };
-  }, [lookup]);
 
   const validEmail = accountEmailSchema.safeParse(email).data;
   const parsedSettings = imapSettingsSchema.safeParse(settings);
-  const ready = Boolean(validEmail && validEmail === lookup && !finding);
+  const working = busy !== null;
   const zohoRegion = /^(?:imap|imappro)\.zoho\.(com|eu|in|com\.au|jp|sa|uk)$/i.exec(settings.incoming.host)?.[1];
 
-  const connect = async () => {
-    if (!ready || !validEmail || !password || !parsedSettings.success || connecting) return;
-    setConnecting(true);
+  /** The servers for this address: the provider's own configuration, or Zoho's when that was chosen. */
+  const lookUp = async (address: string): Promise<ImapSettings | null> => {
+    const found = await api.accounts.discoverImap(address).catch(() => null);
+    return found ?? (zoho ? zohoSettings(address, "com", false) : null);
+  };
+
+  const changeEmail = (value: string) => {
+    setSettings((previous) => followEmail(previous, email.trim(), value.trim()));
+    setEmail(value);
     setError(null);
+  };
+
+  const toggleAdvanced = async () => {
+    const opening = !advanced;
+    setAdvanced(opening);
+    if (!opening || filled || !validEmail) return;
+    setBusy("finding");
+    const found = await lookUp(validEmail);
+    if (found) {
+      setSettings(found);
+      setFilled(true);
+    }
+    setBusy(null);
+  };
+
+  const connect = async () => {
+    if (!validEmail || !password || working) return;
+    setError(null);
+    let chosen = settings;
+    if (!advanced) {
+      setBusy("finding");
+      const found = await lookUp(validEmail);
+      if (!found) {
+        setSettings(emptySettings(validEmail));
+        setFilled(true);
+        setAdvanced(true);
+        setError(SERVER_HELP);
+        setBusy(null);
+        return;
+      }
+      chosen = found;
+      setSettings(found);
+      setFilled(true);
+    }
+    const checked = imapSettingsSchema.safeParse(chosen);
+    if (!checked.success) {
+      setError("Check the server settings.");
+      setBusy(null);
+      return;
+    }
+    setBusy("connecting");
     try {
       onAdded(await api.accounts.add({
         kind: "password",
         provider: "imap",
         email: validEmail,
         password,
-        imapSettings: parsedSettings.data,
+        imapSettings: checked.data,
       }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
-      setManual(true);
-      setConnecting(false);
+      setBusy(null);
     }
   };
 
   return (
     <>
-      <SettingsPageHeader title="Other email" description="Connect an account that supports IMAP and SMTP." />
+      <ProviderFormHeader
+        provider={provider}
+        title={zoho ? "Connect Zoho Mail" : "Connect another email account"}
+        description={
+          zoho
+            ? "Sign in with your Zoho address and an app password."
+            : "Works with any provider that supports IMAP and SMTP."
+        }
+        disabled={working}
+        onBack={onBack}
+      />
       <form
         className="grid gap-4"
         onSubmit={(event) => {
           event.preventDefault();
-          if (ready) {
-            void connect();
-          } else if (validEmail && !finding) {
-            setError(null);
-            setFinding(true);
-            setLookup(validEmail);
-          }
+          void connect();
         }}
       >
         <div className="space-y-2">
@@ -99,85 +152,112 @@ export function ImapAccountForm({
             id="imap-email"
             type="email"
             autoComplete="email"
+            autoFocus
+            placeholder="you@example.com"
             value={email}
-            disabled={finding || connecting}
-            onChange={(event) => {
-              setEmail(event.target.value);
-              setPassword("");
-              setError(null);
-            }}
+            disabled={working}
+            onChange={(event) => changeEmail(event.target.value)}
           />
         </div>
-        {ready && (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="imap-password">Password or app password</Label>
-              <Input
-                id="imap-password"
-                type="password"
-                autoComplete="off"
-                value={password}
-                disabled={connecting}
-                onChange={(event) => setPassword(event.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                {zohoRegion
-                  ? <>Enable IMAP in Zoho Mail. If you use two-factor authentication, create an app password in <a className="underline" href={`https://accounts.zoho.${zohoRegion}/`} target="_blank" rel="noreferrer">Zoho Accounts</a>.</>
-                  : "Use an app password if your provider requires one for email clients."}
-              </p>
-              {!manual && <p className="text-xs text-muted-foreground">Servers: {settings.incoming.host} and {settings.outgoing.host}</p>}
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              className="justify-self-start"
-              aria-expanded={manual}
-              disabled={connecting}
-              onClick={() => setManual(!manual)}
-            >
-              {manual ? "Hide server settings" : "Manual setup"}
-            </Button>
-            {manual && (
-              <div className="space-y-4">
-                <ServerFields
-                  label="Incoming mail (IMAP)"
-                  server={settings.incoming}
-                  disabled={connecting}
-                  onChange={(incoming) => setSettings((previous) => ({ ...previous, incoming }))}
-                />
-                <ServerFields
-                  label="Outgoing mail (SMTP)"
-                  server={settings.outgoing}
-                  disabled={connecting}
-                  onChange={(outgoing) => setSettings((previous) => ({ ...previous, outgoing }))}
-                />
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="imap-server-saves-sent"
-                    checked={settings.serverSavesSent}
-                    disabled={connecting}
-                    onCheckedChange={(checked) =>
-                      setSettings((previous) => ({ ...previous, serverSavesSent: checked === true }))
-                    }
-                  />
-                  <Label htmlFor="imap-server-saves-sent">My provider saves a copy of sent mail</Label>
-                </div>
-              </div>
+        <div className="space-y-2">
+          <Label htmlFor="imap-password">{zoho ? "App password" : "Password or app password"}</Label>
+          <Input
+            id="imap-password"
+            type="password"
+            autoComplete="off"
+            value={password}
+            disabled={working}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            {zoho ? (
+              <>
+                Enable IMAP in Zoho Mail. With two-factor authentication, create an app password in{" "}
+                <a
+                  className="underline"
+                  href={`https://accounts.zoho.${zohoRegion ?? "com"}/`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Zoho Accounts
+                </a>
+                .
+              </>
+            ) : (
+              "Use an app password if your provider requires one for email clients."
             )}
-          </>
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          <button
+            type="button"
+            aria-expanded={advanced}
+            aria-controls="imap-advanced"
+            disabled={working}
+            onClick={() => void toggleAdvanced()}
+            className="-ml-1 flex items-center gap-1 rounded-sm px-1 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+          >
+            <ChevronRight className={cn("size-4 transition-transform", advanced && "rotate-90")} />
+            Advanced settings
+          </button>
+          {advanced && (
+            <div id="imap-advanced" className="space-y-4">
+              {busy === "finding" ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" /> Looking up mail servers…
+                </p>
+              ) : (
+                <>
+                  <ServerFields
+                    label="Incoming mail (IMAP)"
+                    server={settings.incoming}
+                    disabled={working}
+                    onChange={(incoming) => {
+                      setFilled(true);
+                      setSettings((previous) => ({ ...previous, incoming }));
+                    }}
+                  />
+                  <ServerFields
+                    label="Outgoing mail (SMTP)"
+                    server={settings.outgoing}
+                    disabled={working}
+                    onChange={(outgoing) => {
+                      setFilled(true);
+                      setSettings((previous) => ({ ...previous, outgoing }));
+                    }}
+                  />
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="imap-server-saves-sent"
+                      checked={settings.serverSavesSent}
+                      disabled={working}
+                      onCheckedChange={(checked) => {
+                        setFilled(true);
+                        setSettings((previous) => ({ ...previous, serverSavesSent: checked === true }));
+                      }}
+                    />
+                    <Label htmlFor="imap-server-saves-sent">My provider saves a copy of sent mail</Label>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <p role="alert" className="corner-squircle rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
+            {error}
+          </p>
         )}
-        {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
         <Button
           type="submit"
-          disabled={!validEmail || finding || connecting || (ready && (!parsedSettings.success || !password))}
+          disabled={!validEmail || !password || working || (advanced && !parsedSettings.success)}
         >
-          {(finding || connecting) && <Loader2 className="animate-spin" />}
-          {finding ? "Finding mail settings…" : connecting ? "Checking your connection…" : ready ? "Connect" : "Find settings"}
+          {working && <Loader2 className="animate-spin" />}
+          {busy === "finding" ? "Finding mail settings…" : busy === "connecting" ? "Checking your connection…" : "Connect"}
         </Button>
       </form>
-      <Button variant="ghost" className="justify-self-start" disabled={connecting} onClick={onBack}>
-        <ArrowLeft /> Back
-      </Button>
     </>
   );
 }
