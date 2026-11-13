@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 
-import { ChevronRight, Network, Pin, Search, X } from "lucide-react";
+import { AtSign, ChevronRight, Pin } from "lucide-react";
 
 import {
   groupSendersByDomain,
@@ -9,10 +9,10 @@ import {
 } from "@shared/sender-list";
 import type { Thread } from "@shared/threads";
 
-import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePinnedDomains } from "@/hooks/use-pinned-domains";
+import { HOVER_ON_TINT } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 
 import { SenderAvatar } from "./sender-avatar";
@@ -45,10 +45,18 @@ function saveWidth(width: number): void {
   }
 }
 
-/** True when every word of the (lower-case) query is in the sender's name, address or domain. */
-function matchesSender(sender: SenderEntry, needle: string): boolean {
-  const haystack = `${sender.name} ${sender.email} ${sender.domain}`.toLowerCase();
-  return needle.split(/\s+/).every((word) => haystack.includes(word));
+/** One row of the panel as the keyboard walks it: a domain (grouped panel only) or a sender. */
+export type SenderNavRow =
+  | { kind: "domain"; domain: string; open: boolean }
+  | { kind: "sender"; key: string; domain: string; nested: boolean };
+
+/** Keeps the row the keyboard moved to in sight. */
+function useScrollIntoView(selected: boolean) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (selected) ref.current?.scrollIntoView?.({ block: "nearest" });
+  }, [selected]);
+  return ref;
 }
 
 function UnreadDot({ unread }: { unread: boolean }) {
@@ -62,17 +70,22 @@ function UnreadDot({ unread }: { unread: boolean }) {
 function SenderRow({
   sender,
   selected,
+  focused,
   nested = false,
   onSelect,
 }: {
   sender: SenderEntry;
   selected: boolean;
+  /** The keyboard is in the panel. */
+  focused: boolean;
   /** Listed under its domain. */
   nested?: boolean;
   onSelect: (key: string) => void;
 }) {
+  const ref = useScrollIntoView(selected);
   return (
     <button
+      ref={ref}
       type="button"
       role="option"
       aria-selected={selected}
@@ -82,6 +95,7 @@ function SenderRow({
         "h-12",
         nested && "pl-7",
         selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
+        selected && focused && "ring-1 ring-sidebar-primary/60",
       )}
       onClick={() => onSelect(sender.key)}
     >
@@ -104,6 +118,7 @@ function DomainRow({
   group,
   open,
   selected,
+  focused,
   pinned,
   onSelect,
   onToggle,
@@ -113,6 +128,8 @@ function DomainRow({
   open: boolean;
   /** Its mail is the list on screen. */
   selected: boolean;
+  /** The keyboard is in the panel. */
+  focused: boolean;
   pinned: boolean;
   /** Lists all the mail of the domain, without expanding it. */
   onSelect: (domain: string) => void;
@@ -120,23 +137,29 @@ function DomainRow({
   onToggle: (domain: string) => void;
   onTogglePin: (domain: string) => void;
 }) {
+  const ref = useScrollIntoView(selected);
   return (
-    <div className="group relative">
+    <div className="group relative" data-tinted={selected || undefined}>
       <button
         type="button"
         aria-label={`${open ? "Collapse" : "Expand"} ${group.domain}`}
         aria-expanded={open}
-        className="absolute left-1.5 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        className={cn(
+          "absolute left-1.5 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+          HOVER_ON_TINT,
+        )}
         onClick={() => onToggle(group.domain)}
       >
         <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
       </button>
       <button
+        ref={ref}
         type="button"
         className={cn(
           ROW,
           "h-11 pl-9 pr-10",
           selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
+          selected && focused && "ring-1 ring-sidebar-primary/60",
         )}
         onClick={() => onSelect(group.domain)}
         onDoubleClick={() => onToggle(group.domain)}
@@ -157,6 +180,7 @@ function DomainRow({
         title={pinned ? "Unpin domain" : "Pin domain"}
         className={cn(
           "absolute right-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md outline-none transition-opacity hover:bg-accent focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring",
+          HOVER_ON_TINT,
           pinned
             ? "text-[hsl(var(--chart-3))]"
             : "text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100",
@@ -176,8 +200,8 @@ export interface SenderPanelState {
   /** The domains expanded in the grouped panel. */
   openDomains: ReadonlySet<string>;
   setOpenDomains: (update: ReadonlySet<string> | ((previous: ReadonlySet<string>) => ReadonlySet<string>)) => void;
-  search: string;
-  setSearch: (search: string) => void;
+  /** Groups the senders by domain, or flattens them again. */
+  toggleByDomain: () => void;
 }
 
 /**
@@ -190,12 +214,13 @@ export function useSenderPanelState(
   senders: readonly SenderEntry[],
   selectedKey: string | null,
   active: boolean,
+  /** Called when grouping is switched off, since a picked domain only exists in the grouped panel. */
+  onLeaveDomains: () => void,
 ): SenderPanelState {
   const [byDomain, setByDomain] = useState(true);
   const [openDomains, setOpenDomains] = useState<ReadonlySet<string>>(new Set());
-  const [search, setSearch] = useState("");
-  const latest = useRef({ senders, selectedKey });
-  latest.current = { senders, selectedKey };
+  const latest = useRef({ senders, selectedKey, byDomain, onLeaveDomains });
+  latest.current = { senders, selectedKey, byDomain, onLeaveDomains };
 
   useEffect(() => {
     if (active) {
@@ -205,11 +230,19 @@ export function useSenderPanelState(
     } else {
       setByDomain(() => true);
       setOpenDomains(new Set());
-      setSearch("");
     }
   }, [active]);
 
-  return { byDomain, setByDomain, openDomains, setOpenDomains, search, setSearch };
+  const toggleByDomain = useCallback(() => {
+    const { senders, selectedKey, byDomain, onLeaveDomains } = latest.current;
+    // Start with the selected sender's domain open, so the selection stays in sight.
+    const selected = senders.find((sender) => sender.key === selectedKey);
+    setOpenDomains(new Set(selected ? [selected.domain] : []));
+    if (byDomain) onLeaveDomains();
+    setByDomain((on) => !on);
+  }, []);
+
+  return { byDomain, setByDomain, openDomains, setOpenDomains, toggleByDomain };
 }
 
 interface SenderPanelProps {
@@ -229,6 +262,10 @@ interface SenderPanelProps {
   state: SenderPanelState;
   /** True when the list's toolbar sits above the panel; false when the panel runs the full height. */
   underToolbar?: boolean;
+  /** The keyboard is in the panel (up/down walk the senders), not in the mail list. */
+  focused?: boolean;
+  /** Filled with the rows on screen, in order, so the arrow keys can walk them. */
+  navRows?: MutableRefObject<readonly SenderNavRow[]>;
 }
 
 /**
@@ -243,45 +280,41 @@ export function SenderPanel({
   onSelect,
   onSelectDomain,
   loading,
-  state: { byDomain, setByDomain, openDomains, setOpenDomains, search, setSearch },
+  state: { byDomain, openDomains, setOpenDomains },
   underToolbar = true,
+  focused = false,
+  navRows,
 }: SenderPanelProps) {
   const { pinned, toggle: togglePin } = usePinnedDomains();
   const [width, setWidth] = useState(loadWidth);
   const [dragging, setDragging] = useState(false);
   const drag = useRef<{ startX: number; startWidth: number } | null>(null);
-  const needle = search.trim().toLowerCase();
-  const searching = needle !== "";
 
-  const shownSenders = useMemo(
-    () => (searching ? senders.filter((sender) => matchesSender(sender, needle)) : senders),
-    [senders, needle, searching],
-  );
   const domains = useMemo(() => {
     if (!byDomain) return [];
     // Pinned domains come first; each half keeps the most recent order.
     const all = groupSendersByDomain(senders, threads);
-    const groups = [
+    return [
       ...all.filter((group) => pinned.has(group.domain)),
       ...all.filter((group) => !pinned.has(group.domain)),
     ];
-    if (!searching) return groups;
-    // A domain that matches keeps all its senders; otherwise only the senders that match stay.
-    return groups.flatMap((group) => {
-      if (group.domain.includes(needle)) return [group];
-      const matching = group.senders.filter((sender) => matchesSender(sender, needle));
-      return matching.length > 0 ? [{ ...group, senders: matching }] : [];
-    });
-  }, [byDomain, senders, threads, pinned, needle, searching]);
+  }, [byDomain, senders, threads, pinned]);
 
-  const toggleByDomain = () => {
-    // Start with the selected sender's domain open, so the selection stays in sight.
-    const selected = senders.find((sender) => sender.key === selectedKey);
-    setOpenDomains(new Set(selected ? [selected.domain] : []));
-    // Domains only exist in the grouped panel, so leaving it drops a picked domain.
-    if (byDomain) onSelectDomain(null);
-    setByDomain((on) => !on);
-  };
+  const rows = useMemo((): SenderNavRow[] => {
+    if (!byDomain) {
+      return senders.map((sender) => ({ kind: "sender", key: sender.key, domain: sender.domain, nested: false }));
+    }
+    return domains.flatMap((group): SenderNavRow[] => {
+      const open = openDomains.has(group.domain);
+      return [
+        { kind: "domain", domain: group.domain, open },
+        ...(open
+          ? group.senders.map((sender): SenderNavRow => ({ kind: "sender", key: sender.key, domain: group.domain, nested: true }))
+          : []),
+      ];
+    });
+  }, [byDomain, senders, domains, openDomains]);
+  if (navRows) navRows.current = rows;
 
   const toggleDomain = (domain: string) => {
     setOpenDomains((previous) => {
@@ -341,58 +374,12 @@ export function SenderPanel({
           saveWidth(next);
         }}
       />
-      {/* Beside the thread there is no toolbar above, so the search row sits at the toolbar's height. */}
-      <div className={cn("mx-3 mb-2 flex shrink-0 items-center gap-2", underToolbar ? "mt-1" : "mt-4")}>
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={search}
-            placeholder="Search senders or domains"
-            aria-label="Search senders or domains"
-            className="h-9 pl-8 pr-8"
-            onChange={(event) => setSearch(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape" && search) {
-                event.stopPropagation();
-                setSearch("");
-              }
-            }}
-          />
-          {search && (
-            <button
-              type="button"
-              aria-label="Clear search"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              onClick={() => setSearch("")}
-            >
-              <X className="size-4" />
-            </button>
-          )}
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label="Group by domain"
-              aria-pressed={byDomain}
-              onClick={toggleByDomain}
-              className={cn(
-                "corner-squircle flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors",
-                byDomain
-                  ? "bg-muted text-foreground hover:bg-accent"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
-              )}
-            >
-              <Network className="size-[18px]" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            {byDomain ? "Stop grouping by domain" : "Group by domain"}
-          </TooltipContent>
-        </Tooltip>
-      </div>
-
-      <div role="listbox" aria-label="Senders" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-6">
+      {/* Beside the thread there is no toolbar above, so the list starts at the toolbar's height. */}
+      <div
+        role="listbox"
+        aria-label="Senders"
+        className={cn("min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-6", underToolbar ? "pt-2" : "pt-16")}
+      >
         {loading &&
           Array.from({ length: 8 }, (_, index) => (
             <div key={index} className="flex h-12 items-center gap-2.5 px-2" aria-hidden>
@@ -402,22 +389,20 @@ export function SenderPanel({
             </div>
           ))}
 
-        {!loading && shownSenders.length === 0 && (
-          <p className="px-3 pt-6 text-center text-sm text-muted-foreground">
-            {searching ? `No sender or domain matches “${search.trim()}”.` : "No senders here."}
-          </p>
+        {!loading && senders.length === 0 && (
+          <p className="px-3 pt-6 text-center text-sm text-muted-foreground">No senders here.</p>
         )}
 
         {byDomain
           ? domains.map((group) => {
-              // While searching, every domain that matched shows what matched inside it.
-              const open = searching || openDomains.has(group.domain);
+              const open = openDomains.has(group.domain);
               return (
                 <div key={group.domain} role="group" aria-label={group.domain} className="space-y-0.5">
                   <DomainRow
                     group={group}
                     open={open}
                     selected={group.domain === selectedDomain}
+                    focused={focused}
                     pinned={pinned.has(group.domain)}
                     onSelect={onSelectDomain}
                     onToggle={toggleDomain}
@@ -429,6 +414,7 @@ export function SenderPanel({
                         key={sender.key}
                         sender={sender}
                         selected={sender.key === selectedKey}
+                        focused={focused}
                         nested
                         onSelect={onSelect}
                       />
@@ -436,16 +422,49 @@ export function SenderPanel({
                 </div>
               );
             })
-          : shownSenders.map((sender) => (
+          : senders.map((sender) => (
               <SenderRow
                 key={sender.key}
                 sender={sender}
                 selected={sender.key === selectedKey}
+                focused={focused}
                 onSelect={onSelect}
               />
             ))}
       </div>
     </aside>
+  );
+}
+
+/** The view bar's button that gathers the senders under their domain, or lists them flat. */
+export function GroupByDomainButton({ state }: { state: SenderPanelState }) {
+  const { byDomain, toggleByDomain } = state;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          role="switch"
+          aria-label="Group by domain"
+          aria-checked={byDomain}
+          onClick={toggleByDomain}
+          className={cn(
+            "inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+            byDomain ? "bg-primary/80" : "bg-input",
+          )}
+        >
+          <span
+            className={cn(
+              "pointer-events-none flex size-5 items-center justify-center rounded-full bg-background shadow-lg transition-transform",
+              byDomain ? "translate-x-5 text-foreground" : "translate-x-0 text-muted-foreground",
+            )}
+          >
+            <AtSign className="size-3" strokeWidth={2.5} />
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{byDomain ? "Stop grouping by domain" : "Group by domain"}</TooltipContent>
+    </Tooltip>
   );
 }
 

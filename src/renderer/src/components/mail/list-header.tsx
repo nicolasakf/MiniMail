@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 import { ArrowLeft, Check, ChevronDown, Mail, MailOpen, Search, SquarePen, X } from "lucide-react";
 
@@ -42,6 +42,8 @@ interface ListHeaderProps extends HeaderActionsProps {
   /** False where the list is always plain (Drafts, Sent): no Smart / Sender / List tabs. */
   showViews?: boolean;
   onViewChange: (view: MailView) => void;
+  /** Sits right after the view tabs (the Sender view's grouping toggle). */
+  viewExtra?: ReactNode;
   accounts: readonly Account[];
   scope: AccountScope;
   onScopeChange: (scope: AccountScope) => void;
@@ -351,6 +353,7 @@ export function ListHeader({
   view,
   showViews = true,
   onViewChange,
+  viewExtra,
   accounts,
   scope,
   onScopeChange,
@@ -369,7 +372,7 @@ export function ListHeader({
           onManageAccounts={onManageAccounts}
         />
 
-        {showViews && <ViewTabs view={view} onViewChange={onViewChange} />}
+        {showViews && <ViewTabs view={view} onViewChange={onViewChange} extra={viewExtra} />}
       </div>
 
       <HeaderActions {...actions} />
@@ -378,17 +381,28 @@ export function ListHeader({
 }
 
 /** The Smart / Sender / List tabs. */
-function ViewTabs({ view, onViewChange }: { view: MailView; onViewChange: (view: MailView) => void }) {
+function ViewTabs({
+  view,
+  onViewChange,
+  extra,
+}: {
+  view: MailView;
+  onViewChange: (view: MailView) => void;
+  extra?: ReactNode;
+}) {
   return (
-    <Tabs value={view} onValueChange={(next) => onViewChange(next as MailView)}>
-      <TabsList aria-label="View" className="h-9 shrink-0">
-        {VIEWS.map((option) => (
-          <TabsTrigger key={option.view} value={option.view} className="h-7 py-0">
-            {option.label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
-    </Tabs>
+    <div className="flex shrink-0 items-center gap-2">
+      <Tabs value={view} onValueChange={(next) => onViewChange(next as MailView)}>
+        <TabsList aria-label="View" className="h-9 shrink-0">
+          {VIEWS.map((option) => (
+            <TabsTrigger key={option.view} value={option.view} className="h-7 py-0">
+              {option.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+      {extra}
+    </div>
   );
 }
 
@@ -433,6 +447,8 @@ interface DrillHeaderProps extends HeaderActionsProps {
   onBack: () => void;
   view: MailView;
   onViewChange: (view: MailView) => void;
+  /** Sits right after the view tabs (the Sender view's grouping toggle). */
+  viewExtra?: ReactNode;
   accounts: readonly Account[];
   scope: AccountScope;
   onScopeChange: (scope: AccountScope) => void;
@@ -448,6 +464,7 @@ export function DrillHeader({
   onBack,
   view,
   onViewChange,
+  viewExtra,
   accounts,
   scope,
   onScopeChange,
@@ -469,7 +486,7 @@ export function DrillHeader({
           onManageAccounts={onManageAccounts}
         />
 
-        <ViewTabs view={view} onViewChange={onViewChange} />
+        <ViewTabs view={view} onViewChange={onViewChange} extra={viewExtra} />
       </div>
 
       <HeaderActions {...actions} />

@@ -30,7 +30,14 @@ import { DrillHeader, GroupHeader, ListHeader, VIEWS, type MailView } from "@/co
 import type { SelectModifiers } from "@/components/mail/thread-row";
 import { Rail } from "@/components/mail/rail";
 import { SplitHandle } from "@/components/mail/split-handle";
-import { SenderHeading, SenderPanel, useSenderPanelState } from "@/components/mail/sender-panel";
+import {
+  SenderHeading,
+  GroupByDomainButton,
+  SenderPanel,
+  useSenderPanelState,
+  type SenderNavRow,
+  type SenderPanelState,
+} from "@/components/mail/sender-panel";
 import { AccountErrorToasts, EmptyList, ListSkeleton, NoAccounts } from "@/components/mail/states";
 import { ThreadView } from "@/components/mail/thread-view";
 import { useIsMac } from "@/hooks/use-platform";
@@ -53,6 +60,9 @@ import { isTypingTarget } from "@/lib/keyboard";
 import { DELETE_FOREVER_CONFIRM } from "@/lib/delete-confirm";
 import { actionsForThread } from "@/lib/row-actions";
 import { cn } from "@/lib/utils";
+
+/** The folders behind ⌘2–⌘4, in rail order (⌘1 is the Dashboard). */
+const RAIL_FOLDERS: readonly MailFolder[] = ["inbox", "drafts", "sent"];
 
 /** What the split view's pane shows for a selected row: its conversation, or nothing for a category row. */
 function paneIdFor(item: ListItem | undefined): string | null {
@@ -292,9 +302,16 @@ export function MailApp() {
   const [senderKey, setSenderKey] = useState<string | null>(null);
   /** A domain picked in the panel (grouped by domain); it lists the mail of all its senders. */
   const [senderDomain, setSenderDomain] = useState<string | null>(null);
+  /** Sender view: the arrow keys walk the senders panel instead of the mail list. */
+  const [senderPanelFocus, setSenderPanelFocus] = useState(false);
+  /** The panel's rows as it shows them (filled by the panel), and its state, for the keyboard. */
+  const senderNavRows = useRef<readonly SenderNavRow[]>([]);
+  const senderPanelRef = useRef<SenderPanelState | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   /** Where a shift-click or shift+arrow range starts; follows plain clicks and plain arrows. */
   const anchorKey = useRef<string | null>(null);
+  /** The vertical card Down left from, so Up from the list below returns to that card. */
+  const cardBelowKey = useRef<string | null>(null);
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const [compose, setCompose] = useState<ComposeState | null>(null);
@@ -312,6 +329,7 @@ export function MailApp() {
     setOpenGroupKind(null);
     setChecked(new Set());
     anchorKey.current = null;
+    setSenderPanelFocus(false);
     setQuery("");
     setSearchOpen(false);
   }, [setQuery]);
@@ -477,6 +495,8 @@ export function MailApp() {
   const paneThread = split ? openThread : undefined;
   /** Several conversations are selected: the pane shows how many instead of one of them. */
   const paneSelection = split && checked.size > 0;
+  /** The senders panel has the keyboard: only in the Sender view with its list on screen. */
+  const senderPanelFocused = senderPanelFocus && senderView && !fullOpen && !(onDashboard && !drill);
 
   /** Shows a conversation (or nothing) beside the list. Arrowing waits a beat so a run of presses loads one. */
   /** The list's width while it is being resized; it is saved once the drag ends. */
@@ -594,6 +614,7 @@ export function MailApp() {
     savePrefs({ view: next });
     setOpenGroupKind(null);
     setChecked(new Set());
+    setSenderPanelFocus(false);
   }, [savePrefs]);
 
   const pickSender = useCallback((key: string) => {
@@ -601,13 +622,69 @@ export function MailApp() {
     setSenderDomain(null);
     setOpenThreadId(null);
     setChecked(new Set());
+    setSenderPanelFocus(true);
   }, []);
 
   const pickDomain = useCallback((domain: string | null) => {
     setSenderDomain(domain);
     setOpenThreadId(null);
     setChecked(new Set());
+    setSenderPanelFocus(true);
   }, []);
+
+  /** Up/down in the senders panel: the next or previous row (a domain, or a sender) is picked. */
+  const moveSenderSelection = useCallback(
+    (delta: number) => {
+      const rows = senderNavRows.current;
+      if (rows.length === 0) return;
+      const index = rows.findIndex((row) =>
+        senderDomain ? row.kind === "domain" && row.domain === senderDomain : row.kind === "sender" && row.key === activeSenderKey,
+      );
+      const row = rows[Math.min(rows.length - 1, Math.max(0, (index < 0 ? 0 : index) + delta))];
+      if (row.kind === "domain") pickDomain(row.domain);
+      else pickSender(row.key);
+    },
+    [senderDomain, activeSenderKey, pickDomain, pickSender],
+  );
+
+  /**
+   * Left/right in the senders panel, like a tree: left folds the domain (from one of its senders it
+   * goes up to the domain and folds it), right unfolds it; with nothing to fold or unfold, right
+   * hands the keyboard to the mail list.
+   */
+  const stepSenderPanel = useCallback(
+    (direction: "left" | "right") => {
+      const panel = senderPanelRef.current;
+      const rows = senderNavRows.current;
+      const row = rows.find((candidate) =>
+        senderDomain
+          ? candidate.kind === "domain" && candidate.domain === senderDomain
+          : candidate.kind === "sender" && candidate.key === activeSenderKey,
+      );
+      const setOpen = (domain: string, open: boolean) =>
+        panel?.setOpenDomains((previous) => {
+          const next = new Set(previous);
+          if (open) next.add(domain);
+          else next.delete(domain);
+          return next;
+        });
+      if (direction === "left") {
+        if (!panel?.byDomain || !row) return;
+        if (row.kind === "domain" && row.open) setOpen(row.domain, false);
+        else if (row.kind === "sender" && row.nested) {
+          const parent = rows.find((candidate) => candidate.kind === "domain" && candidate.domain === row.domain);
+          if (parent?.kind === "domain") {
+            setOpen(parent.domain, false);
+            pickDomain(parent.domain);
+          }
+        }
+        return;
+      }
+      if (row?.kind === "domain" && !row.open) setOpen(row.domain, true);
+      else setSenderPanelFocus(false);
+    },
+    [senderDomain, activeSenderKey, pickDomain],
+  );
 
   /** Ids of the conversations between two rows of the list, both included. */
   const threadIdsBetween = useCallback(
@@ -637,6 +714,7 @@ export function MailApp() {
   /** Click on a row: select it. Shift extends from the anchor, ⌘/Ctrl adds or removes it. */
   const selectRow = useCallback(
     (key: string, modifiers?: SelectModifiers) => {
+      setSenderPanelFocus(false);
       const anchor = anchorKey.current ?? selectedKey;
       if (modifiers?.range && anchor) {
         checkRange(anchor, key);
@@ -646,8 +724,33 @@ export function MailApp() {
           const id = item.thread.id;
           const base = checked.size > 0 ? checked : new Set(selectedThread ? [selectedThread.id] : []);
           const next = new Set(base);
-          if (next.has(id)) next.delete(id);
-          else next.add(id);
+          if (next.has(id) && next.size > 1) {
+            // Deselecting: the cursor can't stay on a row that is no longer selected, so it
+            // moves to the nearest row that still is.
+            next.delete(id);
+            const clicked = navigable.findIndex((it) => it.key === key);
+            let nearest: (typeof navigable)[number] | undefined;
+            let distance = Infinity;
+            navigable.forEach((it, index) => {
+              if (it.type !== "thread" || !next.has(it.thread.id)) return;
+              if (Math.abs(index - clicked) < distance) {
+                distance = Math.abs(index - clicked);
+                nearest = it;
+              }
+            });
+            if (nearest) {
+              anchorKey.current = nearest.key;
+              setSelectedKey(nearest.key);
+              setChecked(next.size > 1 ? next : new Set());
+              if (split && next.size === 1) showInPane(paneIdFor(nearest));
+              return;
+            }
+          } else if (next.has(id)) {
+            // The last selected row: nothing to deselect to, the cursor stays.
+            next.delete(id);
+          } else {
+            next.add(id);
+          }
           setChecked(next.size > 1 ? next : new Set());
         }
         anchorKey.current = key;
@@ -710,6 +813,29 @@ export function MailApp() {
     },
     [navigable, selectedKey, split, showInPane],
   );
+
+  /** Vertical category cards: Down leaves the row of cards for the first conversation below it. */
+  const moveBelowCards = useCallback(() => {
+    const next = navigable.find((item) => item.type !== "group");
+    if (!next) return;
+    cardBelowKey.current = selectedKey;
+    anchorKey.current = next.key;
+    setChecked(new Set());
+    setSelectedKey(next.key);
+    if (split) showInPane(paneIdFor(next), true);
+  }, [navigable, selectedKey, split, showInPane]);
+
+  /** Up from the first conversation under vertical cards: back to the card Down came from (else the last card). */
+  const moveBackToCards = useCallback(() => {
+    const remembered = navigable.find((item) => item.type === "group" && item.key === cardBelowKey.current);
+    const lastCard = navigable.filter((item) => item.type === "group").pop();
+    const card = remembered ?? lastCard;
+    if (!card) return;
+    anchorKey.current = card.key;
+    setChecked(new Set());
+    setSelectedKey(card.key);
+    if (split) showInPane(paneIdFor(card), true);
+  }, [navigable, split, showInPane]);
 
   /** Right-click on a row: that row becomes the selection and its menu opens at the pointer. */
   const openItemMenu = useCallback((key: string, x: number, y: number) => {
@@ -884,6 +1010,21 @@ export function MailApp() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isMac]);
 
+  // ⌘1–⌘4 (Ctrl+1–4 elsewhere) switch the rail's tabs: Dashboard, Inbox, Drafts, Sent.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.shiftKey || event.altKey || compose || settingsDialog.open) return;
+      if (!(isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
+      const tab = ["1", "2", "3", "4"].indexOf(event.key);
+      if (tab < 0) return;
+      event.preventDefault();
+      if (tab === 0) openDashboard();
+      else navigateFolder(RAIL_FOLDERS[tab - 1]);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMac, compose, settingsDialog.open, openDashboard, navigateFolder]);
+
   // Keyboard shortcuts, in the spirit of Spark: arrows/J/K move, Enter opens.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -965,9 +1106,45 @@ export function MailApp() {
         toast(message(label), { id: CONFIRM_TOAST_ID, duration: CONFIRM_WINDOW_MS });
       };
 
+      // In the Sender view the panel can have the keyboard: up/down walk the senders, left/right fold
+      // a domain or hand the keyboard back to the mail. Mail shortcuts wait until the list has it
+      // again, so a key meant for the senders never archives a conversation out of sight.
+      if (senderPanelFocused) {
+        switch (event.key) {
+          case "ArrowDown":
+          case "j":
+            moveSenderSelection(1);
+            break;
+          case "ArrowUp":
+          case "k":
+            moveSenderSelection(-1);
+            break;
+          case "ArrowLeft":
+            stepSenderPanel("left");
+            break;
+          case "ArrowRight":
+            stepSenderPanel("right");
+            break;
+          case "Enter":
+          case "o":
+          case "Escape":
+            setSenderPanelFocus(false);
+            break;
+          case "Tab":
+          case "c":
+            break; // handled below, as everywhere
+          default:
+            return;
+        }
+        if (event.key !== "Tab" && event.key !== "c") {
+          event.preventDefault();
+          return;
+        }
+      }
+
       // Shift+Up/Down grows or shrinks the selection from where it started.
       if (event.shiftKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-        if (!fullOpen) {
+        if (!fullOpen && !senderPanelFocused) {
           extendSelection(event.key === "ArrowDown" ? 1 : -1);
           event.preventDefault();
         }
@@ -996,17 +1173,34 @@ export function MailApp() {
         }
         case "ArrowDown":
         case "j":
-          if (!fullOpen) moveSelection(1);
+          if (fullOpen) break;
+          // Vertical cards sit side by side: Down goes to the list below them, not to the next card.
+          if (selectedItem?.type === "group" && categoryLayout === "vertical") moveBelowCards();
+          else moveSelection(1);
           break;
         case "ArrowUp":
         case "k":
-          if (!fullOpen) moveSelection(-1);
+          // Nothing sits above the row of vertical cards (left and right step between them).
+          if (fullOpen) break;
+          if (selectedItem?.type === "group" && categoryLayout === "vertical") break;
+          // From the first conversation under the cards, Up returns to the card Down left.
+          if (
+            categoryLayout === "vertical" &&
+            selectedItem &&
+            navigable.find((item) => item.type !== "group")?.key === selectedItem.key &&
+            navigable[0]?.type === "group"
+          ) {
+            moveBackToCards();
+          } else moveSelection(-1);
           break;
         case "ArrowRight":
         case "ArrowLeft":
           // Vertical category cards sit side by side: left and right step between them.
           if (!fullOpen && selectedItem?.type === "group" && categoryLayout === "vertical") {
             moveSelection(event.key === "ArrowRight" ? 1 : -1);
+          } else if (!fullOpen && senderView && !openGroup && event.key === "ArrowLeft") {
+            // Sender view: left from the mail list goes to the senders panel.
+            setSenderPanelFocus(true);
           }
           break;
         case "Enter":
@@ -1072,6 +1266,10 @@ export function MailApp() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     settingsDialog.open,
+    senderPanelFocused,
+    senderView,
+    moveSenderSelection,
+    stepSenderPanel,
     act,
     actOnThread,
     changeView,
@@ -1085,6 +1283,9 @@ export function MailApp() {
     closeGroup,
     compose,
     moveSelection,
+    moveBelowCards,
+    moveBackToCards,
+    navigable,
     selectAll,
     openGroup,
     openMenuForSelection,
@@ -1183,9 +1384,14 @@ export function MailApp() {
     senders,
     activeSenderKey,
     activeView === "sender" && !showNoAccounts && (!onDashboard || inDrill),
+    () => pickDomain(null),
   );
+  senderPanelRef.current = senderPanelState;
+  const groupToggle = activeView === "sender" ? <GroupByDomainButton state={senderPanelState} /> : null;
   const senderPanelProps = {
     state: senderPanelState,
+    focused: senderPanelFocused,
+    navRows: senderNavRows,
     senders,
     threads,
     selectedKey: activeSenderKey,
@@ -1303,6 +1509,7 @@ export function MailApp() {
                 onBack={closeDrill}
                 view={view}
                 onViewChange={changeView}
+                viewExtra={groupToggle}
                 accounts={accounts}
                 scope={scope}
                 onScopeChange={setScope}
@@ -1326,7 +1533,7 @@ export function MailApp() {
                       items={items}
                       folder="inbox"
                       accounts={accounts}
-                      selectedKey={selectedKey}
+                      selectedKey={senderPanelFocused ? null : selectedKey}
                       checked={checked}
                       onSelect={selectRow}
                       onOpenThread={(thread) => setOpenThreadId(thread.id)}
@@ -1361,6 +1568,7 @@ export function MailApp() {
                 view={view}
                 showViews={!listOnly}
                 onViewChange={changeView}
+                viewExtra={groupToggle}
                 accounts={accounts}
                 scope={scope}
                 onScopeChange={setScope}
@@ -1402,7 +1610,7 @@ export function MailApp() {
                   items={items}
                   folder={folder}
                   accounts={accounts}
-                  selectedKey={selectedKey}
+                  selectedKey={senderPanelFocused ? null : selectedKey}
                   checked={checked}
                   onSelect={selectRow}
                   onOpenThread={(thread) => setOpenThreadId(thread.id)}

@@ -4,6 +4,7 @@ import type { Account, MailFolder } from "@shared/types";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsMac } from "@/hooks/use-platform";
+import { useShortcutHints } from "@/hooks/use-shortcut-hints";
 import { FOLDER_TITLES } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -12,9 +13,12 @@ interface RailButtonProps {
   label: string;
   active?: boolean;
   onClick?: () => void;
+  /** The shortcut (⌘1…⌘4): named in the tooltip, and over the icon while the command key is held. */
+  shortcut?: string;
+  showHint?: boolean;
 }
 
-function RailButton({ icon: Icon, label, active = false, onClick }: RailButtonProps) {
+function RailButton({ icon: Icon, label, active = false, onClick, shortcut, showHint = false }: RailButtonProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -24,16 +28,27 @@ function RailButton({ icon: Icon, label, active = false, onClick }: RailButtonPr
           aria-current={active ? "page" : undefined}
           onClick={onClick}
           className={cn(
-            "corner-squircle electron-no-drag flex size-10 items-center justify-center rounded-xl transition-colors",
+            "corner-squircle electron-no-drag relative flex size-10 items-center justify-center rounded-xl transition-colors",
             active
               ? "bg-sidebar-primary text-sidebar-primary-foreground"
               : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
           )}
         >
-          <Icon className="size-5" />
+          <Icon className={cn("size-5 transition-opacity", showHint && "opacity-25")} />
+          {showHint && shortcut && (
+            <span
+              aria-hidden
+              className="absolute inset-0 flex items-center justify-center text-xs font-semibold tabular-nums"
+            >
+              {shortcut}
+            </span>
+          )}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right">{label}</TooltipContent>
+      <TooltipContent side="right">
+        {label}
+        {shortcut && ` (${shortcut})`}
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -69,6 +84,8 @@ export function Rail({
   sorting = 0,
 }: RailProps) {
   const isMac = useIsMac();
+  const hints = useShortcutHints(isMac);
+  const shortcut = (digit: string) => `${isMac ? "⌘" : "Ctrl+"}${digit}`;
 
   return (
     // The outer wrapper insets the card from the window edges (top clears the macOS traffic lights).
@@ -83,6 +100,8 @@ export function Rail({
             label="Dashboard"
             active={dashboard}
             onClick={onOpenDashboard}
+            shortcut={shortcut("1")}
+            showHint={hints}
           />
           <span aria-hidden className="my-1 h-px w-6 bg-sidebar-border" />
           <RailButton
@@ -90,14 +109,18 @@ export function Rail({
             label={FOLDER_TITLES.inbox}
             active={!dashboard && folder === "inbox"}
             onClick={() => onNavigate("inbox")}
+            shortcut={shortcut("2")}
+            showHint={hints}
           />
-          {FOLDER_BUTTONS.map(({ folder: target, icon }) => (
+          {FOLDER_BUTTONS.map(({ folder: target, icon }, index) => (
             <RailButton
               key={target}
               icon={icon}
               label={FOLDER_TITLES[target]}
               active={!dashboard && folder === target}
               onClick={() => onNavigate(target)}
+              shortcut={shortcut(String(index + 3))}
+              showHint={hints}
             />
           ))}
         </div>
