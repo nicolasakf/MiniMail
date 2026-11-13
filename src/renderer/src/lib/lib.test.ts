@@ -101,6 +101,17 @@ describe("buildReplySeed", () => {
     expect(seed.inReplyTo).toMatchObject({ messageId: "<m1@x.com>", mode: "reply" });
   });
 
+  it("replying to a message the user wrote goes to its recipients, not back to the user", () => {
+    const mine: MessageDetail = {
+      ...message,
+      from: { name: "Me", email: "me@x.com" },
+      to: [{ name: "Sam", email: "sam@x.com" }],
+      cc: [],
+    };
+    expect(buildReplySeed(mine, "reply", accounts).to).toEqual([{ name: "Sam", email: "sam@x.com" }]);
+    expect(buildReplySeed(mine, "replyAll", accounts).to.map((c) => c.email)).toEqual(["sam@x.com"]);
+  });
+
   it("reply-all drops the user's own address and keeps others", () => {
     const seed = buildReplySeed(message, "replyAll", accounts);
     expect(seed.to.map((c) => c.email)).toEqual(["sam@x.com", "pat@x.com"]);

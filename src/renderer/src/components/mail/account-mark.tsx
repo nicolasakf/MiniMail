@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Mail } from "lucide-react";
 
 import { accountLogoRequest, isFreemail, type LogoRequest } from "@shared/logos";
 import { senderDomain } from "@shared/categories";
@@ -11,7 +12,7 @@ import { useLogo } from "@/lib/logo-store";
 import { cn } from "@/lib/utils";
 
 /** The real provider logos, bundled so they work offline and need no lookup. */
-const PROVIDER_LOGOS: Record<Provider, string> = {
+const PROVIDER_LOGOS: Partial<Record<Provider, string>> = {
   gmail: gmailLogo,
   outlook: outlookLogo,
   zoho: zohoLogo,
@@ -47,6 +48,7 @@ export function AccountMark({ account, size = 18, stacked = false, className }: 
   const logo = picture ?? site ?? PROVIDER_LOGOS[account.provider];
   const [broken, setBroken] = useState(false);
   useEffect(() => setBroken(false), [logo]);
+  const source = broken ? PROVIDER_LOGOS[account.provider] : logo;
 
   // A chosen picture or photo stays a ring-framed circle; a site icon or provider logo stands
   // alone, with no white disc or ring behind it.
@@ -67,8 +69,8 @@ export function AccountMark({ account, size = 18, stacked = false, className }: 
       )}
       style={{ width: size, height: size, boxShadow: ring }}
     >
-      <img
-        src={broken ? PROVIDER_LOGOS[account.provider] : logo}
+      {source ? <img
+        src={source}
         alt=""
         className={cn(
           // A logo sits inset on its chip; a photo fills it.
@@ -76,7 +78,7 @@ export function AccountMark({ account, size = 18, stacked = false, className }: 
           isPhoto ? "object-cover" : "object-contain",
         )}
         onError={() => setBroken(true)}
-      />
+      /> : <Mail aria-hidden="true" className="size-[72%]" style={{ color: `hsl(${account.hue} 70% 60%)` }} />}
     </span>
   );
 }

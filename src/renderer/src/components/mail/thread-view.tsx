@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Forward, Loader2, Paperclip, Reply, ReplyAll } from "lucide-react";
 import { toast } from "sonner";
 
-import { accountLabel } from "@shared/accounts";
+import { accountLabel, CALENDAR_ACCESS_REQUIRED } from "@shared/accounts";
+import { parseMessageId } from "@shared/ids";
 import { logoRequestFor } from "@shared/logos";
 import type { Thread } from "@shared/threads";
 import type { Account, InvitationResponse, MailAction, MailFolder, MessageDetail } from "@shared/types";
@@ -36,6 +37,12 @@ interface ThreadViewProps {
   onCompose: (seed: ComposeSeed) => void;
   /** True while the composer or a dialog is open, so R / E / F do not fire behind it. */
   shortcutsDisabled?: boolean;
+  /**
+   * Shown beside the list (split view) rather than in place of it: the toolbar sits under the
+   * window's own toolbar instead of reserving room for the window controls, and the attachments
+   * card goes above the messages instead of beside them.
+   */
+  embedded?: boolean;
 }
 
 function ToolbarButton({
@@ -142,6 +149,7 @@ export function ThreadView({
   onAction,
   onCompose,
   shortcutsDisabled = false,
+  embedded = false,
 }: ThreadViewProps) {
   const [details, setDetails] = useState<MessageDetail[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -256,18 +264,48 @@ export function ThreadView({
       setDetails((previous) => previous && withAnswer(previous, entry.invitation.uid, response));
       toast.success({ accepted: "You accepted the invitation", tentative: "You answered maybe", declined: "You declined the invitation" }[response]);
     } catch (failure) {
-      toast.error("Couldn't send your answer", { description: failure instanceof Error ? failure.message : String(failure) });
+      const description = failure instanceof Error ? failure.message : String(failure);
+      const ref = parseMessageId(entry.messageId);
+      if (description === CALENDAR_ACCESS_REQUIRED && ref) {
+        toast.error("Calendar access required", {
+          description,
+          action: {
+            label: "Allow access",
+            onClick: async () => {
+              try {
+                await api.accounts.reconnect(ref.accountId, true);
+                toast.success("Calendar access enabled. Choose your answer again to send it.");
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : String(error));
+              }
+            },
+          },
+        });
+        return;
+      }
+      toast.error("Couldn't send your answer", { description });
     }
   };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="electron-window-drag flex h-[88px] shrink-0 items-end justify-between px-6 pb-3 pt-10">
+      <header
+        className={cn(
+          "flex shrink-0 items-center justify-between [container-type:inline-size]",
+          embedded
+            ? "h-12 px-3"
+            : "electron-window-drag h-16 items-end px-6 pb-3 pt-3",
+        )}
+      >
         <div className="flex items-center gap-1">
-          <ToolbarButton label="Back" hint="Esc" onClick={onBack}>
-            <ArrowLeft className="size-[18px]" />
-          </ToolbarButton>
-          <span className="mx-1 h-5 w-px bg-border" />
+          {!embedded && (
+            <>
+              <ToolbarButton label="Back" hint="Esc" onClick={onBack}>
+                <ArrowLeft className="size-[18px]" />
+              </ToolbarButton>
+              <span className="mx-1 h-5 w-px bg-border" />
+            </>
+          )}
           {actions.map(({ action, label, icon: Icon, hint }) => (
             <ToolbarButton
               key={action}
@@ -294,8 +332,15 @@ export function ThreadView({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-16">
-        <div className={cn("mx-auto flex items-start gap-8", cardShown ? "max-w-[68rem]" : "max-w-3xl")}>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto pb-16", embedded ? "px-6 pt-4" : "px-8")}>
+        <div
+          className={cn(
+            "mx-auto flex gap-8",
+            embedded
+              ? "max-w-3xl flex-col-reverse"
+              : cn("items-start", cardShown ? "max-w-[68rem]" : "max-w-3xl"),
+          )}
+        >
           <div className="min-w-0 flex-1">
             <h1 className="mb-1 text-2xl font-semibold leading-tight">
               {normalizeSubject(thread.latest.subject)}
@@ -374,7 +419,7 @@ export function ThreadView({
             </div>
           </div>
           {cardShown && (
-            <aside className="sticky top-0 w-72 shrink-0">
+            <aside className={embedded ? "w-full" : "sticky top-0 w-72 shrink-0"}>
               <ThreadCard
                 artifacts={artifacts}
                 expecting={expecting}

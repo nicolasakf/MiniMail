@@ -3,7 +3,9 @@
  * Keep this file free of runtime dependencies so every layer can import it.
  */
 
-export type Provider = "gmail" | "outlook" | "zoho";
+import type { ImapSettings } from "./imap-settings";
+
+export type Provider = "gmail" | "outlook" | "zoho" | "imap";
 
 /** How the account signs in. Outlook is OAuth-only (Microsoft removed basic auth). */
 export type AuthMethod = "oauth" | "password";
@@ -35,9 +37,18 @@ export interface Account {
   zohoRegion?: ZohoRegion;
   /** Zoho custom-domain / paid orgs use imappro/smtppro hosts. */
   zohoWorkplace?: boolean;
+  imapSettings?: ImapSettings;
 }
 
 export type AddAccountInput =
+  | {
+      kind: "password";
+      provider: "imap";
+      email: string;
+      password: string;
+      imapSettings: ImapSettings;
+      alias?: string;
+    }
   | {
       kind: "password";
       provider: "zoho" | "gmail";
@@ -52,8 +63,8 @@ export type AddAccountInput =
   | {
       kind: "oauth";
       provider: "outlook";
-      outlookKind: OutlookKind;
-      /** Tenant id or domain, e.g. `myuniversity.edu`. Only used for work/school. */
+      outlookKind?: OutlookKind;
+      /** Tenant id or domain, e.g. `myuniversity.edu`. Ignored for personal accounts. */
       tenant?: string;
       email?: string;
       alias?: string;

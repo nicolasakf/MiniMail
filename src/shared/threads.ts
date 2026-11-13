@@ -1,3 +1,4 @@
+import { sameMessageKey } from "./dashboard";
 import type { MailAction, MailFolder, MessageSummary } from "./types";
 
 export interface Thread {
@@ -56,6 +57,29 @@ export function groupThreads(messages: readonly MessageSummary[]): Thread[] {
   return threads.sort(
     (a, b) => Date.parse(b.latest.date) - Date.parse(a.latest.date),
   );
+}
+
+/**
+ * The conversation as the thread view shows it: every message of it, whichever folder it is in.
+ * A folder list only loads its own folder, so a conversation opened from the Inbox lacks the
+ * user's replies (in Sent), and one opened from Sent lacks the mail they received. This adds the
+ * messages of `others` that belong to the same conversation, oldest first. Gmail keeps a copy of
+ * every message in All Mail (its Archive), so a message the thread already holds is not added twice.
+ *
+ * Only for showing: the result's messages are not what an action (archive, trash...) applies to.
+ */
+export function withRelatedMessages(thread: Thread, others: readonly MessageSummary[]): Thread {
+  const held = new Set(thread.messages.map((message) => message.id));
+  const heldKeys = new Set(thread.messages.map(sameMessageKey));
+  const related = others.filter(
+    (message) =>
+      `${message.accountId}:${message.threadId}` === thread.id &&
+      !held.has(message.id) &&
+      !heldKeys.has(sameMessageKey(message)),
+  );
+  if (related.length === 0) return thread;
+  const messages = [...thread.messages, ...related].sort(byDateAscending);
+  return { ...thread, messages, latest: messages[messages.length - 1], count: messages.length };
 }
 
 /** The folders a conversation can be moved between, in the order menus list them. */

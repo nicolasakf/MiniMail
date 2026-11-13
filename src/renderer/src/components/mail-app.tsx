@@ -8,14 +8,16 @@ import {
   buildFlatList,
   buildFocusedList,
   groupDefs,
+  MINIMIZED_SECTION,
   PINNED_SECTION,
   threadsInGroup,
   type GroupKind,
+  type GroupListItem,
   type ListItem,
 } from "@shared/focus-list";
 import { dropFolderDuplicates, matchesDrill, receivedMail, type DashboardRange } from "@shared/dashboard";
 import { buildSenders, threadsFromDomain, threadsFromSender } from "@shared/sender-list";
-import { conversationFolder, groupThreads, MOVE_DESTINATION, type Thread } from "@shared/threads";
+import { conversationFolder, groupThreads, MOVE_DESTINATION, withRelatedMessages, type Thread } from "@shared/threads";
 import type { MailAction, MailFolder, MessageSummary, ShownFolder, UiPrefs } from "@shared/types";
 
 import { Composer } from "@/components/mail/composer";
@@ -27,6 +29,7 @@ import { ItemMenu, type MenuEntry } from "@/components/mail/item-menu";
 import { DrillHeader, GroupHeader, ListHeader, VIEWS, type MailView } from "@/components/mail/list-header";
 import type { SelectModifiers } from "@/components/mail/thread-row";
 import { Rail } from "@/components/mail/rail";
+import { SplitHandle } from "@/components/mail/split-handle";
 import { SenderHeading, SenderPanel, useSenderPanelState } from "@/components/mail/sender-panel";
 import { AccountErrorToasts, EmptyList, ListSkeleton, NoAccounts } from "@/components/mail/states";
 import { ThreadView } from "@/components/mail/thread-view";
@@ -37,10 +40,11 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useCategories } from "@/hooks/use-categories";
 import { useDashboardMail } from "@/hooks/use-dashboard-mail";
+import { useConversationMail } from "@/hooks/use-conversation-mail";
 import { useMinimizedCategories } from "@/hooks/use-minimized-categories";
 import { matchesQuery, SHOWN_FOLDERS, useMailbox } from "@/hooks/use-mailbox";
 import { api } from "@/lib/api";
-import { useAppearance } from "@/lib/appearance";
+import { effectiveCategoryLayout, setAppearance, useAppearance } from "@/lib/appearance";
 import { newMessageSeed, type ComposeSeed } from "@/lib/compose";
 import { refreshContacts } from "@/lib/contact-cache";
 import { seedFromDraft, useDrafts } from "@/lib/drafts";
@@ -48,6 +52,12 @@ import { FOLDER_TITLES } from "@/lib/format";
 import { isTypingTarget } from "@/lib/keyboard";
 import { DELETE_FOREVER_CONFIRM } from "@/lib/delete-confirm";
 import { actionsForThread } from "@/lib/row-actions";
+import { cn } from "@/lib/utils";
+
+/** What the split view's pane shows for a selected row: its conversation, or nothing for a category row. */
+function paneIdFor(item: ListItem | undefined): string | null {
+  return item?.type === "thread" ? item.thread.id : null;
+}
 
 /** Actions that take a conversation out of the current view. */
 function removesFromView(action: MailAction, folder: MailFolder): boolean {
@@ -76,6 +86,16 @@ function idsForAction(action: MailAction, thread: Thread): string[] {
 }
 
 const PINNED_COLLAPSED_KEY = "minimail.pinnedCollapsed";
+const MINIMIZED_EXPANDED_KEY = "minimail.minimizedExpanded";
+
+/** Whether the user unfolded the Minimized heading last time (it starts folded); never throws. */
+function readMinimizedExpanded(): boolean {
+  try {
+    return window.localStorage.getItem(MINIMIZED_EXPANDED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 /** Whether the user folded the Pinned heading last time; storage may be unavailable, so never throw. */
 function readPinnedCollapsed(): boolean {
@@ -328,6 +348,7 @@ export function MailApp() {
   }, [clearListState]);
 
   const [pinnedCollapsed, setPinnedCollapsed] = useState(readPinnedCollapsed);
+  const [minimizedExpanded, setMinimizedExpanded] = useState(readMinimizedExpanded);
   const isMac = useIsMac();
   /** The settings dialog: open or not, the page it opens on, and whether Accounts opens on the add picker. */
   const [settingsDialog, setSettingsDialog] = useState<{ open: boolean; tab: SettingsTab; adding: boolean }>({
@@ -369,16 +390,34 @@ export function MailApp() {
     return activeSenderKey ? threadsFromSender(threads, activeSenderKey) : [];
   }, [openGroup, senderView, threads, activeDomain, activeSenderKey]);
 
+  const appearance = useAppearance();
+  const categoryLayout = effectiveCategoryLayout(appearance);
   const { minimized, setCategoryMinimized } = useMinimizedCategories();
   const { items, dockGroups } = useMemo(() => {
     if (!focused || openGroup) return { items: buildFlatList(listThreads, now), dockGroups: [] };
     const all = buildFocusedList(threads, { now, categories, pinnedCollapsed });
-    // Minimized categories leave the list (and its keyboard navigation) for the dock at the right.
-    const isDocked = (item: ListItem): item is Extract<ListItem, { type: "group" }> =>
-      item.type === "group" && minimized.has(item.kind);
-    return { items: all.filter((item) => !isDocked(item)), dockGroups: all.filter(isDocked) };
-  }, [focused, openGroup, threads, listThreads, now, categories, pinnedCollapsed, minimized]);
+    // Minimized categories leave the category rows (and their place in the keyboard navigation).
+    const isDocked = (item: ListItem): item is GroupListItem => item.type === "group" && minimized.has(item.kind);
+    const rest: ListItem[] = all.filter((item) => !isDocked(item));
+    const docked = all.filter(isDocked);
+    // Cards keep their dock at the list's right edge. Rows get a foldable "Minimized" heading right
+    // after the category rows: folded it shows the categories as icons, unfolded as slim rows.
+    if (categoryLayout === "vertical" || docked.length === 0) return { items: rest, dockGroups: docked };
+    const at = rest.findIndex((item) => item.type !== "group");
+    const heading: ListItem = {
+      type: "section",
+      key: MINIMIZED_SECTION,
+      label: "Minimized",
+      collapsible: { collapsed: !minimizedExpanded, count: docked.length },
+      docked,
+    };
+    const slim = minimizedExpanded ? docked.map((group): ListItem => ({ ...group, slim: true })) : [];
+    rest.splice(at < 0 ? rest.length : at, 0, heading, ...slim);
+    return { items: rest, dockGroups: docked };
+  }, [focused, openGroup, threads, listThreads, now, categories, pinnedCollapsed, minimized, categoryLayout, minimizedExpanded]);
   const navigable = useMemo(() => items.filter((item) => item.type !== "section"), [items]);
+  /** Split view: the selected conversation is read beside the list instead of replacing it. */
+  const split = appearance.splitView && !(onDashboard && !drill) && !(accountsLoaded && accounts.length === 0);
   const openThread = useMemo(
     // Looked up unfiltered: reading a conversation must not make it vanish from under the reader.
     () =>
@@ -386,6 +425,14 @@ export function MailApp() {
         ? (inDrill ? drillThreads : allThreads).find((thread) => thread.id === openThreadId)
         : undefined,
     [openThreadId, inDrill, drillThreads, allThreads],
+  );
+  // A folder list loads only its own folder, so the rest of a conversation (the user's replies in
+  // Sent, what they received in the Inbox or Archive) is added when a conversation opens.
+  const conversationMail = useConversationMail(openThread !== undefined && folder !== "drafts");
+  /** The open conversation with all its messages; actions still use `openThread` itself. */
+  const viewedThread = useMemo(
+    () => (openThread ? withRelatedMessages(openThread, conversationMail) : undefined),
+    [openThread, conversationMail],
   );
 
   // Keep a valid keyboard selection as the list changes underneath it.
@@ -424,7 +471,23 @@ export function MailApp() {
   }, [navigable]);
 
   const selectedItem = navigable.find((item) => item.key === selectedKey);
-  const { categoryLayout } = useAppearance();
+  /** The conversation that replaces the list, full screen; in the split view it sits beside it instead. */
+  const fullOpen = openThread !== undefined && !split;
+  /** The conversation beside the list (split view), if one is shown. */
+  const paneThread = split ? openThread : undefined;
+  /** Several conversations are selected: the pane shows how many instead of one of them. */
+  const paneSelection = split && checked.size > 0;
+
+  /** Shows a conversation (or nothing) beside the list. Arrowing waits a beat so a run of presses loads one. */
+  /** The list's width while it is being resized; it is saved once the drag ends. */
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const paneTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const showInPane = useCallback((threadId: string | null, delayed = false) => {
+    clearTimeout(paneTimer.current);
+    if (delayed && threadId !== null) paneTimer.current = setTimeout(() => setOpenThreadId(threadId), 150);
+    else setOpenThreadId(threadId);
+  }, []);
+  useEffect(() => () => clearTimeout(paneTimer.current), []);
   const selectedThread = selectedItem?.type === "thread" ? selectedItem.thread : undefined;
 
   /** Moves the selection to the nearest row that is not part of `thread`, before it disappears. */
@@ -437,9 +500,12 @@ export function MailApp() {
       const isOther = (item: ListItem | undefined) =>
         item !== undefined && !(item.type === "thread" && item.thread.id === thread.id);
       const next = [navigable[index + 1], navigable[index - 1]].find(isOther);
-      if (next) setSelectedKey(next.key);
+      if (!next) return;
+      setSelectedKey(next.key);
+      // The conversation being read leaves with its row: the pane moves on to the neighbor.
+      if (split && openThreadId === thread.id) showInPane(paneIdFor(next));
     },
-    [navigable],
+    [navigable, split, openThreadId, showInPane],
   );
 
   const actOnThread = useCallback(
@@ -487,6 +553,18 @@ export function MailApp() {
   );
 
   const toggleSection = useCallback((key: string) => {
+    if (key === MINIMIZED_SECTION) {
+      setMinimizedExpanded((previous) => {
+        const next = !previous;
+        try {
+          window.localStorage.setItem(MINIMIZED_EXPANDED_KEY, next ? "1" : "0");
+        } catch {
+          // Storage is a convenience; the fold still works for this session.
+        }
+        return next;
+      });
+      return;
+    }
     if (key !== PINNED_SECTION) return;
     setPinnedCollapsed((previous) => {
       const next = !previous;
@@ -576,10 +654,12 @@ export function MailApp() {
       } else {
         anchorKey.current = key;
         setChecked(new Set());
+        // One click is enough in the split view: the conversation opens beside the list.
+        if (split) showInPane(paneIdFor(navigable.find((it) => it.key === key)));
       }
       setSelectedKey(key);
     },
-    [checkRange, checked, navigable, selectedKey, selectedThread],
+    [checkRange, checked, navigable, selectedKey, selectedThread, split, showInPane],
   );
 
   /** ⌘A: selects every conversation on screen. `navigable` is exactly that list, group rows aside. */
@@ -626,8 +706,9 @@ export function MailApp() {
       anchorKey.current = navigable[next].key;
       setChecked(new Set());
       setSelectedKey(navigable[next].key);
+      if (split) showInPane(paneIdFor(navigable[next]), true);
     },
-    [navigable, selectedKey],
+    [navigable, selectedKey, split, showInPane],
   );
 
   /** Right-click on a row: that row becomes the selection and its menu opens at the pointer. */
@@ -638,7 +719,7 @@ export function MailApp() {
 
   /** `/`: the menu of the open conversation, or of the selected row, anchored just under it. */
   const openMenuForSelection = useCallback(() => {
-    if (openThread) {
+    if (fullOpen) {
       setItemMenu({ x: window.innerWidth - 320, y: 80, key: null });
       return;
     }
@@ -646,7 +727,7 @@ export function MailApp() {
     const row = document.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(selectedKey)}"]`);
     const rect = row?.getBoundingClientRect();
     setItemMenu({ x: (rect?.left ?? 0) + 56, y: rect?.bottom ?? 120, key: selectedKey });
-  }, [openThread, selectedKey]);
+  }, [fullOpen, selectedKey]);
 
   /** The commands of the menu on screen, built from the current state of its item. */
   const menuEntries = useMemo((): MenuEntry[] => {
@@ -659,7 +740,7 @@ export function MailApp() {
 
     if (thread) {
       const entries: MenuEntry[] = [];
-      if (!openThread) {
+      if (!fullOpen && openThread?.id !== thread.id) {
         entries.push({
           id: "open",
           label: "Open",
@@ -668,23 +749,25 @@ export function MailApp() {
           run: () => setOpenThreadId(thread.id),
         });
       }
-      for (const { action, label, icon, hint } of actionsForThread(threadFolder(thread), thread)) {
-        entries.push({
-          id: action,
-          label,
-          icon,
-          hint,
-          destructive: action === "trash" || action === "deleteForever" || action === "spam",
-          run: () => {
-            if (action === "deleteForever") {
-              setDeleteConfirm({ x: itemMenu.x, y: itemMenu.y, thread });
-              return;
-            }
-            actOnThread(action, thread);
-            if (openThread && removesFromView(action, listFolder)) setOpenThreadId(null);
-          },
-        });
-      }
+      const isDanger = (action: string) => action === "trash" || action === "deleteForever" || action === "spam";
+      const actionEntry = ({ action, label, icon, hint }: ReturnType<typeof actionsForThread>[number]): MenuEntry => ({
+        id: action,
+        label,
+        icon,
+        hint,
+        destructive: action === "trash" || action === "deleteForever",
+        warning: action === "spam",
+        run: () => {
+          if (action === "deleteForever") {
+            setDeleteConfirm({ x: itemMenu.x, y: itemMenu.y, thread });
+            return;
+          }
+          actOnThread(action, thread);
+          if (fullOpen && removesFromView(action, listFolder)) setOpenThreadId(null);
+        },
+      });
+      const actions = actionsForThread(threadFolder(thread), thread);
+      for (const entry of actions.filter((a) => !isDanger(a.action))) entries.push(actionEntry(entry));
       if (categories.length > 0 && listFolder !== "sent" && listFolder !== "drafts") {
         // A menu opened on a row inside a multi-selection acts on the whole selection.
         const targets = checked.has(thread.id) && checked.size > 1 ? [...checked] : [thread.id];
@@ -716,6 +799,10 @@ export function MailApp() {
           ],
         });
       }
+      // Spam, trash and delete go last, set apart from the everyday commands.
+      const danger = actions.filter((a) => isDanger(a.action)).map(actionEntry);
+      if (danger.length > 0 && entries.length > 0) danger[0] = { ...danger[0]!, separatorBefore: true };
+      entries.push(...danger);
       return entries;
     }
 
@@ -758,6 +845,7 @@ export function MailApp() {
     minimized,
     setCategoryMinimized,
     openThread,
+    fullOpen,
     listFolder,
     threadFolder,
     actOnThread,
@@ -813,7 +901,7 @@ export function MailApp() {
 
       // ⌘K / Ctrl+K searches; it works from a text field too, and plain K stays "up".
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "k") {
-        if (openThread) return; // no list on screen to search
+        if (fullOpen) return; // no list on screen to search
         setItemMenu(null);
         setSearchOpen(true);
         event.preventDefault();
@@ -830,7 +918,7 @@ export function MailApp() {
       // chosen sender's (or domain's) mail, in the Smart view the mail outside any category, and
       // inside a category all of its mail. In a text field it stays the field's own select-all.
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "a") {
-        if (openThread || isTypingTarget(event.target)) return;
+        if (fullOpen || isTypingTarget(event.target)) return;
         selectAll();
         event.preventDefault();
         return;
@@ -844,7 +932,7 @@ export function MailApp() {
       }
 
       // With several conversations selected (shift-click, shift+arrows) the shortcuts act on all of them.
-      const bulk = !openThread && checked.size > 0;
+      const bulk = !fullOpen && checked.size > 0;
       const target = openThread ?? selectedThread;
       const targetFolder = target && !bulk ? threadFolder(target) : listFolder;
       const act_ = (action: MailAction) => {
@@ -854,7 +942,7 @@ export function MailApp() {
         }
         if (!target) return;
         actOnThread(action, target);
-        if (openThread && removesFromView(action, listFolder)) setOpenThreadId(null);
+        if (fullOpen && removesFromView(action, listFolder)) setOpenThreadId(null);
       };
       /** Archive, trash, spam and delete need the same key twice: the first press only asks. */
       const confirmThenAct = (action: MailAction, message: (key: string) => string) => {
@@ -879,7 +967,7 @@ export function MailApp() {
 
       // Shift+Up/Down grows or shrinks the selection from where it started.
       if (event.shiftKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
-        if (!openThread) {
+        if (!fullOpen) {
           extendSelection(event.key === "ArrowDown" ? 1 : -1);
           event.preventDefault();
         }
@@ -888,8 +976,9 @@ export function MailApp() {
 
       switch (event.key) {
         case "Escape":
-          if (openThread) setOpenThreadId(null);
+          if (fullOpen) setOpenThreadId(null);
           else if (checked.size > 0) setChecked(new Set());
+          else if (openThread) showInPane(null);
           else if (openGroup) closeGroup();
           else if (searchOpen) {
             setQuery("");
@@ -898,7 +987,7 @@ export function MailApp() {
           return;
         case "Tab": {
           // Cycles the Smart / Sender / List tabs (Shift+Tab goes back); only while their header shows.
-          if (openThread || openGroup || listOnly || (accountsLoaded && accounts.length === 0)) return;
+          if (fullOpen || openGroup || listOnly || (accountsLoaded && accounts.length === 0)) return;
           const at = VIEWS.findIndex((candidate) => candidate.view === view);
           const step = event.shiftKey ? -1 : 1;
           changeView(VIEWS[(at + step + VIEWS.length) % VIEWS.length].view);
@@ -907,24 +996,24 @@ export function MailApp() {
         }
         case "ArrowDown":
         case "j":
-          if (!openThread) moveSelection(1);
+          if (!fullOpen) moveSelection(1);
           break;
         case "ArrowUp":
         case "k":
-          if (!openThread) moveSelection(-1);
+          if (!fullOpen) moveSelection(-1);
           break;
         case "ArrowRight":
         case "ArrowLeft":
           // Vertical category cards sit side by side: left and right step between them.
-          if (!openThread && selectedItem?.type === "group" && categoryLayout === "vertical") {
+          if (!fullOpen && selectedItem?.type === "group" && categoryLayout === "vertical") {
             moveSelection(event.key === "ArrowRight" ? 1 : -1);
           }
           break;
         case "Enter":
         case "o":
-          if (openThread) return;
+          if (fullOpen) return;
           if (selectedItem?.type === "group") showGroup(selectedItem.kind);
-          else if (selectedThread) setOpenThreadId(selectedThread.id);
+          else if (selectedThread) showInPane(selectedThread.id);
           break;
         case "a":
           // In Archive, A is the way back to the inbox and needs no confirmation.
@@ -962,7 +1051,7 @@ export function MailApp() {
             const anyUnread = threads.some((thread) => checked.has(thread.id) && thread.unread);
             act_(anyUnread ? "markRead" : "markUnread");
           } else if (target) act_(target.unread ? "markRead" : "markUnread");
-          else if (!openThread && selectedItem?.type === "group") {
+          else if (!fullOpen && selectedItem?.type === "group") {
             // A category row: same as clicking its dot, marks every conversation in it read or unread.
             toggleGroupRead(selectedItem.kind, selectedItem.hasUnread);
           }
@@ -1000,6 +1089,8 @@ export function MailApp() {
     openGroup,
     openMenuForSelection,
     openThread,
+    fullOpen,
+    showInPane,
     searchOpen,
     checked,
     actOnChecked,
@@ -1104,6 +1195,52 @@ export function MailApp() {
     loading: loading && allThreads.length === 0,
   };
 
+  /** The list's column: the whole width, or a fixed share of it when a reading pane sits beside it. */
+  const listColumn = split
+    ? "relative flex min-h-0 min-w-[280px] max-w-[calc(100%-420px)] shrink-0 flex-col"
+    : "relative flex min-h-0 min-w-0 flex-1 flex-col";
+  const listRow = "flex min-h-0 flex-1";
+  const listColumnStyle = split ? { width: dragWidth ?? appearance.splitListWidth } : undefined;
+  const splitHandle = split ? (
+    <SplitHandle
+      width={dragWidth ?? appearance.splitListWidth}
+      onResize={setDragWidth}
+      onCommit={(width) => {
+        setAppearance({ splitListWidth: width });
+        setDragWidth(null);
+      }}
+    />
+  ) : null;
+
+  /** Split view: the selected conversation, under the same toolbar as the list. */
+  const readingPane = split ? (
+    <section
+      aria-label="Conversation"
+      className="corner-squircle mb-3 mr-3 mt-1 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-sidebar-border bg-sidebar shadow"
+    >
+      {paneThread && !paneSelection ? (
+        <ThreadView
+          key={paneThread.id}
+          embedded
+          thread={viewedThread ?? paneThread}
+          folder={threadFolder(paneThread)}
+          accounts={accounts}
+          onBack={() => showInPane(null)}
+          onAction={(action) => actOnThread(action, paneThread)}
+          onCompose={startCompose}
+          shortcutsDisabled={compose !== null || settingsDialog.open}
+        />
+      ) : (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
+          <Mail className="size-8 opacity-50" aria-hidden />
+          <p className="text-sm">
+            {paneSelection ? `${checked.size} conversations selected` : "Select a conversation to read it"}
+          </p>
+        </div>
+      )}
+    </section>
+  ) : null;
+
   return (
     <div className="flex h-full w-full bg-background text-foreground">
       <Rail
@@ -1118,7 +1255,7 @@ export function MailApp() {
       />
 
       {/* With a thread open there is no list toolbar, so the panel keeps the full height beside it. */}
-      {activeView === "sender" && !showNoAccounts && (!onDashboard || inDrill) && openThread && (
+      {activeView === "sender" && !showNoAccounts && (!onDashboard || inDrill) && fullOpen && (
         <SenderPanel {...senderPanelProps} underToolbar={false} />
       )}
 
@@ -1137,10 +1274,10 @@ export function MailApp() {
             onOpen={openDrill}
             onRefresh={() => void reloadDashboard(false)}
           />
-        ) : openThread ? (
+        ) : fullOpen && openThread ? (
           <ThreadView
             key={openThread.id}
-            thread={openThread}
+            thread={viewedThread ?? openThread}
             folder={threadFolder(openThread)}
             accounts={accounts}
             onBack={() => setOpenThreadId(null)}
@@ -1173,9 +1310,9 @@ export function MailApp() {
                 {...headerActions}
               />
             )}
-            <div className="flex min-h-0 flex-1">
+            <div className={listRow}>
               {activeView === "sender" && <SenderPanel {...senderPanelProps} />}
-              <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+              <div className={listColumn} style={listColumnStyle}>
                 {listThreads.length === 0 ? (
                   <EmptyList folder={null} query={query} unreadOnly={unreadOnly} />
                 ) : (
@@ -1199,12 +1336,14 @@ export function MailApp() {
                       onThreadAction={actOnThread}
                       onItemMenu={openItemMenu}
                       onToggleSection={toggleSection}
-                      minimized={dockGroups}
+                      minimized={categoryLayout === "vertical" ? dockGroups : undefined}
                     />
                   </>
                 )}
                 {bulkBar}
               </div>
+              {splitHandle}
+              {readingPane}
             </div>
           </>
         ) : (
@@ -1230,9 +1369,9 @@ export function MailApp() {
               />
             )}
 
-            <div className="flex min-h-0 flex-1">
+            <div className={listRow}>
             {activeView === "sender" && !showNoAccounts && <SenderPanel {...senderPanelProps} />}
-            <div className="relative flex min-w-0 flex-1 flex-col">
+            <div className={cn(listColumn, "min-h-0")} style={listColumnStyle}>
             <AccountErrorToasts
               errors={errors}
               accounts={accounts}
@@ -1273,13 +1412,15 @@ export function MailApp() {
                   onThreadAction={actOnThread}
                   onItemMenu={openItemMenu}
                   onToggleSection={toggleSection}
-                  minimized={dockGroups}
+                  minimized={categoryLayout === "vertical" ? dockGroups : undefined}
                 />
               </>
             )}
 
             {bulkBar}
             </div>
+            {splitHandle}
+            {readingPane}
             </div>
           </>
         )}
@@ -1304,7 +1445,7 @@ export function MailApp() {
           onConfirm={() => {
             const { thread } = deleteConfirm;
             actOnThread("deleteForever", thread);
-            if (openThread) setOpenThreadId(null);
+            if (fullOpen) setOpenThreadId(null);
           }}
           side="bottom"
           align="start"

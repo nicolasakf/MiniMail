@@ -133,3 +133,26 @@ export function SettingsSegmentedField<T extends string>({
     </Tabs>
   );
 }
+
+/** A setting laid out as one row: its label and note on the left, its control on the right. */
+export function SettingsRow({
+  label,
+  info,
+  description,
+  children,
+}: {
+  label: string;
+  info?: ReactNode;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid items-start gap-2 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-4">
+      <div className="space-y-1 pt-1">
+        <SettingsLabel label={label} info={info} />
+        {description && <p className="text-xs text-muted-foreground">{description}</p>}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}

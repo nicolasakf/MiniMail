@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { CALENDAR_ACCESS_REQUIRED } from "@shared/accounts";
 import { classifyMessage } from "@shared/classify";
 import { makeMessageId, parseMessageId } from "@shared/ids";
 import { isAuthenticated } from "@shared/logos";
@@ -364,9 +365,7 @@ export class GraphProvider implements MailProvider {
       await this.request("POST", `/me/events/${encodeURIComponent(event.id)}/${endpoint}`, { sendResponse: true });
     } catch (error) {
       if (error instanceof GraphError && (error.status === 401 || error.status === 403)) {
-        throw new Error(
-          "MiniMail does not have permission to answer invitations for this account yet. Remove the account and add it again to allow it.",
-        );
+        throw new Error(CALENDAR_ACCESS_REQUIRED);
       }
       throw error;
     }

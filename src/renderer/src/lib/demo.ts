@@ -1,4 +1,5 @@
-import { normalizeAlias } from "@shared/accounts";
+import { normalizeAlias, providerForEmailDomain } from "@shared/accounts";
+import { zohoSettings } from "@shared/imap-settings";
 import { trustKey } from "@shared/trust";
 import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "@shared/notifications";
 import { DEFAULT_LOGO_SETTINGS, isFreemail, logoKey, type LogoRequest, type LogoSettings } from "@shared/logos";
@@ -691,6 +692,12 @@ export function createDemoApi(): MiniMailApi {
         await wait(60);
         return accounts;
       },
+      async discover(email) {
+        return providerForEmailDomain(email);
+      },
+      async discoverImap(email) {
+        return providerForEmailDomain(email) === "zoho" ? zohoSettings(email, "com", false) : null;
+      },
       async add(input: AddAccountInput) {
         await wait(900);
         const provider = input.provider;
@@ -708,6 +715,12 @@ export function createDemoApi(): MiniMailApi {
         };
         accounts = [...accounts, account];
         return account;
+      },
+      async reconnect(accountId) {
+        await wait(900);
+        if (!accounts.some((account) => account.id === accountId)) {
+          throw new Error("That account no longer exists.");
+        }
       },
       async setAvatar(accountId, avatar) {
         await wait(60);

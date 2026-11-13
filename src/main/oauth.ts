@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import type { Account } from "@shared/types";
 
-/** Client ids baked in at build time from `.env.local` (see `.env.example`). */
+/** Provider registrations supplied by the development or release build. */
 export interface OAuthConfig {
   googleClientId?: string;
   googleClientSecret?: string;
@@ -18,6 +18,7 @@ export interface OAuthTokens {
   refreshToken: string;
   /** Epoch milliseconds. */
   expiresAt: number;
+  calendarAccess?: boolean;
 }
 
 export interface OAuthIdentity {
@@ -42,18 +43,16 @@ const GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 /** Full IMAP/SMTP access; Gmail exposes no narrower scope for IMAP. */
 const GOOGLE_SCOPES = "https://mail.google.com/ openid email profile";
 
-const MICROSOFT_SCOPES = [
+const MICROSOFT_MAIL_SCOPES = [
   "openid",
   "profile",
   "email",
   "offline_access",
   "https://graph.microsoft.com/Mail.ReadWrite",
   "https://graph.microsoft.com/Mail.Send",
-  // Lets MiniMail read a meeting request's event and answer it. Accounts added before this
-  // keep working: a refresh asks for no scope, so it returns what was granted at sign-in.
-  "https://graph.microsoft.com/Calendars.ReadWrite",
   "https://graph.microsoft.com/User.Read",
 ].join(" ");
+const MICROSOFT_CALENDAR_SCOPE = "https://graph.microsoft.com/Calendars.ReadWrite";
 
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -61,6 +60,7 @@ const tokenResponseSchema = z.object({
   access_token: z.string(),
   refresh_token: z.string().optional(),
   expires_in: z.number(),
+  scope: z.string().optional(),
 });
 
 const googleUserSchema = z.object({
@@ -77,7 +77,7 @@ const graphMeSchema = z.object({
 /** Which Microsoft login authority an account signs in against. */
 export function microsoftAuthority(account: Pick<Account, "outlookKind" | "tenant">): string {
   if (account.outlookKind === "personal") return "consumers";
-  return account.tenant?.trim() || "organizations";
+  return account.tenant?.trim() || (account.outlookKind === "work-school" ? "organizations" : "common");
 }
 
 export function oauthCapabilities(config: OAuthConfig): {
@@ -97,14 +97,29 @@ function createPkce(): { verifier: string; challenge: string } {
   return { verifier, challenge };
 }
 
-const SUCCESS_PAGE = `<!doctype html><meta charset="utf-8"><title>MiniMail</title>
+function callbackPage(message: string): string {
+  return `<!doctype html><meta charset="utf-8"><title>MiniMail</title>
 <body style="font-family:system-ui;background:#0a0a0a;color:#fafafa;display:grid;place-items:center;height:100vh;margin:0">
-<div style="text-align:center"><h2>Signed in</h2><p style="color:#a3a3a3">You can close this tab and return to MiniMail.</p></div></body>`;
+<div style="text-align:center"><h2>${message}</h2><p style="color:#a3a3a3">You can close this tab and return to MiniMail.</p></div></body>`;
+}
 
 interface AuthorizationResult {
   code: string;
   redirectUri: string;
   verifier: string;
+}
+
+function authorizationError(code: string, detail: string): Error {
+  if (/AADSTS(?:90094|65001)\b/i.test(detail)) {
+    return new Error(`Your organization needs to approve MiniMail. Ask your IT administrator for access. ${detail}`);
+  }
+  if (/AADSTS(?:53000|53001|53002|53003)\b/i.test(detail)) {
+    return new Error(`Your organization's sign-in policy blocked this connection. Contact your IT administrator. ${detail}`);
+  }
+  if (code === "access_denied" && detail === code) {
+    return new Error("Access was declined. You can try signing in again.");
+  }
+  return new Error(detail);
 }
 
 /**
@@ -129,20 +144,25 @@ async function authorize(options: {
       const error = url.searchParams.get("error");
       const code = url.searchParams.get("code");
 
-      if (url.pathname !== "/" || (!error && !code)) {
+      if (request.method !== "GET" || url.pathname !== "/" || (!error && !code)) {
         response.writeHead(404).end();
         return;
       }
 
-      response.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(SUCCESS_PAGE);
+      if (url.searchParams.get("state") !== state) {
+        response.writeHead(400, { "content-type": "text/html; charset=utf-8" })
+          .end(callbackPage("This sign-in response did not match"));
+        return;
+      }
+
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
+        .end(callbackPage(error ? "Sign-in could not finish" : "Browser sign-in complete"));
       clearTimeout(timer);
       server.close();
 
       if (error) {
-        reject(new Error(url.searchParams.get("error_description") ?? error));
-      } else if (url.searchParams.get("state") !== state || !code) {
-        reject(new Error("Sign-in was rejected: the response did not match the request."));
-      } else {
+        reject(authorizationError(error, url.searchParams.get("error_description") ?? error));
+      } else if (code) {
         resolve({ code, verifier, redirectUri });
       }
     });
@@ -176,6 +196,7 @@ async function requestTokens(
   url: string,
   form: Record<string, string>,
   previousRefreshToken?: string,
+  microsoftCalendarAccess?: boolean,
 ): Promise<OAuthTokens> {
   const response = await fetch(url, {
     method: "POST",
@@ -190,7 +211,10 @@ async function requestTokens(
     const detail = failure.success
       ? (failure.data.error_description ?? failure.data.error)
       : undefined;
-    throw new Error(detail ?? `Token request failed (${response.status}).`);
+    throw authorizationError(
+      failure.success ? failure.data.error ?? "" : "",
+      detail ?? `Token request failed (${response.status}).`,
+    );
   }
   const tokens = tokenResponseSchema.parse(body);
   const refreshToken = tokens.refresh_token ?? previousRefreshToken;
@@ -201,6 +225,11 @@ async function requestTokens(
     accessToken: tokens.access_token,
     refreshToken,
     expiresAt: Date.now() + tokens.expires_in * 1000,
+    ...(microsoftCalendarAccess === undefined ? {} : {
+      calendarAccess: tokens.scope === undefined
+        ? microsoftCalendarAccess
+        : /(?:^|\s)(?:https:\/\/graph\.microsoft\.com\/)?Calendars\.ReadWrite(?:\s|$)/i.test(tokens.scope),
+    }),
   };
 }
 
@@ -247,19 +276,21 @@ export async function signInWithGoogle(
   const userResponse = await fetch(GOOGLE_USERINFO_URL, {
     headers: { authorization: `Bearer ${tokens.accessToken}` },
   });
+  if (!userResponse.ok) {
+    throw new Error(`Google signed you in but could not provide your account details (HTTP ${userResponse.status}).`);
+  }
   const user = googleUserSchema.parse(await userResponse.json());
   return { email: user.email, name: user.name ?? user.email, tokens };
 }
 
 /**
- * Interactive Microsoft sign-in. Personal accounts use the `consumers` authority;
- * a university/work account uses `organizations` (or its own tenant), which sends
- * the user to their institution's login page and may require admin consent.
+ * Interactive Microsoft sign-in. The default authority supports both account types.
+ * Existing accounts and advanced setup can use a more specific authority.
  */
 export async function signInWithMicrosoft(
   config: OAuthConfig,
   openExternal: (url: string) => Promise<void>,
-  target: Pick<Account, "outlookKind" | "tenant">,
+  target: Pick<Account, "outlookKind" | "tenant"> & { calendarAccess?: boolean },
   loginHint?: string,
 ): Promise<OAuthIdentity> {
   const clientId = config.microsoftClientId;
@@ -267,6 +298,9 @@ export async function signInWithMicrosoft(
 
   const authority = microsoftAuthority(target);
   const base = `https://login.microsoftonline.com/${encodeURIComponent(authority)}/oauth2/v2.0`;
+  const scope = target.calendarAccess
+    ? `${MICROSOFT_MAIL_SCOPES} ${MICROSOFT_CALENDAR_SCOPE}`
+    : MICROSOFT_MAIL_SCOPES;
 
   const { code, redirectUri, verifier } = await authorize({
     redirectHost: "localhost",
@@ -278,7 +312,7 @@ export async function signInWithMicrosoft(
         redirect_uri: redirect,
         response_type: "code",
         response_mode: "query",
-        scope: MICROSOFT_SCOPES,
+        scope,
         state,
         code_challenge: challenge,
         code_challenge_method: "S256",
@@ -295,8 +329,8 @@ export async function signInWithMicrosoft(
     code_verifier: verifier,
     redirect_uri: redirectUri,
     grant_type: "authorization_code",
-    scope: MICROSOFT_SCOPES,
-  });
+    scope,
+  }, undefined, Boolean(target.calendarAccess));
 
   const meResponse = await fetch(
     "https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName,displayName",

@@ -4,7 +4,7 @@ import { defaultCategories } from "./categories";
 import { classifyMessage } from "./classify";
 import { buildFocusedList, sectionFor, threadsInGroup } from "./focus-list";
 import { makeMessageId, parseMessageId } from "./ids";
-import { groupThreads } from "./threads";
+import { groupThreads, withRelatedMessages } from "./threads";
 import type { MessageSummary, SmartCategory } from "./types";
 
 const NOW = new Date(2026, 10, 9, 15, 0, 0); // Nov 9 2026, local time
@@ -139,6 +139,53 @@ describe("groupThreads", () => {
       msg({ id: "2", threadId: "t", hasAttachments: true, date: new Date(2026, 10, 9).toISOString() }),
     ]);
     expect(thread).toMatchObject({ answered: true, hasAttachments: true });
+  });
+});
+
+describe("withRelatedMessages", () => {
+  const received = msg({ id: "in", threadId: "t1", date: new Date(2026, 6, 31, 3, 36).toISOString() });
+  const reply = msg({
+    id: "out",
+    folder: "sent",
+    threadId: "t1",
+    from: { name: "Me", email: "me@example.com" },
+    date: new Date(2026, 7, 3, 13, 48).toISOString(),
+  });
+  const thread = () => groupThreads([received])[0];
+
+  it("adds the user's replies of the same conversation, oldest first", () => {
+    const merged = withRelatedMessages(thread(), [reply]);
+    expect(merged.messages.map((m) => m.id)).toEqual(["in", "out"]);
+    expect(merged.count).toBe(2);
+    expect(merged.latest.id).toBe("out");
+    expect(merged.id).toBe("a1:t1");
+  });
+
+  it("adds the received messages to a conversation opened from Sent", () => {
+    const fromSent = groupThreads([reply])[0];
+    const merged = withRelatedMessages(fromSent, [received]);
+    expect(merged.messages.map((m) => m.id)).toEqual(["in", "out"]);
+    expect(merged.latest.id).toBe("out");
+  });
+
+  it("ignores mail of other conversations and other accounts", () => {
+    const sent = [
+      msg({ id: "x", folder: "sent", threadId: "t2" }),
+      msg({ id: "y", folder: "sent", threadId: "t1", accountId: "a2" }),
+    ];
+    expect(withRelatedMessages(thread(), sent).messages.map((m) => m.id)).toEqual(["in"]);
+  });
+
+  it("does not add a reply the thread already holds (Gmail's All Mail copy)", () => {
+    const archived = { ...reply, id: "out-allmail", folder: "archive" as const };
+    const base = groupThreads([received, archived])[0];
+    const merged = withRelatedMessages(base, [reply]);
+    expect(merged.messages.map((m) => m.id)).toEqual(["in", "out-allmail"]);
+  });
+
+  it("leaves the conversation alone when there is nothing to add", () => {
+    const base = thread();
+    expect(withRelatedMessages(base, [])).toBe(base);
   });
 });
 

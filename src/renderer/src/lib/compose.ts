@@ -109,10 +109,14 @@ export function buildReplySeed(
 
   const sender = message.replyTo ?? message.from;
   const attribution = `On ${formatFullDate(message.date)}, ${contactLabel(message.from)} <${message.from.email}> wrote:`;
+  // Replying to a message the user wrote (now shown inside conversations) goes to its recipients.
+  const wroteIt = own.has(message.from.email.toLowerCase());
   const to =
     mode === "replyAll"
       ? uniqueOthers([sender, ...message.to], own)
-      : [sender];
+      : wroteIt
+        ? message.to
+        : [sender];
   const cc = mode === "replyAll" ? uniqueOthers(message.cc, own) : [];
 
   return {

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { IPC } from "@shared/ipc";
 import {
   actionSchema,
+  accountEmailSchema,
   addAccountSchema,
   aliasSchema,
   avatarSchema,
@@ -29,6 +30,7 @@ import {
 import type { MailAction } from "@shared/types";
 
 import type { AiSettingsStore } from "./ai-settings";
+import { discoverAccountProvider, discoverImapSettings } from "./account-discovery";
 import type { AttachmentFiles } from "./attachment-files";
 import type { Categorizer } from "./categorizer";
 import type { DraftStore } from "./draft-store";
@@ -82,7 +84,12 @@ export function registerIpc(options: {
   };
 
   handle(IPC.accountsList, () => service.listAccounts());
+  handle(IPC.accountsDiscover, (email: unknown) => discoverAccountProvider(accountEmailSchema.parse(email)));
+  handle(IPC.accountsDiscoverImap, (email: unknown) => discoverImapSettings(accountEmailSchema.parse(email)));
   handle(IPC.accountsAdd, (input: unknown) => service.addAccount(addAccountSchema.parse(input)));
+  handle(IPC.accountsReconnect, (accountId: unknown, calendarAccess: unknown) =>
+    service.reconnectAccount(z.string().parse(accountId), z.boolean().default(false).parse(calendarAccess)),
+  );
   handle(IPC.accountsRemove, (accountId: unknown) => service.removeAccount(z.string().parse(accountId)));
   handle(IPC.accountsSetAlias, (accountId: unknown, alias: unknown) =>
     service.setAlias(z.string().parse(accountId), aliasSchema.parse(alias)),

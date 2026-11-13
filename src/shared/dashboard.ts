@@ -160,7 +160,7 @@ export function rangeStart(range: DashboardRange, now: number): number {
 }
 
 /** What makes two listings the same message, whatever folder each came from. */
-function sameMessageKey(message: MessageSummary): string {
+export function sameMessageKey(message: MessageSummary): string {
   return [
     message.accountId,
     message.threadId,

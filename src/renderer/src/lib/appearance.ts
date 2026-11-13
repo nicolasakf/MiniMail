@@ -26,9 +26,24 @@ export interface Appearance {
   /** Show the first words of each message after its subject in lists. */
   showPreviews: boolean;
   categoryLayout: CategoryLayout;
+  /** Show the selected conversation beside the list instead of replacing it. */
+  splitView: boolean;
+  /** Width in px of the list beside the reading pane (split view). */
+  splitListWidth: number;
 }
 
-export const DEFAULT_APPEARANCE: Appearance = { textSize: "default", showPreviews: true, categoryLayout: "horizontal" };
+export const DEFAULT_APPEARANCE: Appearance = {
+  textSize: "default",
+  showPreviews: true,
+  categoryLayout: "horizontal",
+  splitView: false,
+  splitListWidth: 400,
+};
+
+/** The layout lists actually use: the split view has no room for a grid of cards, so it is always horizontal. */
+export function effectiveCategoryLayout(appearance: Appearance): CategoryLayout {
+  return appearance.splitView ? "horizontal" : appearance.categoryLayout;
+}
 
 const STORAGE_KEY = "minimail:appearance";
 
@@ -41,6 +56,11 @@ function read(): Appearance {
       categoryLayout: CATEGORY_LAYOUTS.includes(saved.categoryLayout as CategoryLayout)
         ? (saved.categoryLayout as CategoryLayout)
         : DEFAULT_APPEARANCE.categoryLayout,
+      splitView: typeof saved.splitView === "boolean" ? saved.splitView : DEFAULT_APPEARANCE.splitView,
+      splitListWidth:
+        typeof saved.splitListWidth === "number" && saved.splitListWidth >= 200 && saved.splitListWidth <= 2000
+          ? Math.round(saved.splitListWidth)
+          : DEFAULT_APPEARANCE.splitListWidth,
     };
   } catch {
     return { ...DEFAULT_APPEARANCE }; // Storage can be blocked; the defaults are fine.

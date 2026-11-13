@@ -1,3 +1,4 @@
+import type { ImapSettings } from "./imap-settings";
 import type {
   Account,
   AddAccountInput,
@@ -33,7 +34,10 @@ export interface AccountCapabilities {
 export interface MiniMailApi {
   accounts: {
     list(): Promise<Account[]>;
+    discover(email: string): Promise<Account["provider"] | null>;
+    discoverImap(email: string): Promise<ImapSettings | null>;
     add(input: AddAccountInput): Promise<Account>;
+    reconnect(accountId: string, calendarAccess?: boolean): Promise<void>;
     remove(accountId: string): Promise<void>;
     /** Names the account in MiniMail only. A blank alias clears it. Returns the updated account. */
     setAlias(accountId: string, alias: string): Promise<Account>;

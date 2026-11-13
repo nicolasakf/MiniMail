@@ -62,6 +62,7 @@ interface CredentialSource {
 export class MailService {
   private readonly providers = new Map<string, MailProvider>();
   private readonly refreshing = new Map<string, Promise<OAuthTokens>>();
+  private readonly reconnecting = new Set<string>();
   /** Called when a provider pushes a change; set by `watch`. */
   private onPushed: (() => void) | null = null;
 
@@ -86,26 +87,83 @@ export class MailService {
     const alias = normalizeAlias(input.alias);
     const account: Account = alias ? { ...authenticated.account, alias } : authenticated.account;
 
-    const duplicate = this.store
-      .list()
-      .some(
-        (existing) =>
-          existing.provider === account.provider &&
-          existing.email.toLowerCase() === account.email.toLowerCase(),
-      );
-    if (duplicate) throw new Error(`${account.email} is already added.`);
+    this.checkDuplicate(account);
+    await this.verifyAccount(account, secret);
+    this.checkDuplicate(account);
 
-    // Prove the credentials work before anything is saved.
+    this.store.add(account, secret);
+    this.startWatching(account);
+    return account;
+  }
+
+  async reconnectAccount(accountId: string, calendarAccess: boolean): Promise<void> {
+    const stored = this.store.get(accountId);
+    if (!stored) throw new Error("That account no longer exists.");
+    const { account } = stored;
+    if (stored.secret.kind !== "oauth" || (account.provider !== "gmail" && account.provider !== "outlook")) {
+      throw new Error("This account does not use browser sign-in.");
+    }
+    if (this.reconnecting.has(accountId)) {
+      throw new Error("Sign-in for this account is already in progress.");
+    }
+
+    this.reconnecting.add(accountId);
+    try {
+      const identity = account.provider === "gmail"
+        ? await signInWithGoogle(this.oauthConfig, this.openExternal, account.email)
+        : await signInWithMicrosoft(
+          this.oauthConfig,
+          this.openExternal,
+          {
+            outlookKind: account.outlookKind,
+            tenant: account.tenant,
+            // Earlier builds requested calendar access when adding every Microsoft account.
+            calendarAccess: calendarAccess || (stored.secret.calendarAccess ?? true),
+          },
+          account.email,
+        );
+      if (identity.email.toLowerCase() !== account.email.toLowerCase()) {
+        throw new Error(`Sign in as ${account.email} to reconnect this account.`);
+      }
+      if (calendarAccess && account.provider === "outlook" && !identity.tokens.calendarAccess) {
+        throw new Error("Microsoft did not grant calendar access. Your mail connection is still available.");
+      }
+      const secret = this.oauthSecret(identity.tokens);
+      await this.verifyAccount(account, secret);
+      if (!this.store.updateSecret(accountId, secret)) {
+        throw new Error("That account no longer exists.");
+      }
+
+      const provider = this.providers.get(accountId);
+      this.providers.delete(accountId);
+      await provider?.close().catch((error: unknown) => {
+        logEvent("sync", `Closing reconnected ${account.provider} account failed: ${describeError(error)}`);
+      });
+      if (this.store.get(accountId)) this.startWatching(account);
+    } finally {
+      this.reconnecting.delete(accountId);
+    }
+  }
+
+  private checkDuplicate(account: Account): void {
+    const duplicate = this.store.list().some(
+      (existing) =>
+        (existing.provider === account.provider ||
+          (existing.provider === "zoho" && account.provider === "imap") ||
+          (existing.provider === "imap" && account.provider === "zoho")) &&
+        existing.email.toLowerCase() === account.email.toLowerCase(),
+    );
+    if (duplicate) throw new Error(`${account.email} is already added.`);
+  }
+
+  /** Prove the credentials work before saving them. */
+  private async verifyAccount(account: Account, secret: AccountSecret): Promise<void> {
     const probe = this.createProvider(account, this.staticCredentials(secret));
     try {
       await probe.verify();
     } finally {
       await probe.close();
     }
-
-    this.store.add(account, secret);
-    this.startWatching(account);
-    return account;
   }
 
   /**
@@ -328,11 +386,12 @@ export class MailService {
           id: randomUUID(),
           provider: input.provider,
           email,
-          displayName: input.displayName?.trim() || email.split("@")[0],
+          displayName: (input.provider !== "imap" && input.displayName?.trim()) || email.split("@")[0],
           auth: "password",
           hue,
           zohoRegion: input.provider === "zoho" ? (input.zohoRegion ?? "com") : undefined,
           zohoWorkplace: input.provider === "zoho" ? Boolean(input.zohoWorkplace) : undefined,
+          imapSettings: input.provider === "imap" ? input.imapSettings : undefined,
         },
         secret: { kind: "password", password: input.password },
       };
@@ -356,7 +415,7 @@ export class MailService {
       account: {
         ...this.oauthAccount("outlook", identity, hue),
         outlookKind: input.outlookKind,
-        tenant: input.outlookKind === "work-school" ? input.tenant?.trim() || undefined : undefined,
+        tenant: input.outlookKind === "personal" ? undefined : input.tenant,
       },
       secret: this.oauthSecret(identity.tokens),
     };
@@ -373,12 +432,13 @@ export class MailService {
     };
   }
 
-  private oauthSecret(tokens: OAuthTokens): AccountSecret {
+  private oauthSecret(tokens: OAuthTokens): Extract<AccountSecret, { kind: "oauth" }> {
     return {
       kind: "oauth",
       refreshToken: tokens.refreshToken,
       accessToken: tokens.accessToken,
       expiresAt: tokens.expiresAt,
+      calendarAccess: tokens.calendarAccess,
     };
   }
 
@@ -441,14 +501,21 @@ export class MailService {
 
       let pending = this.refreshing.get(account.id);
       if (!pending) {
-        pending = refreshAccessToken(this.oauthConfig, account, secret.refreshToken).finally(() => {
-          this.refreshing.delete(account.id);
-        });
+        pending = refreshAccessToken(this.oauthConfig, account, secret.refreshToken)
+          .then((tokens) => {
+            // A browser reconnect may have replaced this token during the refresh.
+            if (this.store.get(account.id)?.secret === secret) {
+              this.store.updateSecret(account.id, {
+                ...this.oauthSecret(tokens),
+                calendarAccess: secret.calendarAccess,
+              });
+            }
+            return tokens;
+          })
+          .finally(() => this.refreshing.delete(account.id));
         this.refreshing.set(account.id, pending);
       }
-      const tokens = await pending;
-      this.store.updateSecret(account.id, this.oauthSecret(tokens));
-      return tokens.accessToken;
+      return (await pending).accessToken;
     };
 
     return {

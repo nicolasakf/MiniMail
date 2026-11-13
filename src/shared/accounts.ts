@@ -1,4 +1,21 @@
-import type { Account } from "./types";
+import type { Account, Provider } from "./types";
+
+const ACCOUNT_DOMAINS = new Map<string, Provider>([
+  ["gmail.com", "gmail"],
+  ["googlemail.com", "gmail"],
+  ["outlook.com", "outlook"],
+  ["hotmail.com", "outlook"],
+  ["live.com", "outlook"],
+  ["msn.com", "outlook"],
+  ["zoho.com", "zoho"],
+  ["zohomail.com", "zoho"],
+]);
+
+export function providerForEmailDomain(email: string): Provider | null {
+  return ACCOUNT_DOMAINS.get(email.slice(email.lastIndexOf("@") + 1).toLowerCase()) ?? null;
+}
+
+export const CALENDAR_ACCESS_REQUIRED = "MiniMail needs calendar access to answer invitations.";
 
 /** Longest alias the UI accepts; it has to fit in the account switcher and the From picker. */
 export const MAX_ALIAS_LENGTH = 40;

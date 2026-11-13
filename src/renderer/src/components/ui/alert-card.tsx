@@ -16,13 +16,16 @@ interface AlertCardProps {
   tone?: keyof typeof TONES;
   icon?: LucideIcon;
   className?: string;
+  /** Classes for the text, e.g. to hide it visually (`sr-only`) while a narrow toolbar keeps just the icon. */
+  labelClassName?: string;
 }
 
 /** A small notice, as tall as a toolbar button: an icon and one short line. */
-export function AlertCard({ label, tone = "amber", icon: Icon = Info, className }: AlertCardProps) {
+export function AlertCard({ label, tone = "amber", icon: Icon = Info, className, labelClassName }: AlertCardProps) {
   return (
     <div
       role="status"
+      title={label}
       className={cn(
         "corner-squircle electron-no-drag flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 text-xs font-medium",
         TONES[tone],
@@ -30,7 +33,7 @@ export function AlertCard({ label, tone = "amber", icon: Icon = Info, className 
       )}
     >
       <Icon className="size-[18px] shrink-0" />
-      <span>{label}</span>
+      <span className={labelClassName}>{label}</span>
     </div>
   );
 }

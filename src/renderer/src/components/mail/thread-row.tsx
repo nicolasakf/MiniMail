@@ -43,6 +43,11 @@ interface ThreadRowProps {
    * button names the folder the conversation is in and moves it to another.
    */
   showFolder?: boolean;
+  /**
+   * The list is too narrow for one line per conversation (see `COMPACT_BELOW` in the list): the
+   * subject goes on its own line under the sender's name, in a lighter weight, and the preview is dropped.
+   */
+  compact?: boolean;
   /** Double-click: opens the conversation. */
   onOpen: (thread: Thread) => void;
   /** Click: selects the row; shift extends from the anchor, ⌘/Ctrl adds or removes it. */
@@ -87,6 +92,7 @@ export const ThreadRow = memo(function ThreadRow({
   joinBottom = false,
   showAccountDot,
   showFolder = false,
+  compact = false,
   onOpen,
   onSelect,
   rowKey,
@@ -119,13 +125,46 @@ export const ThreadRow = memo(function ThreadRow({
   const avatarContact =
     folder === "sent" || folder === "drafts" ? (latest.to[0] ?? latest.from) : latest.from;
 
+  /** The row's own commands, shown while it is hovered. */
+  const actionButtons = actions.map(({ action, label, icon: Icon, hint }) => (
+    <Tooltip key={action}>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          className="corner-squircle flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          onClick={() => onAction(action, thread)}
+        >
+          <Icon className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        {label}
+        {hint ? <span className="ml-2 text-muted-foreground">{hint}</span> : null}
+      </TooltipContent>
+    </Tooltip>
+  ));
+  const senderIcon = rowStyle && (
+    <span title={`In ${rowStyle.label}`} className="flex shrink-0">
+      <rowStyle.icon aria-label={`In ${rowStyle.label}`} className={cn("size-3.5", rowStyle.text)} />
+    </span>
+  );
+  const accountMark =
+    showAccountDot && account ? (
+      <span title={accountDetail(account)} className="flex">
+        <AccountMark account={account} size={16} />
+      </span>
+    ) : null;
+  const subjectText = normalizeSubject(latest.subject);
+
   return (
     <div
       role="row"
       data-row-key={rowKey}
       aria-selected={selected}
       className={cn(
-        "group relative mx-2 flex select-none h-10 cursor-default items-center gap-2.5 rounded-md px-3 text-[13px]",
+        "group relative mx-2 flex select-none cursor-default gap-2.5 rounded-md px-3 text-[13px]",
+        compact ? "items-center py-2" : "h-10 items-center",
         selected || checked
           ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25"
           : "hover:bg-accent/50",
@@ -163,21 +202,55 @@ export const ThreadRow = memo(function ThreadRow({
         />
       </span>
 
+      {/* In the stacked layout the logo is larger and centered between the sender and the subject. */}
       <SenderAvatar
         contact={avatarContact}
-        size={26}
+        size={compact ? 36 : 26}
         logo={folder === "sent" || folder === "drafts" ? null : logoRequestFor(latest)}
       />
 
+      {compact ? (
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex h-6 items-center gap-2">
+            <span className="flex min-w-0 flex-1 items-center gap-1.5">
+              <span className={cn("truncate", thread.unread ? "font-semibold" : "font-medium")}>
+                {threadSenderLabel(thread, folder)}
+              </span>
+              {senderIcon}
+            </span>
+            {hovered ? (
+              // The commands take the place of the folder, account and time, which would not all fit beside them.
+              <div className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
+                {actionButtons}
+              </div>
+            ) : (
+              <>
+                {showFolder && <FolderBadge folder={rowFolder} />}
+                {accountMark}
+                <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">
+                  {formatListTime(latest.date)}
+                </span>
+              </>
+            )}
+          </div>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate font-normal">{subjectText}</span>
+            <CodeChip messageId={latest.id} date={latest.date} categoryId={latest.categoryId} />
+            {thread.count > 1 && (
+              <span className="shrink-0 rounded bg-muted px-1.5 text-[11px] font-medium leading-4 text-muted-foreground">
+                {thread.count}
+              </span>
+            )}
+            {latest.hasAttachments && <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />}
+          </div>
+        </div>
+      ) : (
+      <>
       <span className="flex w-[clamp(110px,18cqw,260px)] shrink-0 items-center gap-1.5">
         <span className={cn("truncate", thread.unread ? "font-semibold" : "font-medium")}>
           {threadSenderLabel(thread, folder)}
         </span>
-        {rowStyle && (
-          <span title={`In ${rowStyle.label}`} className="flex shrink-0">
-            <rowStyle.icon aria-label={`In ${rowStyle.label}`} className={cn("size-3.5", rowStyle.text)} />
-          </span>
-        )}
+        {senderIcon}
       </span>
 
       <div
@@ -186,7 +259,7 @@ export const ThreadRow = memo(function ThreadRow({
         style={hoverFade}
       >
         <span className={cn("shrink truncate", thread.unread ? "font-semibold" : "font-medium")}>
-          {normalizeSubject(latest.subject)}
+          {subjectText}
         </span>
         <CodeChip messageId={latest.id} date={latest.date} categoryId={latest.categoryId} />
         {thread.count > 1 && (
@@ -211,38 +284,19 @@ export const ThreadRow = memo(function ThreadRow({
             className="absolute right-full top-0 flex h-full items-center gap-0.5 pr-1"
             onClick={(event) => event.stopPropagation()}
           >
-            {actions.map(({ action, label, icon: Icon, hint }) => (
-              <Tooltip key={action}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={label}
-                    className="corner-squircle flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    onClick={() => onAction(action, thread)}
-                  >
-                    <Icon className="size-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {label}
-                  {hint ? <span className="ml-2 text-muted-foreground">{hint}</span> : null}
-                </TooltipContent>
-              </Tooltip>
-            ))}
+            {actionButtons}
           </div>
         )}
         <div className="flex items-center gap-2">
           {showFolder && <FolderBadge folder={rowFolder} />}
-          {showAccountDot && account && (
-            <span title={accountDetail(account)} className="flex">
-              <AccountMark account={account} size={16} />
-            </span>
-          )}
+          {accountMark}
           <span className="text-[11px] font-semibold text-muted-foreground">
             {formatListTime(latest.date)}
           </span>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 });

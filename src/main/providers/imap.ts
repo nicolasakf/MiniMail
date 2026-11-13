@@ -1,6 +1,7 @@
 import { ImapFlow, type FetchMessageObject, type MessageStructureObject } from "imapflow";
 import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
 import nodemailer, { type SendMailOptions } from "nodemailer";
+import MailComposer from "nodemailer/lib/mail-composer";
 
 import { classifyMessage } from "@shared/classify";
 import {
@@ -13,6 +14,7 @@ import {
 } from "@shared/ics";
 import { firstHeader, isAuthenticated } from "@shared/logos";
 import { makeMessageId } from "@shared/ids";
+import { zohoSettings, type ImapSettings, type MailServer } from "@shared/imap-settings";
 import { MAIL_WINDOW } from "@shared/mail-window";
 import type {
   Account,
@@ -88,14 +90,23 @@ export function endpointsFor(account: Account): Endpoints {
     return { imapHost: "imap.gmail.com", smtpHost: "smtp.gmail.com" };
   }
   if (account.provider === "zoho") {
-    const region = account.zohoRegion ?? "com";
-    const prefix = account.zohoWorkplace ? "pro" : "";
-    return {
-      imapHost: `imap${prefix}.zoho.${region}`,
-      smtpHost: `smtp${prefix}.zoho.${region}`,
-    };
+    const { incoming, outgoing } = zohoSettings(account.email, account.zohoRegion ?? "com", account.zohoWorkplace ?? false);
+    return { imapHost: incoming.host, smtpHost: outgoing.host };
   }
   throw new Error(`${account.provider} is not an IMAP provider.`);
+}
+
+function imapOptions(server: MailServer, auth: MailAuth) {
+  return {
+    host: server.host,
+    port: server.port,
+    secure: server.security === "tls",
+    doSTARTTLS: server.security === "starttls",
+    auth: { user: server.username, ...auth },
+    logger: false as const,
+    connectionTimeout: 12_000,
+    greetingTimeout: 12_000,
+  };
 }
 
 type FolderPaths = Partial<Record<Exclude<MailFolder, "pinned">, string>>;
@@ -182,8 +193,7 @@ class ImapConnection {
   private connecting: Promise<ImapFlow> | null = null;
 
   constructor(
-    private readonly host: string,
-    private readonly user: string,
+    private readonly server: MailServer,
     private readonly getAuth: () => Promise<MailAuth>,
   ) {}
 
@@ -193,13 +203,7 @@ class ImapConnection {
 
     this.connecting = (async () => {
       const auth = await this.getAuth();
-      const client = new ImapFlow({
-        host: this.host,
-        port: 993,
-        secure: true,
-        auth: { user: this.user, ...auth },
-        logger: false,
-      });
+      const client = new ImapFlow(imapOptions(this.server, auth));
       // Errors surface on the next command; without a listener Node would crash the app.
       client.on("error", () => {
         if (this.client === client) this.client = null;
@@ -219,7 +223,7 @@ class ImapConnection {
     }
   }
 
-  async use<T>(task: (client: ImapFlow) => Promise<T>): Promise<T> {
+  async use<T>(task: (client: ImapFlow) => Promise<T>, retry = true): Promise<T> {
     let used: ImapFlow | null = null;
     try {
       used = await this.connect();
@@ -228,7 +232,7 @@ class ImapConnection {
       // One retry covers a connection the server closed while we were idle. The close listener
       // clears `this.client` as soon as the socket drops, so judge the client this call used,
       // not the field: otherwise the retry never runs and "Connection not available" surfaces.
-      if (used && (isDroppedConnection(error) || !used.usable)) {
+      if (retry && used && (isDroppedConnection(error) || !used.usable)) {
         if (this.client === used) this.client = null;
         return task(await this.connect());
       }
@@ -285,8 +289,7 @@ export class ImapWatcher {
   private notify: NodeJS.Timeout | null = null;
 
   constructor(
-    private readonly host: string,
-    private readonly user: string,
+    private readonly server: MailServer,
     private readonly getAuth: () => Promise<MailAuth>,
     private readonly onChange: () => void,
   ) {}
@@ -318,11 +321,7 @@ export class ImapWatcher {
     try {
       const auth = await this.getAuth();
       client = new ImapFlow({
-        host: this.host,
-        port: 993,
-        secure: true,
-        auth: { user: this.user, ...auth },
-        logger: false,
+        ...imapOptions(this.server, auth),
         maxIdleTime: WATCH_IDLE_RESTART_MS,
       });
       const opened = client;
@@ -373,11 +372,11 @@ export class ImapWatcher {
   }
 }
 
-/** IMAP + SMTP provider used for Gmail (OAuth or app password) and Zoho (app password). */
+/** IMAP + SMTP provider for discovered, manual and previously saved accounts. */
 export class ImapProvider implements MailProvider {
   private readonly connection: ImapConnection;
   private watcher: ImapWatcher | null = null;
-  private readonly endpoints: Endpoints;
+  private readonly settings: ImapSettings;
   private folderPaths: FolderPaths | null = null;
   /** The Archive tab is Gmail's All Mail, which also holds Inbox, sent and draft mail. */
   private archiveIsAllMail = false;
@@ -396,8 +395,19 @@ export class ImapProvider implements MailProvider {
     /** Keeps the last list between launches; omit for a memory-only cache. */
     private readonly persist?: SummaryStore,
   ) {
-    this.endpoints = endpointsFor(account);
-    this.connection = new ImapConnection(this.endpoints.imapHost, account.email, getAuth);
+    if (account.imapSettings) {
+      this.settings = account.imapSettings;
+    } else if (account.provider === "zoho") {
+      this.settings = zohoSettings(account.email, account.zohoRegion ?? "com", account.zohoWorkplace ?? false);
+    } else {
+      const { imapHost, smtpHost } = endpointsFor(account);
+      this.settings = {
+        incoming: { host: imapHost, port: 993, security: "tls", username: account.email },
+        outgoing: { host: smtpHost, port: 465, security: "tls", username: account.email },
+        serverSavesSent: true,
+      };
+    }
+    this.connection = new ImapConnection(this.settings.incoming, getAuth);
   }
 
   async verify(): Promise<void> {
@@ -406,7 +416,17 @@ export class ImapProvider implements MailProvider {
         await this.resolveFolders(client);
       });
     } catch (error) {
-      throw new Error(this.friendlyAuthError(error));
+      throw new Error(this.account.provider === "imap" ? `Incoming mail: ${describeError(error)}` : this.friendlyAuthError(error));
+    }
+    if (this.account.provider === "imap") {
+      const transport = await this.smtpTransport();
+      try {
+        await transport.verify();
+      } catch (error) {
+        throw new Error(`Outgoing mail: ${describeError(error)}`);
+      } finally {
+        transport.close();
+      }
     }
   }
 
@@ -854,24 +874,56 @@ export class ImapProvider implements MailProvider {
     }
   }
 
-  /** Sends one message over this account's SMTP server. */
-  private async sendMail(message: SendMailOptions): Promise<void> {
+  private async smtpTransport() {
     const auth = await this.getAuth();
-    const transport = nodemailer.createTransport({
-      host: this.endpoints.smtpHost,
-      port: 465,
-      secure: true,
+    const { host, port, security, username } = this.settings.outgoing;
+    return nodemailer.createTransport({
+      host,
+      port,
+      secure: security === "tls",
+      requireTLS: security === "starttls",
+      connectionTimeout: 12_000,
+      greetingTimeout: 12_000,
       auth: auth.accessToken
-        ? { type: "OAuth2", user: this.account.email, accessToken: auth.accessToken }
-        : { user: this.account.email, pass: auth.pass },
+        ? { type: "OAuth2", user: username, accessToken: auth.accessToken }
+        : { user: username, pass: auth.pass },
     });
+  }
+
+  /** Sends one message over SMTP and files a copy if the provider does not. */
+  private async sendMail(message: SendMailOptions): Promise<void> {
+    const transport = await this.smtpTransport();
+    const options = { from: { name: this.account.displayName, address: this.account.email }, ...message };
+    let sentCopy: Buffer | undefined;
     try {
-      await transport.sendMail({ from: { name: this.account.displayName, address: this.account.email }, ...message });
+      if (this.settings.serverSavesSent) {
+        await transport.sendMail(options);
+      } else {
+        const mime = new MailComposer(options).compile();
+        const envelope = mime.getEnvelope();
+        sentCopy = await mime.build();
+        await transport.sendMail({ envelope, raw: sentCopy });
+      }
     } catch (error) {
       throw new Error(`Could not send: ${describeError(error)}`);
     } finally {
       transport.close();
     }
+    if (sentCopy) {
+      // SMTP already accepted the message. A copy failure must never turn into a second send.
+      const copy = sentCopy;
+      await this.connection.use(async (client) => {
+        const paths = await this.resolveFolders(client);
+        if (!paths.sent) {
+          await client.mailboxCreate("Sent");
+          paths.sent = "Sent";
+        }
+        if (!await client.append(paths.sent, copy, ["\\Seen"])) {
+          throw new Error("IMAP did not accept the sent copy.");
+        }
+      }, false).catch((error) => console.error("[imap] could not file a sent message:", describeError(error)));
+    }
+    this.cache.delete("sent");
   }
 
   async send(draft: Draft): Promise<void> {
@@ -896,10 +948,6 @@ export class ImapProvider implements MailProvider {
     };
 
     await this.sendMail(mail);
-
-    // Gmail and Zoho both file sent mail themselves (Zoho: Settings > Mail Accounts > SMTP >
-    // "Save copy of sent emails", on by default), so nothing is appended to Sent here.
-    this.cache.delete("sent");
 
     if (draft.inReplyTo && draft.inReplyTo.mode !== "forward") {
       await this.markAnswered(draft.inReplyTo.messageId);
@@ -933,7 +981,7 @@ export class ImapProvider implements MailProvider {
 
   watch(onChange: () => void): void {
     if (this.watcher) return;
-    this.watcher = new ImapWatcher(this.endpoints.imapHost, this.account.email, this.getAuth, onChange);
+    this.watcher = new ImapWatcher(this.settings.incoming, this.getAuth, onChange);
     this.watcher.start();
   }
 
@@ -988,6 +1036,9 @@ export class ImapProvider implements MailProvider {
         paths.archive = mailbox.path;
         this.archiveIsAllMail = true;
       }
+    }
+    if (this.account.provider === "imap" && !paths.sent) {
+      paths.sent = mailboxes.find(({ path }) => /^(sent|sent mail|sent items)$/i.test(path))?.path;
     }
     this.folderPaths = paths;
     return paths;

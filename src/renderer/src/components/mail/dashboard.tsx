@@ -254,7 +254,7 @@ export function Dashboard({
 
   return (
     <TooltipLayer>
-      <header className="electron-window-drag flex h-[88px] shrink-0 items-end justify-between gap-4 px-8 pb-3 pt-10">
+      <header className="electron-window-drag flex h-16 shrink-0 items-end justify-between gap-4 px-8 pb-3 pt-3">
         <div className="electron-no-drag -ml-2 flex min-w-0 items-center gap-4 px-2">
           <h1 className="shrink-0 text-base font-semibold">Dashboard</h1>
           <Tabs value={range} onValueChange={(next) => onRangeChange(next as DashboardRange)}>

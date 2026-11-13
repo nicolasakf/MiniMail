@@ -6,6 +6,9 @@ import type { Category } from "./types";
 /** Key of the collapsible "Pinned" heading, between the category rows and the date sections. */
 export const PINNED_SECTION = "section:pinned";
 
+/** Key of the collapsible "Minimized" heading that follows the category rows (horizontal layout). */
+export const MINIMIZED_SECTION = "section:minimized";
+
 /** Buckets shown as one row that opens its own list: one per user category (a category id). */
 export type GroupKind = string;
 
@@ -25,24 +28,31 @@ export interface SenderChip {
   date: string;
 }
 
+/** A category row of the Focused List. */
+export type GroupListItem = GroupDef & {
+  type: "group";
+  key: string;
+  count: number;
+  hasUnread: boolean;
+  /** How many of the group's conversations are unread. */
+  unreadCount: number;
+  chips: SenderChip[];
+  /** A minimized category listed under its heading: a slim row without sender chips. */
+  slim?: boolean;
+};
+
 export type ListItem =
   | {
       type: "section";
       key: string;
       label: string;
-      /** Set on the Pinned heading: clicking it hides or shows the pinned conversations under it. */
+      /** Set on the Pinned and Minimized headings: clicking one hides or shows what is under it. */
       collapsible?: { collapsed: boolean; count: number };
+      /** On the Minimized heading: the minimized categories, drawn as icons on the heading while it is folded. */
+      docked?: readonly GroupListItem[];
     }
   | { type: "thread"; key: string; thread: Thread }
-  | (GroupDef & {
-      type: "group";
-      key: string;
-      count: number;
-      hasUnread: boolean;
-      /** How many of the group's conversations are unread. */
-      unreadCount: number;
-      chips: SenderChip[];
-    });
+  | GroupListItem;
 
 /** What a group row shows about its bucket. */
 export interface GroupDef {

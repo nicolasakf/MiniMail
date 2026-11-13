@@ -41,6 +41,11 @@ export default defineConfig(({ mode }) => ({
   main: {
     // Public installers must never inline a developer's local OAuth credentials.
     envPrefix: mode === "release" ? [] : undefined,
+    define: mode === "release" ? {
+      "import.meta.env.MAIN_VITE_GOOGLE_CLIENT_ID": JSON.stringify(process.env.MINIMAIL_RELEASE_GOOGLE_CLIENT_ID ?? ""),
+      "import.meta.env.MAIN_VITE_GOOGLE_CLIENT_SECRET": JSON.stringify(process.env.MINIMAIL_RELEASE_GOOGLE_CLIENT_SECRET ?? ""),
+      "import.meta.env.MAIN_VITE_MICROSOFT_CLIENT_ID": JSON.stringify(process.env.MINIMAIL_RELEASE_MICROSOFT_CLIENT_ID ?? ""),
+    } : undefined,
     plugins: [externalizeDepsPlugin()],
     resolve: { alias },
   },

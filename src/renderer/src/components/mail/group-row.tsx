@@ -1,6 +1,6 @@
 import { memo } from "react";
 
-import { ChevronRight } from "lucide-react";
+import { Check, ChevronRight, Mail } from "lucide-react";
 
 import {
   type GroupDef,
@@ -9,6 +9,7 @@ import {
   type SenderChip,
 } from "@shared/focus-list";
 
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import { CategoryIcon } from "./category-icon";
@@ -26,15 +27,26 @@ function groupStyle(group: GroupDef): { color: string; tint: string } {
   return { color: `hsl(${group.hue} 70% 62%)`, tint: `hsl(${group.hue} 70% 55% / 0.16)` };
 }
 
-/** The round colored tile with a category's icon; `compact` is the smaller one on a vertical card. */
-export function GroupTile({ group, compact = false }: { group: GroupDef; compact?: boolean }) {
+/** The round colored tile with a category's icon; `compact` is the smaller one on a vertical card, `small` the one on a slim row or the Minimized heading. */
+export function GroupTile({
+  group,
+  compact = false,
+  small = false,
+}: {
+  group: GroupDef;
+  compact?: boolean;
+  small?: boolean;
+}) {
   const { color, tint } = groupStyle(group);
   return (
     <span
-      className={cn("flex shrink-0 items-center justify-center rounded-full", compact ? "size-8" : "size-9")}
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-full",
+        small ? "size-6" : compact ? "size-8" : "size-9",
+      )}
       style={{ background: tint, color }}
     >
-      <CategoryIcon icon={group.icon} className={compact ? "size-4" : "size-[18px]"} />
+      <CategoryIcon icon={group.icon} className={small ? "size-3.5" : compact ? "size-4" : "size-[18px]"} />
     </span>
   );
 }
@@ -88,6 +100,45 @@ export const GroupRow = memo(function GroupRow({
   onMenu,
   className,
 }: GroupRowProps) {
+  if (group.slim) {
+    return (
+      <div
+        role="row"
+        data-row-key={group.key}
+        aria-selected={selected}
+        className={cn(
+          "group relative mx-2 flex h-9 cursor-default items-center gap-2.5 rounded-md px-3 text-[13px]",
+          selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
+          className,
+        )}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onMenu(group.key, event.clientX, event.clientY);
+        }}
+        onClick={() => {
+          onSelect(group.key);
+          onOpen(group.kind);
+        }}
+      >
+        <span className="-mx-1 flex size-6 shrink-0 items-center justify-center">
+          <ReadToggle
+            unread={group.hasUnread}
+            noun={group.label.toLowerCase()}
+            all
+            onToggle={() => onToggleRead(group.kind, group.hasUnread)}
+          />
+        </span>
+        <GroupTile group={group} small />
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {group.label}
+          <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
+            <GroupCount group={group} />
+          </span>
+        </span>
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+      </div>
+    );
+  }
   const shown = group.chips.slice(0, MAX_CHIPS);
   // A verification sender gets a small key button beside it that copies its code.
   const codeFor = (chip: SenderChip) => canShowCode(group.kind, chip.date);
@@ -178,6 +229,8 @@ interface GroupCardProps {
   onOpen: (kind: GroupKind) => void;
   onOpenThread: (threadId: string) => void;
   onSelect: (key: string) => void;
+  /** Marks every conversation in the category read (when it has unread ones) or unread. */
+  onToggleRead: (kind: GroupKind, unread: boolean) => void;
   onMenu: (key: string, x: number, y: number) => void;
 }
 
@@ -191,9 +244,11 @@ export const GroupCard = memo(function GroupCard({
   onOpen,
   onOpenThread,
   onSelect,
+  onToggleRead,
   onMenu,
 }: GroupCardProps) {
   const shown = group.chips.slice(0, CARD_SENDERS);
+  const readLabel = group.hasUnread ? "Mark all as read" : "Mark all as unread";
 
   return (
     <div
@@ -201,7 +256,7 @@ export const GroupCard = memo(function GroupCard({
       data-row-key={group.key}
       aria-selected={selected}
       className={cn(
-        "corner-squircle flex min-w-0 cursor-default flex-col rounded-xl border pb-1.5 text-sm transition-colors",
+        "group corner-squircle relative flex min-w-0 cursor-default flex-col rounded-xl border pb-1.5 text-sm transition-colors",
         selected
           ? "border-sidebar-primary/40 bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25"
           : "border-border hover:bg-accent/50",
@@ -215,7 +270,25 @@ export const GroupCard = memo(function GroupCard({
         onOpen(group.kind);
       }}
     >
-      <div className="flex items-center gap-2.5 px-3 py-2.5">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={`${readLabel} (${group.label.toLowerCase()})`}
+            className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full text-muted-foreground opacity-0 outline-none transition-[color,background-color,opacity] hover:bg-accent hover:text-unread focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleRead(group.kind, group.hasUnread);
+            }}
+            onContextMenu={(event) => event.stopPropagation()}
+          >
+            {group.hasUnread ? <Check className="size-4" /> : <Mail className="size-4" />}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{readLabel}</TooltipContent>
+      </Tooltip>
+
+      <div className="flex items-center gap-2.5 py-2.5 pl-3 pr-11">
         <GroupTile group={group} compact />
         <div className="min-w-0">
           <div className="truncate font-semibold leading-tight">{group.label}</div>

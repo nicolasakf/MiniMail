@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Account } from "@shared/types";
+import { zohoSettings } from "@shared/imap-settings";
 
 // A transparent "keychain": enough to exercise the store without Electron.
 const keychain = vi.hoisted(() => ({ available: true }));
@@ -19,6 +20,7 @@ vi.mock("electron", () => ({
 import type { Categorizer } from "./categorizer";
 import { MailService } from "./service";
 import { AccountStore } from "./store";
+import { endpointsFor } from "./providers/imap";
 
 const account = (id: string, extra: Partial<Account> = {}): Account => ({
   id,
@@ -40,10 +42,30 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   rmSync(dir, { recursive: true, force: true });
 });
 
 const secret = { kind: "password", password: "pw" } as const;
+
+it("reloads generic settings and keeps an existing Zoho account connected with its original details", () => {
+  const store = new AccountStore(file);
+  const old = account("legacy", { alias: "Work", zohoRegion: "eu", zohoWorkplace: true });
+  const current = account("new", {
+    provider: "imap",
+    imapSettings: zohoSettings("new@example.com", "com.au", true),
+  });
+  store.add(old, secret);
+  store.add(current, secret);
+
+  const reloaded = new AccountStore(file);
+  expect(reloaded.get(old.id)).toEqual({ account: old, secret });
+  expect(reloaded.get(current.id)).toEqual({ account: current, secret });
+  expect(endpointsFor(reloaded.list()[0])).toEqual({
+    imapHost: "imappro.zoho.eu",
+    smtpHost: "smtppro.zoho.eu",
+  });
+});
 
 describe("AccountStore alias", () => {
   it("sets an alias, keeps everything else, and survives a restart", () => {
@@ -102,6 +124,45 @@ describe("MailService alias", () => {
     expect(() => service(new AccountStore(file)).setAlias("gone", "x")).toThrow(
       "That account no longer exists.",
     );
+  });
+});
+
+describe("Microsoft account reconnect", () => {
+  const realFetch = globalThis.fetch;
+  const oldSecret = { kind: "oauth", refreshToken: "old", calendarAccess: false } as const;
+
+  function connect(email: string) {
+    const store = new AccountStore(file);
+    store.add(account("a", { provider: "outlook", auth: "oauth", alias: "School" }), oldSecret);
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/token")) {
+        return Response.json({ access_token: "access", refresh_token: "new", expires_in: 3600 });
+      }
+      if (url.includes("/me?$select=")) return Response.json({ mail: email });
+      if (url.includes("/me/mailFolders/inbox")) return Response.json({ id: "inbox" });
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    const service = new MailService(store, { microsoftClientId: "test-client" }, async (url) => {
+      const request = new URL(url);
+      const callback = new URL(request.searchParams.get("redirect_uri")!);
+      callback.searchParams.set("state", request.searchParams.get("state")!);
+      callback.searchParams.set("code", "test-code");
+      await realFetch(callback);
+    }, {} as Categorizer);
+    return service.reconnectAccount("a", true);
+  }
+
+  it("updates credentials and leaves the existing account and alias in place", async () => {
+    await connect("a@example.com");
+    const stored = new AccountStore(file).get("a");
+    expect(stored?.account).toMatchObject({ id: "a", alias: "School" });
+    expect(stored?.secret).toMatchObject({ refreshToken: "new", calendarAccess: true });
+  });
+
+  it("rejects the wrong account and keeps the old credentials", async () => {
+    await expect(connect("other@example.com")).rejects.toThrow(/Sign in as a@example.com/);
+    expect(new AccountStore(file).get("a")?.secret).toEqual(oldSecret);
   });
 });
 

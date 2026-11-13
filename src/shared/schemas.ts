@@ -4,6 +4,7 @@ import { MAX_ALIAS_LENGTH, MAX_AVATAR_BYTES, normalizeAlias } from "./accounts";
 import type { LogoRequest, LogoSettings } from "./logos";
 import { MAX_MUTED_SENDERS, MAX_NOTIFICATION_IDS, NOTIFY_FOLDERS, parseClock, type NotificationSettings } from "./notifications";
 import { MAIL_WINDOW } from "./mail-window";
+import { imapSettingsSchema } from "./imap-settings";
 import {
   categoryProblems,
   MAX_CATEGORIES,
@@ -52,11 +53,26 @@ export const avatarSchema = z
   .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/, "Choose a PNG, JPEG or WebP picture.")
   .nullable();
 
+export const accountEmailSchema = z.string().trim().email("Enter a valid email address.").max(320);
+
+export const microsoftTenantSchema = z.string().trim().max(253).regex(
+  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/i,
+  "Enter an organization domain or tenant ID.",
+);
+
 export const addAccountSchema: z.ZodType<AddAccountInput> = z.union([
   z.object({
     kind: z.literal("password"),
+    provider: z.literal("imap"),
+    email: accountEmailSchema,
+    password: z.string().min(1),
+    imapSettings: imapSettingsSchema,
+    alias: aliasSchema.optional(),
+  }),
+  z.object({
+    kind: z.literal("password"),
     provider: z.enum(["zoho", "gmail"]),
-    email: z.string().email(),
+    email: accountEmailSchema,
     password: z.string().min(1),
     displayName: z.string().optional(),
     alias: aliasSchema.optional(),
@@ -66,15 +82,15 @@ export const addAccountSchema: z.ZodType<AddAccountInput> = z.union([
   z.object({
     kind: z.literal("oauth"),
     provider: z.literal("gmail"),
-    email: z.string().optional(),
+    email: accountEmailSchema.optional(),
     alias: aliasSchema.optional(),
   }),
   z.object({
     kind: z.literal("oauth"),
     provider: z.literal("outlook"),
-    outlookKind: z.enum(["personal", "work-school"]),
-    tenant: z.string().optional(),
-    email: z.string().optional(),
+    outlookKind: z.enum(["personal", "work-school"]).optional(),
+    tenant: microsoftTenantSchema.optional(),
+    email: accountEmailSchema.optional(),
     alias: aliasSchema.optional(),
   }),
 ]);

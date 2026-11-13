@@ -63,7 +63,11 @@ beforeEach(() => {
   fake.failConnect = false;
   changes = 0;
   getAuth.mockClear();
-  watcher = new ImapWatcher("imap.example.com", "me@example.com", getAuth, () => (changes += 1));
+  watcher = new ImapWatcher(
+    { host: "imap.example.com", port: 993, security: "tls", username: "me@example.com" },
+    getAuth,
+    () => (changes += 1),
+  );
 });
 
 afterEach(async () => {

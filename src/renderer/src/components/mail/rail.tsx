@@ -1,8 +1,7 @@
-import { FileText, LayoutDashboard, LoaderCircle, Mail, Send, type LucideIcon } from "lucide-react";
+import { ChartColumn, LoaderCircle, Mail, NotebookPen, Send, Settings, type LucideIcon } from "lucide-react";
 
 import type { Account, MailFolder } from "@shared/types";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsMac } from "@/hooks/use-platform";
 import { FOLDER_TITLES } from "@/lib/format";
@@ -40,7 +39,7 @@ function RailButton({ icon: Icon, label, active = false, onClick }: RailButtonPr
 }
 
 const FOLDER_BUTTONS: { folder: MailFolder; icon: LucideIcon }[] = [
-  { folder: "drafts", icon: FileText },
+  { folder: "drafts", icon: NotebookPen },
   { folder: "sent", icon: Send },
 ];
 
@@ -64,14 +63,12 @@ export function Rail({
   folder,
   dashboard,
   onOpenDashboard,
-  accounts,
   onNavigate,
   onOpenSettings,
   aiOff,
   sorting = 0,
 }: RailProps) {
   const isMac = useIsMac();
-  const primary = accounts[0];
 
   return (
     // The outer wrapper insets the card from the window edges (top clears the macOS traffic lights).
@@ -82,7 +79,7 @@ export function Rail({
       >
         <div className="flex flex-col items-center gap-2">
           <RailButton
-            icon={LayoutDashboard}
+            icon={ChartColumn}
             label="Dashboard"
             active={dashboard}
             onClick={onOpenDashboard}
@@ -132,23 +129,9 @@ export function Rail({
                 type="button"
                 aria-label="Settings"
                 onClick={onOpenSettings}
-                className="electron-no-drag relative rounded-full outline-none ring-offset-sidebar focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className="electron-no-drag relative flex size-9 items-center justify-center rounded-xl text-sidebar-foreground/70 outline-none ring-offset-sidebar transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
-                <Avatar className="size-9">
-                  <AvatarFallback
-                    className="text-xs font-semibold"
-                    style={
-                      primary
-                        ? {
-                            background: `hsl(${primary.hue} 45% 22%)`,
-                            color: `hsl(${primary.hue} 80% 88%)`,
-                          }
-                        : undefined
-                    }
-                  >
-                    {primary ? primary.displayName.slice(0, 1).toUpperCase() : "?"}
-                  </AvatarFallback>
-                </Avatar>
+                <Settings className="size-5" />
                 {aiOff && (
                   <span
                     className="absolute right-0 top-0 size-2 rounded-full bg-amber-400 ring-2 ring-sidebar"

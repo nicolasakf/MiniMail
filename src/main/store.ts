@@ -12,10 +12,11 @@ import { safeStorage } from "electron";
 import { z } from "zod";
 
 import type { Account } from "@shared/types";
+import { imapSettingsSchema } from "@shared/imap-settings";
 
 const accountSchema = z.object({
   id: z.string(),
-  provider: z.enum(["gmail", "outlook", "zoho"]),
+  provider: z.enum(["gmail", "outlook", "zoho", "imap"]),
   email: z.string(),
   displayName: z.string(),
   alias: z.string().optional(),
@@ -26,6 +27,7 @@ const accountSchema = z.object({
   tenant: z.string().optional(),
   zohoRegion: z.enum(["com", "eu", "in", "com.au", "jp"]).optional(),
   zohoWorkplace: z.boolean().optional(),
+  imapSettings: imapSettingsSchema.optional(),
 });
 
 const secretSchema = z.discriminatedUnion("kind", [
@@ -36,6 +38,7 @@ const secretSchema = z.discriminatedUnion("kind", [
     accessToken: z.string().optional(),
     /** Epoch milliseconds. */
     expiresAt: z.number().optional(),
+    calendarAccess: z.boolean().optional(),
   }),
 ]);
 
@@ -80,14 +83,26 @@ export class AccountStore {
 
   add(account: Account, secret: AccountSecret): void {
     this.entries.push({ account, secret });
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      this.entries.pop();
+      throw error;
+    }
   }
 
-  updateSecret(accountId: string, secret: AccountSecret): void {
+  updateSecret(accountId: string, secret: AccountSecret): boolean {
     const entry = this.get(accountId);
-    if (!entry) return;
+    if (!entry) return false;
+    const previous = entry.secret;
     entry.secret = secret;
-    this.save();
+    try {
+      this.save();
+    } catch (error) {
+      entry.secret = previous;
+      throw error;
+    }
+    return true;
   }
 
   remove(accountId: string): void {

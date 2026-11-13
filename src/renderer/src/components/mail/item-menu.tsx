@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Check, ChevronRight, type LucideIcon } from "lucide-react";
@@ -9,6 +9,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,10 @@ export interface MenuEntry {
   /** Keyboard shortcut shown at the right edge, the same text the tooltips use. */
   hint?: string;
   destructive?: boolean;
+  /** Cautionary rather than destructive: shown in amber. */
+  warning?: boolean;
+  /** Draws a divider above the entry, to set a group of entries apart. */
+  separatorBefore?: boolean;
   /** Marks the entry as the current choice (a check at the right edge). */
   current?: boolean;
   /** A sub-menu that flies out beside the menu while the entry is hovered; `run` is then unused. */
@@ -47,7 +52,7 @@ const LIST_CLASS = "max-h-[340px] space-y-0.5 p-1";
 
 /** Items of a menu: icon, label, then a check, a chevron or the shortcut at the right edge. */
 function MenuItem({ entry, onChoose }: { entry: MenuEntry; onChoose: (entry: MenuEntry) => void }) {
-  const { id, label, icon: Icon, hint, destructive, current, children } = entry;
+  const { id, label, icon: Icon, hint, destructive, warning, current, children } = entry;
   return (
     <CommandItem
       data-entry={id}
@@ -56,6 +61,8 @@ function MenuItem({ entry, onChoose }: { entry: MenuEntry; onChoose: (entry: Men
         "gap-2.5 whitespace-nowrap px-2 py-1",
         destructive &&
           "text-red-500 data-[selected=true]:bg-red-500/15 data-[selected=true]:text-red-500 dark:text-red-400 dark:data-[selected=true]:text-red-400",
+        warning &&
+          "text-amber-600 data-[selected=true]:bg-amber-500/15 data-[selected=true]:text-amber-600 dark:text-amber-400 dark:data-[selected=true]:text-amber-400",
       )}
       onSelect={() => onChoose(entry)}
     >
@@ -202,7 +209,10 @@ export function ItemMenu({ x, y, entries, onClose }: ItemMenuProps) {
           <CommandList className={LIST_CLASS}>
             <CommandEmpty>No matching command</CommandEmpty>
             {entries.map((entry) => (
-              <MenuItem key={entry.id} entry={entry} onChoose={choose} />
+              <Fragment key={entry.id}>
+                {entry.separatorBefore && <CommandSeparator className="my-1" />}
+                <MenuItem entry={entry} onChoose={choose} />
+              </Fragment>
             ))}
           </CommandList>
         </Command>

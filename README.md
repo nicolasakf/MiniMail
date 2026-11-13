@@ -2,10 +2,10 @@
 
 A desktop email client modeled on Spark's **Focused List** (smart inbox), styled with the
 Orion app's design tokens and shadcn components. It connects to Gmail, Outlook (personal and
-work/school) and Zoho Mail, all in one inbox.
+work/school), Zoho Mail, and other IMAP accounts, all in one inbox.
 
 Electron + React 19 + Tailwind 3 + Radix/shadcn. Mail is read straight from your providers
-(IMAP/SMTP for Gmail and Zoho, Microsoft Graph for Outlook). There is no server; credentials
+(IMAP/SMTP for Gmail and other mail providers, Microsoft Graph for Outlook). There is no server; credentials
 are encrypted with the OS keychain and never leave this computer.
 
 ## Run it
@@ -173,56 +173,55 @@ for senders. What it contacts and how:
 
 ## Adding your accounts
 
-Open the avatar at the bottom of the rail, then **Add account**.
+Open the avatar at the bottom of the rail, then **Add account**. Enter your email
+address and continue. MiniMail suggests a provider from the address and its
+domain's mail records. You can also choose your provider directly.
 
-### Zoho Mail (works out of the box)
+### Other email (including Zoho Mail)
 
-1. In Zoho Mail: Settings, Mail Accounts, **IMAP Access**, enable it.
-2. If two-factor auth is on, create an **application-specific password** (Zoho Accounts,
-   Security, App Passwords). Use that, not your login password.
-3. Pick your region (the domain you sign in at: `.com`, `.eu`, `.in`, ...). Leave
-   **Custom domain (Zoho Workplace)** ticked for a mailbox on your own domain (it uses the
-   `imappro` / `smtppro` servers); untick it for a free `@zoho.com` address.
+Enter your email address or choose **Other email**. MiniMail looks up IMAP and SMTP
+settings using Thunderbird's configuration database, your provider's published
+configuration, and known Zoho domains and mail records. Enter your password or your
+provider's app password. MiniMail verifies both connections before saving the account.
 
-### Gmail
+Use **Manual setup** to enter or edit server names, ports, encryption, and usernames.
+Select **My provider saves a copy of sent mail** if the provider files outgoing mail
+automatically.
 
-Either of these:
+For Zoho, enable **IMAP Access** under Zoho Mail → Settings → Mail Accounts. If you use
+two-factor authentication, create an app password in Zoho Accounts → Security → App
+Passwords. Existing Zoho accounts retain their saved credentials and server settings.
 
-- **App password (no setup):** needs 2-Step Verification on the Google account. Create one at
-  `myaccount.google.com/apppasswords`, then use "Add with app password".
-- **Sign in with Google:** needs your own OAuth client. In Google Cloud Console create a
-  project, configure the OAuth consent screen, and create an **OAuth client ID of type
-  "Desktop app"**. Put the id and secret in `.env.local` (see `.env.example`) and rebuild.
-  Google expires refresh tokens after 7 days while the consent screen is in "Testing"; set it
-  to "In production" (an unverified-app warning is expected for a personal client) to avoid
-  signing in weekly.
+### Gmail and Google Workspace
 
-### Outlook, personal (outlook.com, hotmail, live)
+Choose **Continue with Google**, select your account in your browser, and allow
+Gmail access. A Google Workspace administrator may need to approve MiniMail.
+If your account supports app passwords, you can also generate one at
+`myaccount.google.com/apppasswords` and use **Add with app password**.
 
-Microsoft removed password sign-in for IMAP, so this is OAuth only. Register an app in the
-Azure portal (Microsoft Entra, App registrations):
+### Outlook and Microsoft 365
 
-1. Supported account types: **Accounts in any organizational directory and personal
-   Microsoft accounts**.
-2. Redirect URI: platform **Mobile and desktop applications**, value `http://localhost`.
-3. Authentication: **Allow public client flows = Yes**.
-4. API permissions (delegated, Microsoft Graph): `Mail.ReadWrite`, `Mail.Send`, `User.Read`,
-   `offline_access`.
-5. Put the Application (client) ID in `.env.local` as `MAIN_VITE_MICROSOFT_CLIENT_ID`, rebuild.
+Choose **Continue with Microsoft** for personal, work, and school accounts.
+Microsoft handles sign-in and any MFA in your browser. If Microsoft shows
+**Need admin approval**, ask your organization to approve MiniMail. Use
+**Advanced settings** to enter a tenant ID or domain if your IT administrator
+provides one.
 
-The same app registration serves the university account below.
+Use **Reconnect** under an account's connection options if access expires.
+Microsoft calendar access can be granted separately when you first respond to
+an invitation or from the account's connection options.
 
-### Outlook, university / work (Microsoft 365)
+### OAuth for local development
 
-Choose **Outlook for work or school**. It signs in through your institution's own login page
-(the `organizations` authority, or the domain/tenant you enter) instead of the personal
-`consumers` one, which is the difference you noticed. Things that can get in the way, all
-controlled by the university's IT and not by this app:
-
-- **"Need admin approval"** at sign-in: the tenant blocks users from consenting to new apps.
-  Ask IT to approve the app, or to allow user consent for it.
-- **Mailbox access denied** (403): the tenant may block third-party Graph mail access.
-- Conditional-access / MFA prompts are fine; they happen in your browser during sign-in.
+For a development build, put your OAuth settings in `.env.local` using
+[`.env.example`](.env.example). For Google, create a **Desktop app** OAuth
+client in Google Cloud. An external consent screen in Testing issues Gmail
+refresh tokens that expire after seven days. For Microsoft, register an app
+with **Accounts in any organizational directory and personal Microsoft
+accounts** and add `http://localhost` under **Mobile and desktop applications**.
+Configure delegated Graph permissions `User.Read`, `Mail.ReadWrite`,
+`Mail.Send`, and `offline_access`. Add `Calendars.ReadWrite` for optional
+invitation responses. See the [release guide](docs/macos-release.md) for public builds.
 
 ## Layout
 

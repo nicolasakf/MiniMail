@@ -1,23 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 
-import { ArrowLeft, Check, ImageOff, ImagePlus, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, Check, ImageOff, ImagePlus, LayoutDashboard, Loader2, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import type { AccountCapabilities } from "@shared/api";
-import { accountLabel, MAX_ALIAS_LENGTH } from "@shared/accounts";
-import type { Account, AddAccountInput, Provider, ZohoRegion } from "@shared/types";
+import { accountLabel, MAX_ALIAS_LENGTH, providerForEmailDomain } from "@shared/accounts";
+import { accountEmailSchema, microsoftTenantSchema } from "@shared/schemas";
+import type { Account, AddAccountInput, Provider } from "@shared/types";
 
+import gmailLogo from "@/assets/providers/gmail.svg";
+import outlookLogo from "@/assets/providers/outlook.svg";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { fileToAvatar } from "@/lib/avatar-image";
 import { cn } from "@/lib/utils";
@@ -26,41 +27,36 @@ import { SettingsPageHeader } from "../settings/fields";
 
 import { AccountMark } from "./account-mark";
 import { InfoLabel } from "./info-label";
+import { ImapAccountForm } from "./imap-account-form";
 
-type Choice = "gmail" | "outlook-personal" | "outlook-work" | "zoho";
-type View = { name: "list" } | { name: "choose" } | { name: "form"; choice: Choice };
+type SetupProvider = Exclude<Provider, "zoho">;
+type View = { name: "list" } | { name: "choose" } | { name: "form"; provider: SetupProvider };
 
-const PROVIDER_STYLE: Record<Provider, { label: string; hue: number }> = {
-  gmail: { label: "Gmail", hue: 4 },
-  outlook: { label: "Outlook", hue: 210 },
-  zoho: { label: "Zoho Mail", hue: 40 },
+const PROVIDER_LABEL: Record<Provider, string> = {
+  gmail: "Gmail",
+  outlook: "Outlook",
+  zoho: "Zoho Mail",
+  imap: "Other email",
 };
 
-const ZOHO_REGIONS: { value: ZohoRegion; label: string }[] = [
-  { value: "com", label: "United States (.com)" },
-  { value: "eu", label: "Europe (.eu)" },
-  { value: "in", label: "India (.in)" },
-  { value: "com.au", label: "Australia (.com.au)" },
-  { value: "jp", label: "Japan (.jp)" },
-];
-
-/** Colored letter tile standing in for a provider logo. */
-function ProviderBadge({ provider }: { provider: Provider }) {
-  const { label, hue } = PROVIDER_STYLE[provider];
+function ProviderBadge({ provider }: { provider: SetupProvider }) {
   return (
-    <span
-      className="flex size-9 shrink-0 items-center justify-center rounded-lg text-sm font-bold"
-      style={{ background: `hsl(${hue} 70% 50% / 0.18)`, color: `hsl(${hue} 85% 66%)` }}
-    >
-      {label[0]}
+    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+      {provider === "imap" ? (
+        <LayoutDashboard aria-hidden="true" className="size-5 text-muted-foreground" />
+      ) : (
+        <img src={provider === "gmail" ? gmailLogo : outlookLogo} alt="" className="size-6 object-contain" />
+      )}
     </span>
   );
 }
 
 function describeAccount(account: Account): string {
   if (account.provider === "outlook") {
-    return account.outlookKind === "work-school" ? "Work or school" : "Personal";
+    if (account.tenant || account.outlookKind === "work-school") return "Work or school";
+    return account.outlookKind === "personal" ? "Personal" : "Microsoft sign-in";
   }
+  if (account.provider === "imap") return "IMAP / SMTP";
   return account.auth === "password" ? "App password" : "Google sign-in";
 }
 
@@ -73,7 +69,7 @@ interface AccountsPanelProps {
   onRenamingChange?: (renaming: boolean) => void;
 }
 
-/** Lists connected accounts and walks through adding Gmail, Outlook (personal or school) or Zoho. */
+/** Lists connected accounts and handles account setup and browser reauthorization. */
 export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChange }: AccountsPanelProps) {
   const [view, setView] = useState<View>(() =>
     startAdding || accounts.length === 0 ? { name: "choose" } : { name: "list" },
@@ -83,6 +79,8 @@ export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChan
     microsoftOAuth: false,
   });
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [reconnecting, setReconnecting] = useState<string | null>(null);
   /** Id of the account whose alias is being edited. */
   const [renaming, setRenaming] = useState<string | null>(null);
   /** The account whose picture is being chosen; the hidden file input reads it. */
@@ -97,6 +95,12 @@ export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChan
     onRenamingChange?.(renaming !== null);
     return () => onRenamingChange?.(false);
   }, [renaming, onRenamingChange]);
+
+  const accountAdded = (account: Account) => {
+    toast.success(`Connected ${accountLabel(account)}`);
+    onChanged();
+    setView({ name: "list" });
+  };
 
   const choosePicture = async (file: File | undefined) => {
     const accountId = pictureFor.current;
@@ -132,6 +136,19 @@ export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChan
     }
   };
 
+  const reconnect = async (account: Account, calendarAccess = false) => {
+    setReconnecting(account.id);
+    try {
+      await api.accounts.reconnect(account.id, calendarAccess);
+      toast.success(calendarAccess ? "Calendar access enabled" : `Reconnected ${accountLabel(account)}`);
+      onChanged();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      setReconnecting(null);
+    }
+  };
+
   return (
     <div className="flex max-w-2xl flex-col gap-4 p-6">
         {view.name === "list" && (
@@ -164,7 +181,7 @@ export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChan
                         <div className="truncate text-sm font-medium">{accountLabel(account)}</div>
                         <div className="truncate text-xs text-muted-foreground">
                           {account.alias ? `${account.email} · ` : ""}
-                          {PROVIDER_STYLE[account.provider].label} · {describeAccount(account)}
+                          {PROVIDER_LABEL[account.provider]} · {describeAccount(account)}
                         </div>
                       </div>
                       {confirmRemove === account.id ? (
@@ -178,6 +195,38 @@ export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChan
                         </div>
                       ) : (
                         <div className="flex items-center">
+                          {account.auth === "oauth" && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  aria-label={`Connection options for ${accountLabel(account)}`}
+                                  title={reconnecting === account.id ? "Finish signing in in your browser" : "Connection options"}
+                                  className="size-8"
+                                  disabled={reconnecting !== null}
+                                >
+                                  {reconnecting === account.id ? <Loader2 className="animate-spin" /> : <MoreHorizontal />}
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  disabled={account.provider === "gmail" ? !capabilities.googleOAuth : !capabilities.microsoftOAuth}
+                                  onSelect={() => void reconnect(account)}
+                                >
+                                  Reconnect
+                                </DropdownMenuItem>
+                                {account.provider === "outlook" && (
+                                  <DropdownMenuItem
+                                    disabled={!capabilities.microsoftOAuth}
+                                    onSelect={() => void reconnect(account, true)}
+                                  >
+                                    Allow calendar access
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )}
                           <Button
                             size="icon"
                             variant="ghost"
@@ -245,7 +294,10 @@ export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChan
                 void choosePicture(file);
               }}
             />
-            <Button variant="outline" onClick={() => setView({ name: "choose" })}>
+            <Button variant="outline" onClick={() => {
+              setEmail("");
+              setView({ name: "choose" });
+            }}>
               <Plus /> Add account
             </Button>
           </>
@@ -253,23 +305,26 @@ export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChan
 
         {view.name === "choose" && (
           <ChooseProvider
+            email={email}
+            onEmailChange={setEmail}
             canGoBack={accounts.length > 0}
             onBack={() => setView({ name: "list" })}
-            onChoose={(choice) => setView({ name: "form", choice })}
+            onChoose={(provider) => setView({ name: "form", provider: provider === "zoho" ? "imap" : provider })}
           />
         )}
 
         {view.name === "form" && (
-          <AddAccountForm
-            choice={view.choice}
-            capabilities={capabilities}
-            onBack={() => setView({ name: "choose" })}
-            onAdded={(account) => {
-              toast.success(`Connected ${accountLabel(account)}`);
-              onChanged();
-              setView({ name: "list" });
-            }}
-          />
+          view.provider === "imap" ? (
+            <ImapAccountForm initialEmail={email} onBack={() => setView({ name: "choose" })} onAdded={accountAdded} />
+          ) : (
+            <AddAccountForm
+              provider={view.provider}
+              initialEmail={email}
+              capabilities={capabilities}
+              onBack={() => setView({ name: "choose" })}
+              onAdded={accountAdded}
+            />
+          )
         )}
     </div>
   );
@@ -344,83 +399,89 @@ function AliasEditor({
   );
 }
 
-/** Optional alias field shown while adding an account. */
-function AliasField({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <div className="space-y-2">
-      <InfoLabel
-        htmlFor="account-alias"
-        info="A short name for this account, like Work or Uni. It replaces the address in MiniMail's account menu and lists. Only you see it, it is never sent in mail, and you can change it later in Manage accounts."
-      >
-        Alias (optional)
-      </InfoLabel>
-      <Input
-        id="account-alias"
-        value={value}
-        maxLength={MAX_ALIAS_LENGTH}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </div>
-  );
-}
-
-const CHOICES: { choice: Choice; provider: Provider; title: string; subtitle: string }[] =
-  [
-    { choice: "gmail", provider: "gmail", title: "Gmail", subtitle: "Google account" },
-    {
-      choice: "outlook-personal",
-      provider: "outlook",
-      title: "Outlook",
-      subtitle: "Personal (outlook.com, hotmail, live)",
-    },
-    {
-      choice: "outlook-work",
-      provider: "outlook",
-      title: "Outlook for work or school",
-      subtitle: "University or company Microsoft 365",
-    },
-    { choice: "zoho", provider: "zoho", title: "Zoho Mail", subtitle: "Personal or custom domain" },
-  ];
+const CHOICES: { provider: SetupProvider; title: string; subtitle: string }[] = [
+  { provider: "gmail", title: "Google", subtitle: "Gmail and Google Workspace" },
+  { provider: "outlook", title: "Microsoft", subtitle: "Outlook and Microsoft 365" },
+  { provider: "imap", title: "Other email", subtitle: "Zoho, iCloud, and other IMAP accounts" },
+];
 
 function ChooseProvider({
+  email,
+  onEmailChange,
   canGoBack,
   onBack,
   onChoose,
 }: {
+  email: string;
+  onEmailChange: (value: string) => void;
   canGoBack: boolean;
   onBack: () => void;
-  onChoose: (choice: Choice) => void;
+  onChoose: (provider: Provider) => void;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [showProviders, setShowProviders] = useState(false);
+
+  const discover = async () => {
+    setBusy(true);
+    try {
+      const provider = await api.accounts.discover(email.trim()).catch(() => providerForEmailDomain(email));
+      onChoose(provider ?? "imap");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
-      <SettingsPageHeader title="Add an account" description="Choose where your mail lives." />
-      <div className="grid gap-2">
-        {CHOICES.map(({ choice, provider, title, subtitle }) => (
-          <button
-            key={choice}
-            type="button"
-            onClick={() => onChoose(choice)}
-            className="corner-squircle flex items-center gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:bg-accent/50"
-          >
-            <ProviderBadge provider={provider} />
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium">{title}</span>
-              <span className="block text-xs text-muted-foreground">{subtitle}</span>
-            </span>
-          </button>
-        ))}
-      </div>
+      <SettingsPageHeader title="Add an account" description="Enter the email address you want to connect." />
+      <form
+        className="grid gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!busy && accountEmailSchema.safeParse(email).success) void discover();
+        }}
+      >
+        <Label htmlFor="discover-email">Email address</Label>
+        <Input
+          id="discover-email"
+          type="email"
+          autoComplete="email"
+          placeholder="you@example.com"
+          value={email}
+          disabled={busy}
+          onChange={(event) => onEmailChange(event.target.value)}
+        />
+        <Button type="submit" disabled={busy || !accountEmailSchema.safeParse(email).success}>
+          {busy && <Loader2 className="animate-spin" />}
+          {busy ? "Finding your provider…" : "Continue"}
+        </Button>
+      </form>
+      {!showProviders && (
+        <Button variant="ghost" disabled={busy} onClick={() => setShowProviders(true)}>
+          Choose a provider
+        </Button>
+      )}
+      {showProviders && (
+        <div className="grid gap-2">
+          {CHOICES.map(({ provider, title, subtitle }) => (
+            <button
+              key={provider}
+              type="button"
+              disabled={busy}
+              onClick={() => onChoose(provider)}
+              className="corner-squircle flex items-center gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:bg-accent/50"
+            >
+              <ProviderBadge provider={provider} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">{title}</span>
+                <span className="block text-xs text-muted-foreground">{subtitle}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       {canGoBack && (
-        <Button variant="ghost" className="justify-self-start" onClick={onBack}>
+        <Button variant="ghost" className="justify-self-start" disabled={busy} onClick={onBack}>
           <ArrowLeft /> Back to accounts
         </Button>
       )}
@@ -428,32 +489,31 @@ function ChooseProvider({
   );
 }
 
-const FORM_TITLES: Record<Choice, string> = {
+const FORM_TITLES: Record<"gmail" | "outlook", string> = {
   gmail: "Connect Gmail",
-  "outlook-personal": "Connect Outlook",
-  "outlook-work": "Connect Outlook for work or school",
-  zoho: "Connect Zoho Mail",
+  outlook: "Connect Microsoft mail",
 };
 
 function AddAccountForm({
-  choice,
+  provider,
+  initialEmail,
   capabilities,
   onBack,
   onAdded,
 }: {
-  choice: Choice;
+  provider: "gmail" | "outlook";
+  initialEmail: string;
   capabilities: AccountCapabilities;
   onBack: () => void;
   onAdded: (account: Account) => void;
 }) {
-  const [email, setEmail] = useState("");
-  const [alias, setAlias] = useState("");
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
   const [tenant, setTenant] = useState("");
-  const [region, setRegion] = useState<ZohoRegion>("com");
-  const [workplace, setWorkplace] = useState(true);
   const [busy, setBusy] = useState<"oauth" | "password" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [manualGmail, setManualGmail] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
 
   const submit = async (input: AddAccountInput, mode: "oauth" | "password") => {
     setBusy(mode);
@@ -467,8 +527,12 @@ function AddAccountForm({
   };
 
   const hint = email.trim() || undefined;
-  const aliasInput = alias.trim() || undefined;
-  const canSubmitPassword = email.includes("@") && password.length > 0 && busy === null;
+  const validEmail = accountEmailSchema.safeParse(email).success;
+  const validHint = !hint || validEmail;
+  const tenantOverride = tenant.trim() || undefined;
+  const validTenant = !tenantOverride || microsoftTenantSchema.safeParse(tenantOverride).success;
+  const canSubmitPassword = validEmail && password.length > 0 && busy === null;
+  const showGmailPassword = manualGmail || !capabilities.googleOAuth;
 
   const oauthButton = (label: string, enabled: boolean, onClick: () => void) => (
     <Button disabled={!enabled || busy !== null} onClick={onClick}>
@@ -479,183 +543,103 @@ function AddAccountForm({
 
   return (
     <>
-      <SettingsPageHeader title={FORM_TITLES[choice]} description="Sign in to add this account." />
+      <SettingsPageHeader
+        title={FORM_TITLES[provider]}
+        description="Sign in to give MiniMail access to your mail."
+      />
 
       <div className="space-y-4">
-        {(choice === "gmail" || choice === "outlook-personal" || choice === "outlook-work") && (
-          <div className="space-y-2">
-            <InfoLabel
-              htmlFor="account-email"
-              info="Optional. Pre-fills the sign-in page so the right account is chosen."
-            >
-              Email
-            </InfoLabel>
-            <Input
-              id="account-email"
-              type="email"
-              value={email}
-              placeholder={choice === "outlook-work" ? "you@university.edu" : "you@example.com"}
-              onChange={(event) => setEmail(event.target.value)}
-            />
-          </div>
-        )}
-
-        {choice !== "zoho" && (
-          <AliasField
-            value={alias}
-            onChange={setAlias}
-            placeholder={choice === "outlook-work" ? "University" : "Personal"}
+        <div className="space-y-2">
+          <InfoLabel htmlFor="account-email" info="Your provider uses this address to find your account.">
+            Email
+          </InfoLabel>
+          <Input
+            id="account-email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            placeholder="you@example.com"
+            disabled={busy !== null}
+            onChange={(event) => setEmail(event.target.value)}
           />
-        )}
+        </div>
 
-        {choice === "outlook-work" && (
-          <div className="space-y-2">
-            <InfoLabel
-              htmlFor="account-tenant"
-              info="Only needed if sign-in fails. Use your organization's domain (for example university.edu) or its tenant id. Many universities require an IT administrator to approve new mail apps before you can sign in."
-            >
-              Organization (optional)
-            </InfoLabel>
-            <Input
-              id="account-tenant"
-              value={tenant}
-              placeholder="university.edu"
-              onChange={(event) => setTenant(event.target.value)}
-            />
-          </div>
-        )}
-
-        {choice === "gmail" && (
+        {provider === "gmail" && (
           <>
-            {oauthButton("Sign in with Google", capabilities.googleOAuth, () =>
-              void submit({ kind: "oauth", provider: "gmail", email: hint, alias: aliasInput }, "oauth"),
+            {capabilities.googleOAuth && oauthButton("Continue with Google", validHint, () =>
+              void submit({ kind: "oauth", provider: "gmail", email: hint }, "oauth"),
             )}
             {!capabilities.googleOAuth && (
               <p className="text-xs text-muted-foreground">
-                Google sign-in needs an OAuth client id in this build (see the README). You can use
-                an app password instead.
+                Google browser sign-in is unavailable in this build. You can connect with an app password.
               </p>
             )}
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span className="h-px flex-1 bg-border" />
-              or use an app password
-              <span className="h-px flex-1 bg-border" />
-            </div>
-            <PasswordFields
-              password={password}
-              onPasswordChange={setPassword}
-              info="Requires 2-Step Verification on the Google account. Create one at myaccount.google.com/apppasswords. Your normal password will not work."
-            />
-            <Button
-              variant="secondary"
-              disabled={!canSubmitPassword}
-              onClick={() =>
-                void submit(
-                  { kind: "password", provider: "gmail", email: email.trim(), password, alias: aliasInput },
-                  "password",
-                )
-              }
-            >
-              {busy === "password" && <Loader2 className="animate-spin" />}
-              Add with app password
-            </Button>
+            {capabilities.googleOAuth && (
+              <Button variant="ghost" aria-expanded={manualGmail} disabled={busy !== null} onClick={() => setManualGmail(!manualGmail)}>
+                {manualGmail ? "Hide app password setup" : "Use an app password"}
+              </Button>
+            )}
+            {showGmailPassword && (
+              <>
+                <PasswordFields
+                  password={password}
+                  onPasswordChange={setPassword}
+                  info="Enable 2-Step Verification, then create an app password at myaccount.google.com/apppasswords."
+                />
+                <Button
+                  variant="secondary"
+                  disabled={!canSubmitPassword}
+                  onClick={() =>
+                    void submit({ kind: "password", provider: "gmail", email: email.trim(), password }, "password")
+                  }
+                >
+                  {busy === "password" && <Loader2 className="animate-spin" />}
+                  Add with app password
+                </Button>
+              </>
+            )}
           </>
         )}
 
-        {(choice === "outlook-personal" || choice === "outlook-work") && (
+        {provider === "outlook" && (
           <>
-            {oauthButton("Sign in with Microsoft", capabilities.microsoftOAuth, () =>
+            {oauthButton("Continue with Microsoft", capabilities.microsoftOAuth && validHint && validTenant, () =>
               void submit(
                 {
                   kind: "oauth",
                   provider: "outlook",
-                  outlookKind: choice === "outlook-work" ? "work-school" : "personal",
-                  tenant: choice === "outlook-work" ? tenant.trim() || undefined : undefined,
+                  tenant: tenantOverride,
                   email: hint,
-                  alias: aliasInput,
                 },
                 "oauth",
               ),
             )}
             {!capabilities.microsoftOAuth && (
               <p className="text-xs text-muted-foreground">
-                Microsoft sign-in needs an Azure app client id in this build (see the README).
+                Microsoft browser sign-in is unavailable in this build.
               </p>
             )}
-          </>
-        )}
-
-        {choice === "zoho" && (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="zoho-email">Email</Label>
-              <Input
-                id="zoho-email"
-                type="email"
-                value={email}
-                placeholder="you@yourdomain.com"
-                onChange={(event) => setEmail(event.target.value)}
-              />
-            </div>
-            <AliasField value={alias} onChange={setAlias} placeholder="Work" />
-            <PasswordFields
-              password={password}
-              onPasswordChange={setPassword}
-              info="Enable IMAP in Zoho Mail (Settings, Mail Accounts, IMAP Access). If two-factor authentication is on, create an application-specific password under Zoho Accounts, Security, App Passwords."
-            />
-            <div className="space-y-2">
-              <InfoLabel
-                htmlFor="zoho-region"
-                info="The data center your Zoho account lives in. Check the address you use to sign in to Zoho Mail (zoho.com, zoho.eu, ...)."
-              >
-                Region
-              </InfoLabel>
-              <Select value={region} onValueChange={(value) => setRegion(value as ZohoRegion)}>
-                <SelectTrigger id="zoho-region">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ZOHO_REGIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="zoho-workplace"
-                checked={workplace}
-                onCheckedChange={(checked) => setWorkplace(checked === true)}
-              />
-              <InfoLabel
-                htmlFor="zoho-workplace"
-                info="Mailboxes on your own domain (paid Zoho plans) use the imappro/smtppro servers. Free @zoho.com mailboxes use imap/smtp. Untick this for a free @zoho.com address."
-              >
-                Custom domain (Zoho Workplace)
-              </InfoLabel>
-            </div>
-            <Button
-              disabled={!canSubmitPassword}
-              onClick={() =>
-                void submit(
-                  {
-                    kind: "password",
-                    provider: "zoho",
-                    email: email.trim(),
-                    password,
-                    alias: aliasInput,
-                    zohoRegion: region,
-                    zohoWorkplace: workplace,
-                  },
-                  "password",
-                )
-              }
-            >
-              {busy === "password" && <Loader2 className="animate-spin" />}
-              {busy === "password" ? "Checking login…" : "Connect Zoho Mail"}
-            </Button>
+            {capabilities.microsoftOAuth && (
+              <Button variant="ghost" aria-expanded={advanced} disabled={busy !== null} onClick={() => setAdvanced(!advanced)}>
+                {advanced ? "Hide advanced settings" : "Advanced settings"}
+              </Button>
+            )}
+            {advanced && (
+              <div className="space-y-2">
+                <InfoLabel htmlFor="account-tenant" info="Enter a tenant ID or domain if your IT administrator gave you one.">
+                  Organization (optional)
+                </InfoLabel>
+                <Input
+                  id="account-tenant"
+                  value={tenant}
+                  placeholder="university.edu"
+                  disabled={busy !== null}
+                  aria-invalid={!validTenant}
+                  onChange={(event) => setTenant(event.target.value)}
+                />
+                {!validTenant && <p className="text-sm text-red-400">Enter an organization domain or tenant ID.</p>}
+              </div>
+            )}
           </>
         )}
 

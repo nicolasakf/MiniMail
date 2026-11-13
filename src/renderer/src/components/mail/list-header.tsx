@@ -358,7 +358,7 @@ export function ListHeader({
   ...actions
 }: ListHeaderProps) {
   return (
-    <header className="electron-window-drag flex h-[88px] shrink-0 items-end justify-between px-8 pb-3 pt-10">
+    <header className="electron-window-drag flex h-16 shrink-0 items-end justify-between px-8 pb-3 pt-3">
       <div className="electron-no-drag -ml-2 flex min-w-0 items-center gap-4 px-2">
         <h1 className="shrink-0 text-base font-semibold">{title}</h1>
 
@@ -410,7 +410,7 @@ export function GroupHeader({
   ...actions
 }: GroupHeaderProps) {
   return (
-    <header className="electron-window-drag flex h-[88px] shrink-0 items-end justify-between px-8 pb-3 pt-10">
+    <header className="electron-window-drag flex h-16 shrink-0 items-end justify-between px-8 pb-3 pt-3">
       <div className="electron-no-drag -ml-2 flex min-w-0 items-center gap-3 px-2">
         <HeaderIconButton label="Back" tooltip="Back (Esc)" onClick={onBack}>
           <ArrowLeft className="size-[18px]" />
@@ -455,7 +455,7 @@ export function DrillHeader({
   ...actions
 }: DrillHeaderProps) {
   return (
-    <header className="electron-window-drag flex h-[88px] shrink-0 items-end justify-between px-8 pb-3 pt-10">
+    <header className="electron-window-drag flex h-16 shrink-0 items-end justify-between px-8 pb-3 pt-3">
       <div className="electron-no-drag -ml-2 flex min-w-0 items-center gap-4 px-2">
         <HeaderIconButton label="Back to Dashboard" hint="Esc" onClick={onBack}>
           <ArrowLeft className="size-[18px]" />

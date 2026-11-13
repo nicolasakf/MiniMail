@@ -48,10 +48,11 @@ const MOVE_HINTS: Record<MoveTarget, string> = {
 
 /**
  * The quick actions for a conversation, in the toolbar of an open conversation and in its menu.
- * They are the same whatever folder it is in (where it sits is just where it happens to be): a
- * move to each of the other folders, Pin, read / unread. A move to the folder it is already in
+ * They are the same whatever folder it is in (where it sits is just where it happens to be): Pin,
+ * read / unread, then a move to each of the other folders. A move to the folder it is already in
  * is the only thing left out. In Trash and Spam, where mail is discarded for good, "Delete
- * forever" comes last.
+ * forever" comes last. This order (Pin, read, Inbox, Archive, Trash, Spam, Delete forever) holds
+ * everywhere actions are listed.
  */
 export function actionsForThread(folder: MailFolder, thread: Thread): RowAction[] {
   const moves = moveTargets(folder).map((target) => ({ ...MOVE_TARGETS[target], hint: MOVE_HINTS[target] }));
@@ -63,11 +64,8 @@ export function actionsForThread(folder: MailFolder, thread: Thread): RowAction[
       ? { action: "markRead", label: "Mark as read", icon: MailOpen, hint: "U" }
       : { action: "markUnread", label: "Mark as unread", icon: Mail, hint: "U" },
   ];
-  const actions: RowAction[] = [
-    ...moves.filter((move) => move.action === "unarchive" || move.action === "archive"),
-    ...toggles,
-    ...moves.filter((move) => move.action === "trash" || move.action === "spam"),
-  ];
+  // Pin, read / unread, then the moves in the order Inbox, Archive, Trash, Spam (`moves` already is).
+  const actions: RowAction[] = [...toggles, ...moves];
   if (folder === "trash" || folder === "spam") {
     actions.push({ action: "deleteForever", label: "Delete forever", icon: Flame, hint: folder === "trash" ? "D D" : undefined });
   }

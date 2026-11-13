@@ -352,7 +352,7 @@ describe("GraphProvider", () => {
     it("explains a missing permission when answering", async () => {
       stubFetch(() => json({ error: { code: "ErrorAccessDenied" } }, 403));
       await expect(provider().respondToInvitation("inbox", "AAMk-1=", "accepted")).rejects.toThrow(
-        "Remove the account and add it again",
+        "MiniMail needs calendar access",
       );
     });
   });
@@ -543,6 +543,7 @@ describe("GraphProvider", () => {
 
 describe("OAuth helpers", () => {
   it("picks the Microsoft login authority from the account type", () => {
+    expect(microsoftAuthority({})).toBe("common");
     expect(microsoftAuthority({ outlookKind: "personal" })).toBe("consumers");
     expect(microsoftAuthority({ outlookKind: "work-school" })).toBe("organizations");
     expect(microsoftAuthority({ outlookKind: "work-school", tenant: " university.edu " })).toBe(
@@ -649,12 +650,36 @@ describe("OAuth sign-in flows (real loopback server, stubbed providers)", () => 
     expect(identity.tokens.expiresAt).toBeGreaterThan(Date.now());
   });
 
-  it("rejects a redirect whose state does not match", async () => {
-    routeFetch(() => json({}));
-    const browser = browserApproves({ state: "forged" });
-    await expect(
-      signInWithGoogle({ googleClientId: "gid", googleClientSecret: "s" }, browser.openExternal),
-    ).rejects.toThrow(/did not match/);
+  it("ignores a mismatched callback and waits for the correct state", async () => {
+    const remote = routeFetch((call) => call.url.includes("/token")
+      ? json({ access_token: "a", refresh_token: "r", expires_in: 3600 })
+      : json({ email: "me@gmail.com" }));
+    const openExternal = async (url: string) => {
+      const auth = new URL(url);
+      const redirect = auth.searchParams.get("redirect_uri");
+      const forged = await realFetch(`${redirect}/?error=access_denied&state=forged`);
+      expect(forged.status).toBe(400);
+      expect(remote).toHaveLength(0);
+      const callback = await realFetch(`${redirect}/?code=valid&state=${auth.searchParams.get("state")}`);
+      expect(await callback.text()).toContain("Browser sign-in complete");
+    };
+    await expect(signInWithGoogle({ googleClientId: "gid", googleClientSecret: "s" }, openExternal))
+      .resolves.toMatchObject({ email: "me@gmail.com" });
+  });
+
+  it("signs in through Microsoft's common authority with mail-only scopes by default", async () => {
+    const remote = routeFetch((call) => call.url.includes("/token")
+      ? json({ access_token: "a", refresh_token: "r", expires_in: 3600 })
+      : json({ mail: "me@university.edu" }));
+    const browser = browserApproves();
+    const identity = await signInWithMicrosoft({ microsoftClientId: "mid" }, browser.openExternal, {}, "me@university.edu");
+
+    const auth = browser.seen.authUrl as URL;
+    expect(auth.pathname).toBe("/common/oauth2/v2.0/authorize");
+    expect(auth.searchParams.get("login_hint")).toBe("me@university.edu");
+    expect(auth.searchParams.get("scope")).not.toContain("Calendars.ReadWrite");
+    expect(remote[0].url).toContain("/common/oauth2/v2.0/token");
+    expect(identity.tokens.calendarAccess).toBe(false);
   });
 
   it("signs a personal Outlook account in against the consumers authority", async () => {
@@ -693,27 +718,30 @@ describe("OAuth sign-in flows (real loopback server, stubbed providers)", () => 
     const identity = await signInWithMicrosoft(
       { microsoftClientId: "mid" },
       browser.openExternal,
-      { outlookKind: "work-school", tenant: "university.edu" },
+      { outlookKind: "work-school", tenant: "university.edu", calendarAccess: true },
       "me@university.edu",
     );
 
     const auth = browser.seen.authUrl as URL;
     expect(auth.pathname).toBe("/university.edu/oauth2/v2.0/authorize");
     expect(auth.searchParams.get("login_hint")).toBe("me@university.edu");
+    expect(auth.searchParams.get("scope")).toContain("Calendars.ReadWrite");
     expect(identity).toMatchObject({ email: "me@university.edu", name: "Me Student" });
   });
 
   it("surfaces the provider's reason when the tenant blocks consent", async () => {
     routeFetch(() => json({}));
     const openExternal = async (url: string) => {
-      const redirect = new URL(url).searchParams.get("redirect_uri") ?? "";
-      void realFetch(
-        `${redirect}/?error=access_denied&error_description=${encodeURIComponent("AADSTS90094: admin consent required")}`,
+      const auth = new URL(url);
+      const redirect = auth.searchParams.get("redirect_uri");
+      const callback = await realFetch(
+        `${redirect}/?error=access_denied&state=${auth.searchParams.get("state")}&error_description=${encodeURIComponent("AADSTS90094: admin consent required")}`,
       );
+      expect(await callback.text()).toContain("Sign-in could not finish");
     };
     await expect(
       signInWithMicrosoft({ microsoftClientId: "mid" }, openExternal, { outlookKind: "work-school" }),
-    ).rejects.toThrow("AADSTS90094: admin consent required");
+    ).rejects.toThrow(/organization needs to approve MiniMail.*AADSTS90094: admin consent required/);
   });
 
   it("refreshes tokens, keeping the old refresh token when none is rotated", async () => {
@@ -802,7 +830,8 @@ describe("IPC schemas", () => {
     expect(addAccountSchema.safeParse({ kind: "password", provider: "zoho", email: "a@b.com", password: "" }).success).toBe(false);
     // Outlook has no password mode: Microsoft removed basic auth.
     expect(addAccountSchema.safeParse({ kind: "password", provider: "outlook", email: "a@b.com", password: "x" }).success).toBe(false);
-    expect(addAccountSchema.safeParse({ kind: "oauth", provider: "outlook" }).success).toBe(false);
+    expect(addAccountSchema.safeParse({ kind: "oauth", provider: "outlook" }).success).toBe(true);
+    expect(addAccountSchema.safeParse({ kind: "oauth", provider: "outlook", tenant: "../invalid" }).success).toBe(false);
   });
 
   it("bounds list queries, actions and id batches", () => {

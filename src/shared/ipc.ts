@@ -1,7 +1,10 @@
 /** IPC channel names, shared so main and preload cannot drift apart. */
 export const IPC = {
   accountsList: "accounts:list",
+  accountsDiscover: "accounts:discover",
+  accountsDiscoverImap: "accounts:discoverImap",
   accountsAdd: "accounts:add",
+  accountsReconnect: "accounts:reconnect",
   accountsRemove: "accounts:remove",
   accountsSetAlias: "accounts:set-alias",
   accountsSetAvatar: "accounts:set-avatar",

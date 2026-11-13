@@ -24,7 +24,10 @@ async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
 const api: MiniMailApi = {
   accounts: {
     list: () => invoke(IPC.accountsList),
+    discover: (email) => invoke(IPC.accountsDiscover, email),
+    discoverImap: (email) => invoke(IPC.accountsDiscoverImap, email),
     add: (input) => invoke(IPC.accountsAdd, input),
+    reconnect: (accountId, calendarAccess) => invoke(IPC.accountsReconnect, accountId, calendarAccess),
     remove: (accountId) => invoke(IPC.accountsRemove, accountId),
     setAlias: (accountId, alias) => invoke(IPC.accountsSetAlias, accountId, alias),
     setAvatar: (accountId, avatar) => invoke(IPC.accountsSetAvatar, accountId, avatar),

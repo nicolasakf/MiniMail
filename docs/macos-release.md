@@ -19,7 +19,27 @@ tag and run `gh workflow run release-macos.yml --ref v<VERSION>`, substituting
 the tag for `v<VERSION>`. The workflow publishes the draft after verifying the
 app and disk image.
 
-The public build runs in release mode, which excludes local OAuth credentials.
-Use Gmail or Zoho app passwords with the downloaded installer. For Outlook or
-Google OAuth, configure your own client using the instructions in the README
-and run a local development build.
+## Browser sign-in
+
+Create MiniMail's production OAuth registrations using the platform and
+redirect settings in the [README](../README.md#oauth-for-local-development).
+Configure Google for external users and complete Google's
+[restricted scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification)
+for the [full Gmail scope required by IMAP and SMTP](https://developers.google.com/workspace/gmail/imap/xoauth2-protocol).
+Include MiniMail's optional AI sorting in the review of where Gmail data goes.
+Google requires a security assessment when restricted data is stored or transmitted
+on servers.
+For Microsoft, use an Entra registration that supports both organizational and
+personal accounts. Organization-level app approval can still apply.
+
+| GitHub Actions setting | Value |
+| --- | --- |
+| Repository variable `MINIMAIL_GOOGLE_CLIENT_ID` | Google **Desktop app** OAuth client ID. |
+| Repository secret `MINIMAIL_GOOGLE_CLIENT_SECRET` | Companion credential from the Google desktop client. Google treats installed apps as public clients, and the value is extractable from the installer. Use a dedicated desktop registration. |
+| Repository variable `MINIMAIL_MICROSOFT_CLIENT_ID` | Microsoft Entra Application (client) ID. |
+
+The workflow passes these settings only to the build step. For a local release
+build, the equivalent process variables are `MINIMAIL_RELEASE_GOOGLE_CLIENT_ID`,
+`MINIMAIL_RELEASE_GOOGLE_CLIENT_SECRET`, and `MINIMAIL_RELEASE_MICROSOFT_CLIENT_ID`.
+Release mode ignores local `.env.local` OAuth settings. If a provider's release
+settings are missing, browser sign-in for that provider is unavailable.
