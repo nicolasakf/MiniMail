@@ -33,3 +33,28 @@ export function hslToHex(hue: number, saturation = 70, lightness = 55): string {
   };
   return `#${channel(0)}${channel(8)}${channel(4)}`.toUpperCase();
 }
+
+/** The `H S% L%` triple (the form the CSS color variables use) for a hex color, or null if it is not one. */
+export function hexToHslTriple(hex: string): string | null {
+  const normalized = normalizeHexColor(hex);
+  if (!normalized) return null;
+  const [red, green, blue] = [1, 3, 5].map((start) => Number.parseInt(normalized.slice(start, start + 2), 16) / 255);
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const lightness = (max + min) / 2;
+  const delta = max - min;
+  const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+  return `${hexToHue(normalized)} ${Math.round(saturation * 100)}% ${Math.round(lightness * 100)}%`;
+}
+
+/** Whether white or near-black text reads better on top of this hex color. */
+export function readableTextOn(hex: string): "light" | "dark" {
+  const normalized = normalizeHexColor(hex);
+  if (!normalized) return "light";
+  const [red, green, blue] = [1, 3, 5].map((start) => {
+    const channel = Number.parseInt(normalized.slice(start, start + 2), 16) / 255;
+    return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  return luminance > 0.4 ? "dark" : "light";
+}

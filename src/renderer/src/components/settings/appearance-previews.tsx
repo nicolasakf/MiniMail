@@ -121,120 +121,72 @@ export function TextSizeSample({ size }: { size: TextSize }) {
 }
 
 // Lists --------------------------------------------------------------------------------------------
-// These redraw the real window (rail, header, category rows or cards, message rows, reading pane)
-// in a few dozen boxes, so each choice shows what the Smart view will actually look like.
+// The window reduced to its structure: a rail, a header, category blocks and message rows, in grays.
 
-const SENDER_COLORS = ["bg-indigo-600", "bg-lime-500", "bg-rose-600", "bg-sky-600"];
-const CATEGORY_TINTS = ["bg-violet-500/30", "bg-sky-500/30", "bg-emerald-500/30", "bg-amber-500/30"];
-
-/** The window: icon rail on the left, header on top, and `children` filling the rest. */
+/** The window: a rail on the left, a header strip on top, and `children` filling the rest. */
 function AppMock({ children }: { children: ReactNode }) {
   return (
-    <PreviewFrame className="flex aspect-[4/3] gap-1 p-1">
-      <div className="flex w-3.5 shrink-0 flex-col items-center gap-1.5 rounded-[3px] border py-1.5">
-        {[0, 1, 2, 3].map((i) => (
-          <span key={i} className={cn("size-1.5 rounded-[2px]", i === 1 ? "bg-blue-600" : "bg-foreground/25")} />
-        ))}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="flex h-3 shrink-0 items-center gap-1">
-          <Bar className="w-6 bg-foreground/60" />
-          <span className="flex h-2 w-12 items-center gap-px rounded-[3px] border p-px">
-            <span className="h-full flex-1 rounded-[2px] bg-foreground/25" />
-            <span className="h-full flex-1" />
-            <span className="h-full flex-1" />
-          </span>
-          <span className="ml-auto flex items-center gap-0.5">
-            {[0, 1, 2, 3].map((i) => (
-              <span key={i} className="size-1 rounded-[1px] bg-foreground/25" />
-            ))}
-            <span className="ml-0.5 size-2.5 rounded-full bg-blue-600" />
-          </span>
-        </div>
-        <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-hidden">{children}</div>
+    <PreviewFrame className="flex aspect-[4/3] gap-1.5 p-1.5">
+      <div className="w-3 shrink-0 rounded-[3px] bg-foreground/10" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="h-2 w-2/3 shrink-0 rounded-[2px] bg-foreground/20" />
+        <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-hidden">{children}</div>
       </div>
     </PreviewFrame>
   );
 }
 
-/** A sender as the real lists draw it: a colored square and a name. */
-function Sender({ index, className }: { index: number; className?: string }) {
+/** A category as one wide block: an icon and a name on the left, its senders as small blocks. */
+function CategoryRow({ selected = false, senders = 3 }: { selected?: boolean; senders?: number }) {
   return (
-    <span className="flex items-center gap-0.5">
-      <span className={cn("size-1.5 shrink-0 rounded-[1px]", SENDER_COLORS[index % SENDER_COLORS.length])} />
-      <Bar className={cn("w-4 bg-foreground/30", className)} />
-    </span>
-  );
-}
-
-/** A category as one row: unread dot, icon, name and counts, a few senders, and a chevron. */
-function CategoryRow({ index, senders = 3, selected = false }: { index: number; senders?: number; selected?: boolean }) {
-  return (
-    <div className={cn("flex shrink-0 items-center gap-1 rounded-[4px] border px-1 py-[3px]", selected && "border-blue-500/40 bg-blue-500/10")}>
-      <span className="size-1 shrink-0 rounded-full bg-blue-500" />
-      <span className={cn("size-3 shrink-0 rounded-full", CATEGORY_TINTS[index % CATEGORY_TINTS.length])} />
-      <div className="w-8 shrink-0 space-y-[2px]">
-        <Bar className="w-full bg-foreground/60" />
-        <FaintBar className="w-1/2" />
-      </div>
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden pl-1">
+    <div className={cn("flex h-5 shrink-0 items-center gap-1.5 rounded-[4px] px-1.5", selected ? "bg-foreground/20" : "bg-foreground/10")}>
+      <span className="size-2.5 shrink-0 rounded-full bg-foreground/30" />
+      <span className="h-1 w-8 shrink-0 rounded-full bg-foreground/40" />
+      <span className="flex flex-1 gap-1 pl-1">
         {Array.from({ length: senders }, (_, i) => (
-          <Sender key={i} index={i + index} />
+          <span key={i} className="h-2 flex-1 rounded-[2px] bg-foreground/15" />
         ))}
-      </div>
-      <span className="h-1.5 w-0.5 shrink-0 rounded-full bg-foreground/30" />
+      </span>
     </div>
   );
 }
 
-/** A category as a card: icon and name, then its senders one under the other. */
-function CategoryCard({ index, selected = false }: { index: number; selected?: boolean }) {
+/** A category as a card: an icon and a name, then its senders one under the other. */
+function CategoryCard({ selected = false }: { selected?: boolean }) {
   return (
-    <div className={cn("min-w-0 space-y-1 rounded-[4px] border p-1", selected && "border-blue-500/40 bg-blue-500/10")}>
-      <div className="flex items-center gap-1">
-        <span className={cn("size-2.5 shrink-0 rounded-full", CATEGORY_TINTS[index % CATEGORY_TINTS.length])} />
-        <Bar className="w-3/5 bg-foreground/60" />
-      </div>
-      {[0, 1, 2].map((i) => (
-        <Sender key={i} index={i + index} className="w-full flex-1" />
-      ))}
+    <div className={cn("flex min-w-0 flex-col gap-1 rounded-[4px] p-1.5", selected ? "bg-foreground/20" : "bg-foreground/10")}>
+      <span className="flex items-center gap-1">
+        <span className="size-2 shrink-0 rounded-full bg-foreground/30" />
+        <span className="h-1 flex-1 rounded-full bg-foreground/40" />
+      </span>
+      <span className="h-1 rounded-full bg-foreground/15" />
+      <span className="h-1 rounded-full bg-foreground/15" />
     </div>
   );
 }
 
-/** A message on one line (full width): avatar, sender, subject, first words and date. */
-function WideMessageRow({ index, unread = false }: { index: number; unread?: boolean }) {
+/** A message in the full-width list: a picture and one long line. */
+function WideMessageRow() {
   return (
-    <div className="flex shrink-0 items-center gap-1 px-1 py-px">
-      <span className={cn("size-1 shrink-0 rounded-full", unread ? "bg-blue-500" : "bg-transparent")} />
-      <span className={cn("size-2.5 shrink-0 rounded-[2px]", SENDER_COLORS[index % SENDER_COLORS.length])} />
-      <Bar className="w-8 shrink-0 bg-foreground/50" />
-      <Bar className="w-10 shrink-0 bg-foreground/50" />
-      <FaintBar className="flex-1" />
-      <FaintBar className="w-3 shrink-0" />
+    <div className="flex shrink-0 items-center gap-1.5 px-1">
+      <span className="size-2.5 shrink-0 rounded-[2px] bg-foreground/25" />
+      <span className="h-1 w-1/4 shrink-0 rounded-full bg-foreground/35" />
+      <span className="h-1 flex-1 rounded-full bg-foreground/15" />
     </div>
   );
 }
 
-/** A message on two lines (the narrow list beside the reading pane). */
-function NarrowMessageRow({ index, unread = false, selected = false }: { index: number; unread?: boolean; selected?: boolean }) {
+/** A message in the narrow list beside the reading pane: a picture and two short lines. */
+function NarrowMessageRow({ selected = false }: { selected?: boolean }) {
   return (
-    <div className={cn("flex shrink-0 items-center gap-1 rounded-[3px] px-1 py-[3px]", selected && "bg-blue-500/15")}>
-      <span className={cn("size-1 shrink-0 rounded-full", unread ? "bg-blue-500" : "bg-transparent")} />
-      <span className={cn("size-3 shrink-0 rounded-[2px]", SENDER_COLORS[index % SENDER_COLORS.length])} />
-      <div className="min-w-0 flex-1 space-y-[3px]">
-        <div className="flex items-center justify-between gap-1">
-          <Bar className="w-1/2 bg-foreground/50" />
-          <FaintBar className="w-3" />
-        </div>
-        <FaintBar className="w-4/5 bg-foreground/25" />
-      </div>
+    <div className={cn("flex shrink-0 items-center gap-1.5 rounded-[3px] px-1 py-1", selected && "bg-foreground/20")}>
+      <span className="size-3 shrink-0 rounded-[2px] bg-foreground/25" />
+      <span className="flex-1 space-y-[3px]">
+        <span className="block h-1 w-3/5 rounded-full bg-foreground/35" />
+        <span className="block h-1 w-full rounded-full bg-foreground/15" />
+      </span>
     </div>
   );
-}
-
-function DateLabel() {
-  return <FaintBar className="ml-1 mt-0.5 w-5 shrink-0" />;
 }
 
 /** The Smart view with its categories as rows (horizontal) or as cards across the top (vertical). */
@@ -242,21 +194,16 @@ export function CategoryLayoutPreview({ layout }: { layout: "horizontal" | "vert
   return (
     <AppMock>
       {layout === "horizontal" ? (
-        <>
-          {[0, 1, 2, 3].map((i) => (
-            <CategoryRow key={i} index={i} selected={i === 0} />
-          ))}
-        </>
+        [0, 1, 2].map((i) => <CategoryRow key={i} selected={i === 0} />)
       ) : (
-        <div className="grid shrink-0 grid-cols-4 gap-1">
-          {[0, 1, 2, 3].map((i) => (
-            <CategoryCard key={i} index={i} selected={i === 0} />
+        <div className="grid shrink-0 grid-cols-3 gap-1.5">
+          {[0, 1, 2].map((i) => (
+            <CategoryCard key={i} selected={i === 0} />
           ))}
         </div>
       )}
-      <DateLabel />
-      {[0, 1, 2, 3, 4].map((i) => (
-        <WideMessageRow key={i} index={i} unread={i % 2 === 0} />
+      {[0, 1, 2, 3].map((i) => (
+        <WideMessageRow key={i} />
       ))}
     </AppMock>
   );
@@ -267,52 +214,30 @@ export function SplitViewPreview({ split }: { split: boolean }) {
   if (!split) {
     return (
       <AppMock>
-        {[0, 1, 2].map((i) => (
-          <CategoryRow key={i} index={i} />
+        {[0, 1].map((i) => (
+          <CategoryRow key={i} />
         ))}
-        <DateLabel />
-        {[0, 1, 2, 3, 4].map((i) => (
-          <WideMessageRow key={i} index={i} unread={i % 2 === 0} />
+        {[0, 1, 2, 3].map((i) => (
+          <WideMessageRow key={i} />
         ))}
       </AppMock>
     );
   }
   return (
     <AppMock>
-      <div className="flex min-h-0 flex-1 gap-1">
-        <div className="flex w-[46%] shrink-0 flex-col gap-1 overflow-hidden">
-          {[0, 1].map((i) => (
-            <CategoryRow key={i} index={i} senders={1} />
-          ))}
-          <DateLabel />
-          {[0, 1, 2, 3].map((i) => (
-            <NarrowMessageRow key={i} index={i} unread={i !== 1} selected={i === 0} />
+      <div className="flex min-h-0 flex-1 gap-1.5">
+        <div className="flex w-[42%] shrink-0 flex-col gap-1.5 overflow-hidden">
+          <CategoryRow senders={1} />
+          {[0, 1, 2].map((i) => (
+            <NarrowMessageRow key={i} selected={i === 0} />
           ))}
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-[4px] border p-1.5">
-          <div className="flex items-center justify-between">
-            <span className="flex gap-0.5">
-              {[0, 1, 2].map((i) => (
-                <span key={i} className="size-1.5 rounded-[1px] bg-foreground/25" />
-              ))}
-            </span>
-            <span className="flex gap-0.5">
-              {[0, 1].map((i) => (
-                <span key={i} className="size-1.5 rounded-[1px] bg-foreground/25" />
-              ))}
-            </span>
-          </div>
-          <Bar className="h-1.5 w-4/5 bg-foreground/60" />
-          <FaintBar className="w-1/3" />
-          <div className="space-y-1 rounded-[3px] border p-1">
-            <div className="flex items-center gap-1">
-              <span className="size-2 rounded-[2px] bg-foreground/15" />
-              <FaintBar className="w-1/3" />
-            </div>
-            <FaintBar className="w-full" />
-            <FaintBar className="w-full" />
-            <FaintBar className="w-2/3" />
-          </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-[4px] bg-foreground/10 p-2">
+          <span className="h-1.5 w-4/5 rounded-full bg-foreground/40" />
+          <span className="h-1 w-1/3 rounded-full bg-foreground/20" />
+          <span className="mt-1 h-1 rounded-full bg-foreground/15" />
+          <span className="h-1 rounded-full bg-foreground/15" />
+          <span className="h-1 w-2/3 rounded-full bg-foreground/15" />
         </div>
       </div>
     </AppMock>

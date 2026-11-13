@@ -1,8 +1,12 @@
+import { useState } from "react";
+
 import { useTheme } from "next-themes";
 
+import { Button } from "@/components/ui/button";
+import { ColorPicker } from "@/components/ui/color-picker";
 import { Separator } from "@/components/ui/separator";
 import { useLogoSettings } from "@/hooks/use-logo-settings";
-import { setAppearance, useAppearance, type TextSize } from "@/lib/appearance";
+import { DEFAULT_ACCENT_COLOR, setAppearance, useAppearance, type TextSize } from "@/lib/appearance";
 
 import {
   CategoryLayoutPreview,
@@ -22,15 +26,31 @@ const TEXT_SIZES: { value: TextSize; label: string; px: string }[] = [
   { value: "larger", label: "Larger", px: "20 px" },
 ];
 
-/** Theme, text size, what lists show and which sender pictures are looked up. */
+/** Swatches offered under the picker; the first is the built-in blue. */
+const ACCENT_PRESETS = [
+  DEFAULT_ACCENT_COLOR,
+  "#7C3AED",
+  "#DB2777",
+  "#DC2626",
+  "#EA580C",
+  "#CA8A04",
+  "#16A34A",
+  "#0D9488",
+  "#0891B2",
+  "#475569",
+] as const;
+
+/** Theme, highlight color, text size, what lists show and which sender pictures are looked up. */
 export function AppearanceTab() {
   const { theme, setTheme } = useTheme();
-  const { textSize, showPreviews, categoryLayout, splitView } = useAppearance();
+  const { textSize, showPreviews, categoryLayout, splitView, accentColor } = useAppearance();
+  // The picker opens inside this page so the settings dialog's focus trap lets you type in its hex field.
+  const [pickerContainer, setPickerContainer] = useState<HTMLDivElement | null>(null);
   const { settings: logoSettings, update: updateLogoSettings } = useLogoSettings();
 
   return (
-    <div className="flex flex-col gap-6 p-6">
-      <SettingsPageHeader title="Appearance" description="Control the theme, the size of text, what lists show and which sender pictures appear." />
+    <div ref={setPickerContainer} className="flex flex-col gap-6 p-6">
+      <SettingsPageHeader title="Appearance" description="Control the theme, the highlight color, the size of text, what lists show and which sender pictures appear." />
 
       <div className="space-y-6">
         <section className="max-w-2xl space-y-3">
@@ -48,6 +68,35 @@ export function AppearanceTab() {
               onValueChange={setTheme}
             />
           </div>
+        </section>
+
+        <Separator />
+
+        <section className="max-w-2xl">
+          <SettingsRow
+            label="Highlight color"
+            info="Used for the selected conversation, unread dots and counts, links, and the Compose button."
+          >
+            <div className="flex items-center gap-2">
+              <ColorPicker
+                aria-label="Highlight color"
+                value={accentColor ?? DEFAULT_ACCENT_COLOR}
+                presets={ACCENT_PRESETS}
+                container={pickerContainer}
+                align="start"
+                onValueChange={(next) => setAppearance({ accentColor: next })}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={accentColor === null}
+                onClick={() => setAppearance({ accentColor: null })}
+              >
+                Reset
+              </Button>
+            </div>
+          </SettingsRow>
         </section>
 
         <Separator />

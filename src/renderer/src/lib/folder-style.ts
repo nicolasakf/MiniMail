@@ -17,7 +17,9 @@ export const FOLDER_STYLE: Record<ShownFolder, FolderStyle> = {
     label: "Inbox",
     icon: Inbox,
     text: "text-muted-foreground",
-    active: "bg-sidebar-primary/15 text-sidebar-primary hover:text-sidebar-primary",
+    // A fixed blue (the highlight color's original value in each theme), so the user's highlight color does not recolor it.
+    active:
+      "bg-[hsl(221_83%_53%/0.15)] text-[hsl(221_83%_53%)] hover:text-[hsl(221_83%_53%)] dark:bg-[hsl(224_76%_48%/0.15)] dark:text-[hsl(224_76%_48%)] dark:hover:text-[hsl(224_76%_48%)]",
   },
   archive: {
     label: "Archive",

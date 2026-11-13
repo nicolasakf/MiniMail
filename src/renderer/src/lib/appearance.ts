@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from "react";
 
+import { hexToHslTriple, normalizeHexColor, readableTextOn } from "./color";
+
 /**
  * Display choices that belong to this computer and need no round trip to the main process: how
  * large the text is and whether lists show a preview of each message. Kept in the page's own
@@ -30,7 +32,12 @@ export interface Appearance {
   splitView: boolean;
   /** Width in px of the list beside the reading pane (split view). */
   splitListWidth: number;
+  /** Highlight color as `#RRGGBB`, or null for the built-in blue. */
+  accentColor: string | null;
 }
+
+/** The built-in highlight blue, as the picker shows it (the light theme's selection blue). */
+export const DEFAULT_ACCENT_COLOR = "#2563EB";
 
 export const DEFAULT_APPEARANCE: Appearance = {
   textSize: "default",
@@ -38,6 +45,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   categoryLayout: "horizontal",
   splitView: false,
   splitListWidth: 400,
+  accentColor: null,
 };
 
 /** The layout lists actually use: the split view has no room for a grid of cards, so it is always horizontal. */
@@ -61,6 +69,7 @@ function read(): Appearance {
         typeof saved.splitListWidth === "number" && saved.splitListWidth >= 200 && saved.splitListWidth <= 2000
           ? Math.round(saved.splitListWidth)
           : DEFAULT_APPEARANCE.splitListWidth,
+      accentColor: typeof saved.accentColor === "string" ? normalizeHexColor(saved.accentColor) : DEFAULT_APPEARANCE.accentColor,
     };
   } catch {
     return { ...DEFAULT_APPEARANCE }; // Storage can be blocked; the defaults are fine.
@@ -70,11 +79,29 @@ function read(): Appearance {
 let current: Appearance = read();
 const listeners = new Set<() => void>();
 
-function applyToPage(appearance: Appearance): void {
-  document.documentElement.style.fontSize = `${TEXT_SIZE_PERCENT[appearance.textSize]}%`;
+/** The CSS variables the highlight color drives: selection, unread dots and counts, links, focus rings. */
+const ACCENT_VARIABLES = ["--sidebar-primary", "--sidebar-primary-foreground", "--sidebar-ring", "--unread"] as const;
+
+function applyAccent(accentColor: string | null): void {
+  const style = document.documentElement.style;
+  const triple = accentColor ? hexToHslTriple(accentColor) : null;
+  if (!accentColor || !triple) {
+    // Back to the theme's own blue, which differs between light and dark.
+    for (const name of ACCENT_VARIABLES) style.removeProperty(name);
+    return;
+  }
+  style.setProperty("--sidebar-primary", triple);
+  style.setProperty("--sidebar-ring", triple);
+  style.setProperty("--unread", triple);
+  style.setProperty("--sidebar-primary-foreground", readableTextOn(accentColor) === "dark" ? "0 0% 9%" : "0 0% 100%");
 }
 
-/** Applies the saved text size; called once before the app renders. */
+function applyToPage(appearance: Appearance): void {
+  document.documentElement.style.fontSize = `${TEXT_SIZE_PERCENT[appearance.textSize]}%`;
+  applyAccent(appearance.accentColor);
+}
+
+/** Applies the saved text size and highlight color; called once before the app renders. */
 export function applyAppearance(): void {
   applyToPage(current);
 }
