@@ -23,6 +23,18 @@ export const TEXT_SIZE_PERCENT: Record<TextSize, number> = {
 export const CATEGORY_LAYOUTS = ["horizontal", "vertical"] as const;
 export type CategoryLayout = (typeof CATEGORY_LAYOUTS)[number];
 
+/** How wide the email column is allowed to grow in the reading pane. */
+export const EMAIL_WIDTHS = ["compact", "default", "wide", "wider"] as const;
+export type EmailWidth = (typeof EMAIL_WIDTHS)[number];
+
+/** The widest the email column gets, in rem. */
+export const EMAIL_WIDTH_REM: Record<EmailWidth, number> = {
+  compact: 48,
+  default: 52.8,
+  wide: 64,
+  wider: 76.8,
+};
+
 export interface Appearance {
   textSize: TextSize;
   /** Show the first words of each message after its subject in lists. */
@@ -34,6 +46,8 @@ export interface Appearance {
   splitListWidth: number;
   /** Highlight color as `#RRGGBB`, or null for the built-in blue. */
   accentColor: string | null;
+  /** The widest the email column grows when reading a conversation. */
+  emailWidth: EmailWidth;
 }
 
 /** The built-in highlight blue, as the picker shows it (the light theme's selection blue). */
@@ -46,6 +60,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   splitView: false,
   splitListWidth: 400,
   accentColor: null,
+  emailWidth: "default",
 };
 
 /** The layout lists actually use: the split view has no room for a grid of cards, so it is always horizontal. */
@@ -70,6 +85,7 @@ function read(): Appearance {
           ? Math.round(saved.splitListWidth)
           : DEFAULT_APPEARANCE.splitListWidth,
       accentColor: typeof saved.accentColor === "string" ? normalizeHexColor(saved.accentColor) : DEFAULT_APPEARANCE.accentColor,
+      emailWidth: EMAIL_WIDTHS.includes(saved.emailWidth as EmailWidth) ? (saved.emailWidth as EmailWidth) : DEFAULT_APPEARANCE.emailWidth,
     };
   } catch {
     return { ...DEFAULT_APPEARANCE }; // Storage can be blocked; the defaults are fine.

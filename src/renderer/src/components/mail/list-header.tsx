@@ -1,6 +1,16 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { ArrowLeft, Check, ChevronDown, Mail, MailOpen, Search, SquarePen, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  ChevronDown,
+  Mail,
+  MailOpen,
+  RefreshCw,
+  Search,
+  SquarePen,
+  X,
+} from "lucide-react";
 
 import { accountLabel } from "@shared/accounts";
 import type { GroupDef } from "@shared/focus-list";
@@ -15,7 +25,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ShortcutHint } from "@/components/ui/keyboard-shortcut-badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { SHOWN_FOLDERS, type AccountScope } from "@/hooks/use-mailbox";
 import { FOLDER_STYLE } from "@/lib/folder-style";
 import { cn } from "@/lib/utils";
@@ -48,6 +63,10 @@ interface ListHeaderProps extends HeaderActionsProps {
   scope: AccountScope;
   onScopeChange: (scope: AccountScope) => void;
   onManageAccounts: () => void;
+  /** Reloads the list. */
+  onRefresh: () => void;
+  /** Whether a reload is running: the refresh icon spins. */
+  refreshing: boolean;
 }
 
 function HeaderIconButton({
@@ -84,7 +103,9 @@ function HeaderIconButton({
           onClick={onClick}
           className={cn(
             "corner-squircle electron-no-drag relative flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-            pressed && (activeClassName ?? "bg-accent text-sidebar-primary hover:text-sidebar-primary"),
+            pressed &&
+              (activeClassName ??
+                "bg-accent text-sidebar-primary hover:text-sidebar-primary"),
             className,
           )}
         >
@@ -93,9 +114,60 @@ function HeaderIconButton({
       </TooltipTrigger>
       <TooltipContent side="bottom">
         {tooltip}
-        {hint ? <span className="ml-2 text-muted-foreground">{hint}</span> : null}
+        {hint ? <ShortcutHint hint={hint} /> : null}
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+/**
+ * Reloads the mail on screen. The icon turns half a turn at a time: it keeps turning while a reload
+ * runs, and a half turn that has started always finishes, even when the reload ends first.
+ */
+export function RefreshButton({
+  onRefresh,
+  refreshing,
+  className,
+}: {
+  onRefresh: () => void;
+  refreshing: boolean;
+  /** Extra classes, e.g. a negative margin to sit closer to a neighbor. */
+  className?: string;
+}) {
+  const [halfTurns, setHalfTurns] = useState(0);
+  const turning = useRef(false);
+
+  const turn = () => {
+    if (turning.current) return;
+    turning.current = true;
+    setHalfTurns((count) => count + 1);
+  };
+
+  // A reload that starts without a click here (a shortcut, a poll) turns the icon too.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `turn` only touches a ref and a setter.
+  useEffect(() => {
+    if (refreshing) turn();
+  }, [refreshing]);
+
+  return (
+    <HeaderIconButton
+      label="Refresh"
+      className={className}
+      onClick={() => {
+        turn();
+        onRefresh();
+      }}
+    >
+      <RefreshCw
+        className="size-[18px] transition-transform duration-300 ease-linear"
+        style={{ transform: `rotate(${halfTurns * 180}deg)` }}
+        onTransitionEnd={() => {
+          turning.current = false;
+          // Still reloading: the next half turn follows at once.
+          if (refreshing) turn();
+        }}
+      />
+    </HeaderIconButton>
   );
 }
 
@@ -118,7 +190,7 @@ function ComposeButton({ onClick }: { onClick: () => void }) {
       </TooltipTrigger>
       <TooltipContent side="bottom">
         Compose
-        <span className="ml-2 text-muted-foreground">C</span>
+        <ShortcutHint hint="C" />
       </TooltipContent>
     </Tooltip>
   );
@@ -128,7 +200,13 @@ function ComposeButton({ onClick }: { onClick: () => void }) {
  * The accounts in view: two or three as a stack of overlapping chips, each lapping a third over
  * the one before it.
  */
-function AccountMarks({ accounts, size = 24 }: { accounts: readonly Account[]; size?: number }) {
+function AccountMarks({
+  accounts,
+  size = 24,
+}: {
+  accounts: readonly Account[];
+  size?: number;
+}) {
   const shown = accounts.slice(0, 3);
   const overlap = Math.round(size / 3);
   // One account has nothing to lift off, so it keeps its bare mark like everywhere else.
@@ -140,7 +218,10 @@ function AccountMarks({ accounts, size = 24 }: { accounts: readonly Account[]; s
         <span
           key={account.id}
           className="flex"
-          style={{ marginLeft: index > 0 ? -overlap : undefined, zIndex: index }}
+          style={{
+            marginLeft: index > 0 ? -overlap : undefined,
+            zIndex: index,
+          }}
         >
           <AccountMark account={account} size={size} stacked />
         </span>
@@ -161,7 +242,10 @@ function AccountSwitcher({
   onScopeChange: (scope: AccountScope) => void;
   onManageAccounts: () => void;
 }) {
-  const selected = scope === "all" ? undefined : accounts.find((account) => account.id === scope);
+  const selected =
+    scope === "all"
+      ? undefined
+      : accounts.find((account) => account.id === scope);
   const scopeLabel = selected ? accountLabel(selected) : "All accounts";
 
   return (
@@ -174,7 +258,9 @@ function AccountSwitcher({
           className="corner-squircle electron-no-drag flex h-9 min-w-0 items-center gap-2 rounded-lg border border-border bg-card/40 px-3 text-sm outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent/60"
         >
           <AccountMarks accounts={selected ? [selected] : accounts} />
-          <span className="max-w-[280px] truncate font-medium">{scopeLabel}</span>
+          <span className="max-w-[280px] truncate font-medium">
+            {scopeLabel}
+          </span>
           <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
@@ -189,7 +275,10 @@ function AccountSwitcher({
         </DropdownMenuItem>
         {accounts.length > 0 && <DropdownMenuSeparator />}
         {accounts.map((account) => (
-          <DropdownMenuItem key={account.id} onSelect={() => onScopeChange(account.id)}>
+          <DropdownMenuItem
+            key={account.id}
+            onSelect={() => onScopeChange(account.id)}
+          >
             <span className="mr-2 flex w-6 shrink-0 justify-center">
               <AccountMark account={account} size={22} />
             </span>
@@ -205,7 +294,9 @@ function AccountSwitcher({
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onManageAccounts}>Manage accounts…</DropdownMenuItem>
+        <DropdownMenuItem onSelect={onManageAccounts}>
+          Manage accounts…
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -225,9 +316,47 @@ interface HeaderActionsProps {
 }
 
 /**
- * The list filters: the unread-only toggle on its own, then one segmented group that checks which
- * folders the list shows (Inbox, then Archive, Trash and Spam in gray, red and amber). The group
- * only exists where the list can show those folders.
+ * One segmented group that checks which folders a list shows (Inbox, then Archive, Trash and Spam
+ * in gray, red and amber).
+ */
+export function FolderFilterGroup({
+  shownFolders,
+  onToggleFolder,
+}: {
+  shownFolders: readonly ShownFolder[];
+  onToggleFolder: (folder: ShownFolder) => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Folders shown"
+      className="corner-squircle electron-no-drag flex items-center gap-0.5 rounded-lg border border-border bg-card/40 p-0.5"
+    >
+      {SHOWN_FOLDERS.map((folder) => {
+        const { label, icon: Icon, active } = FOLDER_STYLE[folder];
+        const on = shownFolders.includes(folder);
+        return (
+          <HeaderIconButton
+            key={folder}
+            label={`${on ? "Hide" : "Show"} ${label.toLowerCase()}`}
+            tooltip={on ? `Hide ${label.toLowerCase()} mail` : `Show ${label.toLowerCase()} mail`}
+            pressed={on}
+            activeClassName={active}
+            className="size-8 rounded-md"
+            onClick={() => onToggleFolder(folder)}
+          >
+            {/* Off, every folder button reads like the inbox's; the tint appears only while its folder is shown. */}
+            <Icon className={cn("size-[18px]", !on && FOLDER_STYLE.inbox.text)} />
+          </HeaderIconButton>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The list filters: the unread-only toggle on its own, then the folder group. The group only
+ * exists where the list can show those folders.
  */
 function FilterGroup({
   unreadOnly,
@@ -243,37 +372,23 @@ function FilterGroup({
       <HeaderIconButton
         label="Show unread only"
         tooltip={unreadOnly ? "Showing unread only" : "Show unread only"}
+        hint="⌘U"
         pressed={unreadOnly}
         activeClassName="bg-accent text-foreground hover:text-foreground"
         onClick={() => onUnreadOnlyChange(!unreadOnly)}
       >
         {/* A closed envelope while only unread mail shows, an open one while everything does. */}
-        {unreadOnly ? <Mail className="size-[18px]" /> : <MailOpen className="size-[18px]" />}
+        {unreadOnly ? (
+          <Mail className="size-[18px]" />
+        ) : (
+          <MailOpen className="size-[18px]" />
+        )}
       </HeaderIconButton>
       {shownFolders && (
-        <div
-          role="group"
-          aria-label="Folders shown"
-          className="corner-squircle electron-no-drag flex items-center gap-0.5 rounded-lg border border-border bg-card/40 p-0.5"
-        >
-          {SHOWN_FOLDERS.map((folder) => {
-            const { label, icon: Icon, text, active } = FOLDER_STYLE[folder];
-            const on = shownFolders.includes(folder);
-            return (
-              <HeaderIconButton
-                key={folder}
-                label={`${on ? "Hide" : "Show"} ${label.toLowerCase()}`}
-                tooltip={on ? `Hide ${label.toLowerCase()} mail` : `Show ${label.toLowerCase()} mail`}
-                pressed={on}
-                activeClassName={active}
-                className="size-8 rounded-md"
-                onClick={() => onToggleFolder(folder)}
-              >
-                <Icon className={cn("size-[18px]", !on && text)} />
-              </HeaderIconButton>
-            );
-          })}
-        </div>
+        <FolderFilterGroup
+          shownFolders={shownFolders}
+          onToggleFolder={onToggleFolder}
+        />
       )}
     </>
   );
@@ -337,7 +452,11 @@ function HeaderActions({
         </div>
       ) : (
         <>
-          <HeaderIconButton label="Search" hint="⌘K" onClick={() => onSearchOpenChange(true)}>
+          <HeaderIconButton
+            label="Search"
+            hint="⌘K"
+            onClick={() => onSearchOpenChange(true)}
+          >
             <Search className="size-[18px]" />
           </HeaderIconButton>
         </>
@@ -358,6 +477,8 @@ export function ListHeader({
   scope,
   onScopeChange,
   onManageAccounts,
+  onRefresh,
+  refreshing,
   ...actions
 }: ListHeaderProps) {
   return (
@@ -372,7 +493,11 @@ export function ListHeader({
           onManageAccounts={onManageAccounts}
         />
 
-        {showViews && <ViewTabs view={view} onViewChange={onViewChange} extra={viewExtra} />}
+        <RefreshButton className="-mx-2" onRefresh={onRefresh} refreshing={refreshing} />
+
+        {showViews && (
+          <ViewTabs view={view} onViewChange={onViewChange} extra={viewExtra} />
+        )}
       </div>
 
       <HeaderActions {...actions} />
@@ -392,10 +517,17 @@ function ViewTabs({
 }) {
   return (
     <div className="flex shrink-0 items-center gap-2">
-      <Tabs value={view} onValueChange={(next) => onViewChange(next as MailView)}>
+      <Tabs
+        value={view}
+        onValueChange={(next) => onViewChange(next as MailView)}
+      >
         <TabsList aria-label="View" className="h-9 shrink-0">
           {VIEWS.map((option) => (
-            <TabsTrigger key={option.view} value={option.view} className="h-7 py-0">
+            <TabsTrigger
+              key={option.view}
+              value={option.view}
+              className="h-7 py-0"
+            >
               {option.label}
             </TabsTrigger>
           ))}
@@ -432,7 +564,9 @@ export function GroupHeader({
         <GroupTile group={group} />
         <h1 className="min-w-0 shrink-0 truncate text-base font-semibold">
           {group.label}
-          <span className="ml-2 text-xs font-normal text-muted-foreground">{count}</span>
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            {count}
+          </span>
         </h1>
       </div>
 
@@ -453,6 +587,10 @@ interface DrillHeaderProps extends HeaderActionsProps {
   scope: AccountScope;
   onScopeChange: (scope: AccountScope) => void;
   onManageAccounts: () => void;
+  /** Reloads the list. */
+  onRefresh: () => void;
+  /** Whether a reload is running: the refresh icon spins. */
+  refreshing: boolean;
 }
 
 /**
@@ -469,6 +607,8 @@ export function DrillHeader({
   scope,
   onScopeChange,
   onManageAccounts,
+  onRefresh,
+  refreshing,
   ...actions
 }: DrillHeaderProps) {
   return (
@@ -477,7 +617,9 @@ export function DrillHeader({
         <HeaderIconButton label="Back to Dashboard" hint="Esc" onClick={onBack}>
           <ArrowLeft className="size-[18px]" />
         </HeaderIconButton>
-        <h1 className="min-w-0 max-w-64 shrink-0 truncate text-base font-semibold">{title}</h1>
+        <h1 className="min-w-0 max-w-64 shrink-0 truncate text-base font-semibold">
+          {title}
+        </h1>
 
         <AccountSwitcher
           accounts={accounts}
@@ -485,6 +627,8 @@ export function DrillHeader({
           onScopeChange={onScopeChange}
           onManageAccounts={onManageAccounts}
         />
+
+        <RefreshButton className="-mx-2" onRefresh={onRefresh} refreshing={refreshing} />
 
         <ViewTabs view={view} onViewChange={onViewChange} extra={viewExtra} />
       </div>

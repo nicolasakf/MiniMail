@@ -153,7 +153,7 @@ export const GroupRow = memo(function GroupRow({
       data-tinted={selected || undefined}
       className={cn(
         "group corner-squircle relative mx-2 flex h-[52px] cursor-default items-center gap-3 rounded-lg border border-border px-3 text-sm",
-        selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
+        selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "bg-foreground/[0.04] hover:bg-foreground/[0.09] dark:hover:bg-accent/50",
         className,
       )}
       onContextMenu={(event) => {
@@ -192,7 +192,7 @@ export const GroupRow = memo(function GroupRow({
             <button
               type="button"
               title={chip.count > 1 ? `Open the latest email from ${chip.name}` : `Open email from ${chip.name}`}
-              className={cn("inline-flex h-7 max-w-full shrink-0 cursor-default items-center gap-1.5 rounded-md px-1.5 outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring", HOVER_ON_TINT)}
+              className={cn("inline-flex h-7 max-w-full shrink-0 cursor-default items-center gap-1.5 rounded-md px-1.5 outline-none transition-colors hover:bg-foreground/[0.14] focus-visible:ring-2 focus-visible:ring-ring", HOVER_ON_TINT)}
               onClick={(event) => {
                 // Opens this email only; the row's own click would open the whole category.
                 event.stopPropagation();
@@ -204,7 +204,6 @@ export const GroupRow = memo(function GroupRow({
               {chip.unread && <span className="size-1.5 rounded-full bg-unread" />}
               <ChipAvatar chip={chip} />
               <span className="truncate">{chip.name}</span>
-              {chip.count > 1 && <span className="text-[11px] text-muted-foreground">{chip.count}</span>}
             </button>
             {codeFor(chip) && (
               <CodeChip
@@ -263,7 +262,7 @@ export const GroupCard = memo(function GroupCard({
         "group corner-squircle relative flex min-w-0 cursor-default flex-col rounded-xl border pb-1.5 text-sm transition-colors",
         selected
           ? "border-sidebar-primary/40 bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25"
-          : "border-border hover:bg-accent/50",
+          : "border-border bg-foreground/[0.04] hover:bg-foreground/[0.09] dark:hover:bg-accent/50",
       )}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -279,7 +278,7 @@ export const GroupCard = memo(function GroupCard({
           <button
             type="button"
             aria-label={`${readLabel} (${group.label.toLowerCase()})`}
-            className={cn("absolute right-2 top-2 flex size-7 items-center justify-center rounded-full text-muted-foreground opacity-0 outline-none transition-[color,background-color,opacity] hover:bg-accent hover:text-unread focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100", HOVER_ON_TINT)}
+            className={cn("absolute right-2 top-2 flex size-7 items-center justify-center rounded-full text-muted-foreground opacity-0 outline-none transition-[color,background-color,opacity] hover:bg-foreground/[0.14] hover:text-unread focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100", HOVER_ON_TINT)}
             onClick={(event) => {
               event.stopPropagation();
               onToggleRead(group.kind, group.hasUnread);
@@ -308,7 +307,7 @@ export const GroupCard = memo(function GroupCard({
             <button
               type="button"
               title={chip.count > 1 ? `Open the latest email from ${chip.name}` : `Open email from ${chip.name}`}
-              className={cn("flex h-7 min-w-0 flex-1 cursor-default items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring", HOVER_ON_TINT)}
+              className={cn("flex h-7 min-w-0 flex-1 cursor-default items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-foreground/[0.14] focus-visible:ring-2 focus-visible:ring-ring", HOVER_ON_TINT)}
               onClick={(event) => {
                 // Opens this email only; the card's own click would open the whole category.
                 event.stopPropagation();
@@ -319,7 +318,6 @@ export const GroupCard = memo(function GroupCard({
             >
               <ChipAvatar chip={chip} />
               <span className="min-w-0 flex-1 truncate">{chip.name}</span>
-              {chip.count > 1 && <span className="text-[11px] text-muted-foreground">{chip.count}</span>}
               {chip.unread && <span className="size-1.5 shrink-0 rounded-full bg-unread" />}
             </button>
             {canShowCode(group.kind, chip.date) && (

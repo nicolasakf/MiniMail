@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { MAIL_WINDOW } from "@shared/mail-window";
-import { MOVE_DESTINATION } from "@shared/threads";
-import type { AccountError, MailAction, MailFolder, MessageSummary } from "@shared/types";
+import type { AccountError, MailFolder, MessageSummary } from "@shared/types";
 
 import { api } from "@/lib/api";
-import { applyOptimistic } from "@/lib/optimistic";
+import type { MailActions } from "@/lib/mail-actions";
 
 /** Every folder received mail can be in: the same tabs the rail offers. */
 export const DASHBOARD_FOLDERS: readonly MailFolder[] = ["inbox", "archive", "spam", "trash"];
@@ -25,15 +24,17 @@ function flatten(byFolder: Map<MailFolder, MessageSummary[]>): MessageSummary[] 
  * while `active`, paints the copy on disk first, then the servers' answer,
  * and reloads quietly whenever the main process reports changed mail.
  */
-export function useDashboardMail(accountCount: number, active: boolean) {
+export function useDashboardMail(accountCount: number, active: boolean, actions: MailActions, actionVersion: number) {
   const [messages, setMessages] = useState<MessageSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<AccountError[]>([]);
   const ticket = useRef(0);
+  const snapshot = useRef(0);
 
   const load = useCallback(
     async (silent: boolean) => {
       const current = ++ticket.current;
+      const started = performance.now();
       const stale = () => current !== ticket.current;
       if (accountCount === 0) {
         setMessages([]);
@@ -59,18 +60,21 @@ export function useDashboardMail(accountCount: number, active: boolean) {
 
       const byFolder = new Map<MailFolder, MessageSummary[]>();
       const failures: AccountError[] = [];
+      const successful = new Set<MailFolder>();
       await Promise.all(
         DASHBOARD_FOLDERS.map(async (folder) => {
           try {
             const result = await api.mail.list({ folder, limit: MAIL_WINDOW });
             byFolder.set(folder, result.messages);
             failures.push(...result.errors);
+            if (result.errors.length === 0) successful.add(folder);
           } catch (error) {
             failures.push({ accountId: "", message: errorText(error) });
           }
         }),
       );
       if (stale()) return;
+      if (successful.size === DASHBOARD_FOLDERS.length) snapshot.current = started;
       // A folder that failed outright keeps what is on screen rather than emptying the charts.
       setMessages((onScreen) => {
         for (const folder of DASHBOARD_FOLDERS) {
@@ -89,7 +93,7 @@ export function useDashboardMail(accountCount: number, active: boolean) {
       );
       setLoading(false);
     },
-    [accountCount],
+    [accountCount, actions],
   );
 
   useEffect(() => {
@@ -101,18 +105,11 @@ export function useDashboardMail(accountCount: number, active: boolean) {
     return api.mail.onChanged(() => void load(true));
   }, [active, load]);
 
-  /** Applies an action to the Dashboard's copy right away, like the list does. */
-  const apply = useCallback((action: MailAction, ids: readonly string[]) => {
-    const idSet = new Set(ids);
-    setMessages((previous) => {
-      // Every folder it can move to is loaded: the message changes folder instead of leaving.
-      const to = MOVE_DESTINATION[action];
-      if (to) return previous.map((m) => (idSet.has(m.id) ? { ...m, folder: to } : m));
-      return applyOptimistic(previous, action, idSet, "inbox");
-    });
-  }, []);
-
-  return { messages, loading, errors, reload: load, apply };
+  const projected = useMemo(
+    () => actions.project(messages, new Set(DASHBOARD_FOLDERS), undefined, () => snapshot.current),
+    [actions, actionVersion, messages],
+  );
+  return { messages: projected, loading, errors, reload: load };
 }
 
 export type DashboardMail = ReturnType<typeof useDashboardMail>;

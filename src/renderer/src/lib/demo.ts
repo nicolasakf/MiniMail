@@ -12,7 +12,7 @@ import {
   htmlToText,
 } from "@shared/verification-code";
 import { buildContactIndex } from "@shared/contacts";
-import { makeMessageId } from "@shared/ids";
+import { makeMessageId, parseMessageId } from "@shared/ids";
 import type {
   Account,
   AddAccountInput,
@@ -661,6 +661,7 @@ export function createDemoApi(): MiniMailApi {
   const manualCategories = new Map<string, string | null>();
   const trustedSenders = new Set<string>();
   // Like everything else in the demo, drafts and the saved view and filters last until the page is reloaded.
+  let demoLibrary: Awaited<ReturnType<MiniMailApi["composeLibrary"]["get"]>> = { signatures: [] };
   let demoDrafts: SavedDraft[] = [];
   let demoNotifications: NotificationSettings = structuredClone(DEFAULT_NOTIFICATION_SETTINGS);
   let demoPrefs: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"] };
@@ -827,9 +828,17 @@ export function createDemoApi(): MiniMailApi {
       async act(action: MailAction, ids) {
         await wait(80);
         const target = new Set(ids);
+        const results: Awaited<ReturnType<MiniMailApi["mail"]["act"]>> = [];
         const moveTo = { archive: "archive", unarchive: "inbox", trash: "trash", spam: "spam" } as const;
         messages = messages.flatMap((message): MessageDetail[] => {
           if (!target.has(message.id)) return [message];
+          if (action in moveTo) {
+            const folder = moveTo[action as keyof typeof moveTo];
+            const nextId = makeMessageId({ ...parseMessageId(message.id)!, folder });
+            results.push({ id: message.id, status: "applied", nextId });
+            return [{ ...message, id: nextId, folder }];
+          }
+          results.push({ id: message.id, status: "applied" });
           switch (action) {
             case "markRead":
               return [{ ...message, unread: false }];
@@ -842,9 +851,12 @@ export function createDemoApi(): MiniMailApi {
             case "deleteForever":
               return [];
             default:
-              return [{ ...message, folder: moveTo[action] }];
+              return [message];
           }
         });
+        const found = new Set(results.map(({ id }) => id));
+        for (const id of ids) if (!found.has(id)) results.push({ id, status: "failed", error: "Message not found." });
+        return results;
       },
       async send(draft: Draft) {
         await wait(400);
@@ -876,7 +888,10 @@ export function createDemoApi(): MiniMailApi {
             replyTo: null,
             messageId: `<${nativeId}@demo.example>`,
             references: [],
-            html: null,
+            html: draft.html?.replace(/cid:([a-z0-9-]+@minimail\.local)/g, (src, cid: string) => {
+              const file = draft.attachments?.find((attachment) => attachment.contentId === cid);
+              return file ? `data:${file.contentType};base64,${file.contentBase64}` : src;
+            }) ?? null,
             text: draft.text,
             attachments: [],
           },
@@ -904,7 +919,24 @@ export function createDemoApi(): MiniMailApi {
         return [...trustedSenders];
       },
     },
+    composeLibrary: {
+      async get() { return demoLibrary; },
+      async set(value) { demoLibrary = value; return value; },
+    },
+    delivery: {
+      async list() { return []; },
+      async schedule() { throw new Error("Send Later is available in the desktop app."); },
+      async cancel() {},
+    },
+    composerWindow: {
+      async open() { throw new Error("Separate windows are available in the desktop app."); },
+      async focus() { return false; },
+      async initialDraft() { return null; },
+      async finish() {},
+      onCloseRequested() { return () => {}; },
+    },
     drafts: {
+      onChanged() { return () => {}; },
       async list() {
         return demoDrafts;
       },

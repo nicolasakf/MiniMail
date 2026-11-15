@@ -16,6 +16,7 @@ import { firstHeader, isAuthenticated } from "@shared/logos";
 import { makeMessageId } from "@shared/ids";
 import { zohoSettings, type ImapSettings, type MailServer } from "@shared/imap-settings";
 import { MAIL_WINDOW } from "@shared/mail-window";
+import { MAX_INLINE_IMAGE_BYTES } from "@shared/types";
 import type {
   Account,
   Contact,
@@ -23,6 +24,7 @@ import type {
   Invitation,
   InvitationResponse,
   MailAction,
+  MailActionResult,
   MailFolder,
   MessageDetail,
   MessageSummary,
@@ -34,7 +36,6 @@ import { describeError, makeSnippet, type AttachmentFile, type MailAuth, type Ma
 
 /** Bytes of each message fetched for the list view (enough for headers + a preview). */
 const PREVIEW_BYTES = 24 * 1024;
-const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
 /**
  * Previews are downloaded in batches, with the mailbox lock released in between so opening a
  * message never waits for a whole refresh. Each batch is sized to take about this long, from
@@ -789,12 +790,11 @@ export class ImapProvider implements MailProvider {
     }
   }
 
-  async act(action: MailAction, folder: MailFolder, nativeIds: string[]): Promise<void> {
-    if (nativeIds.length === 0) return;
-    const range = nativeIds.join(",");
+  async act(action: MailAction, folder: MailFolder, nativeIds: string[]): Promise<MailActionResult[]> {
+    if (nativeIds.length === 0) return [];
+    const results: MailActionResult[] = [];
 
-    // Let a running refresh finish first: its snapshot of flags would otherwise put back what
-    // this action is about to change. (Opening a message does not wait; only actions do.)
+    // Finish any list already in progress before patching its cached flags.
     await this.listsIdle();
     await this.connection.use(async (client) => {
       const paths = await this.resolveFolders(client);
@@ -803,43 +803,56 @@ export class ImapProvider implements MailProvider {
 
       const lock = await client.getMailboxLock(path);
       try {
-        switch (action) {
-          case "markRead":
-            await client.messageFlagsAdd(range, ["\\Seen"], { uid: true });
-            break;
-          case "markUnread":
-            await client.messageFlagsRemove(range, ["\\Seen"], { uid: true });
-            break;
-          case "pin":
-            await client.messageFlagsAdd(range, ["\\Flagged"], { uid: true });
-            break;
-          case "unpin":
-            await client.messageFlagsRemove(range, ["\\Flagged"], { uid: true });
-            break;
-          case "archive":
-          case "unarchive":
-          case "trash":
-          case "spam": {
-            const destination = paths[action === "unarchive" ? "inbox" : action];
-            if (!destination) throw new Error(`This account has no ${action === "unarchive" ? "inbox" : action} folder.`);
-            await client.messageMove(range, destination, { uid: true });
-            break;
+        // IMAP STORE and MOVE can silently skip UIDs that have already disappeared.
+        const present = new Set<string>();
+        for await (const row of client.fetch(nativeIds.map(Number), { uid: true }, { uid: true })) present.add(String(row.uid));
+        const found = nativeIds.filter((id) => present.has(id));
+        for (const id of nativeIds) {
+          if (!present.has(id)) results.push({ id, status: "failed", error: "The message is no longer in this folder." });
+        }
+        if (!found.length) return;
+        const uids = found.join(",");
+        try {
+          const run = async () => {
+            switch (action) {
+              case "markRead": return client.messageFlagsAdd(uids, ["\\Seen"], { uid: true });
+              case "markUnread": return client.messageFlagsRemove(uids, ["\\Seen"], { uid: true });
+              case "pin": return client.messageFlagsAdd(uids, ["\\Flagged"], { uid: true });
+              case "unpin": return client.messageFlagsRemove(uids, ["\\Flagged"], { uid: true });
+              case "deleteForever": return client.messageDelete(uids, { uid: true });
+              default: {
+                const destination = paths[action === "unarchive" ? "inbox" : action];
+                if (!destination) throw new Error(`This account has no ${action === "unarchive" ? "inbox" : action} folder.`);
+                return client.messageMove(uids, destination, { uid: true });
+              }
+            }
+          };
+          const response = await run();
+          if (response === false) throw new Error("The server did not confirm the change.");
+          for (const id of found) {
+            const mapping = typeof response === "object" && response ? response.uidMap : undefined;
+            const uid = mapping?.get(Number(id));
+            if (mapping?.size && uid === undefined) {
+              results.push({ id, status: "unknown", error: "The server did not return a destination for this message." });
+            } else {
+              results.push({ id, status: "applied", nextId: uid === undefined ? undefined : String(uid) });
+            }
           }
-          case "deleteForever":
-            await client.messageDelete(range, { uid: true });
-            break;
+        } catch (error) {
+          for (const id of found) results.push({ id, status: "unknown", error: describeError(error) });
         }
       } finally {
         lock.release();
       }
     });
 
-    // Patch the copies instead of dropping them: dropping would re-download every preview in
-    // the window on the next refresh, which on a slow server takes tens of seconds per click.
-    this.patchCache(action, folder, nativeIds);
-    // Pinned is the flagged subset of the inbox, so the same messages live in both views.
-    if (folder === "pinned") this.patchCache(action, "inbox", nativeIds);
-    if (folder === "inbox") this.patchCache(action, "pinned", nativeIds);
+    const applied = results.filter((result) => result.status === "applied").map((result) => result.id);
+    if (applied.length > 0) {
+      this.patchCache(action, folder, applied);
+      if (folder === "pinned") this.patchCache(action, "inbox", applied);
+      if (folder === "inbox") this.patchCache(action, "pinned", applied);
+    }
+    return results;
   }
 
   /** Applies a successful action to the in-memory and saved copies of one folder. */
@@ -934,10 +947,12 @@ export class ImapProvider implements MailProvider {
       bcc: draft.bcc.map(toAddress),
       subject: draft.subject,
       text: draft.text,
+      html: draft.html,
       attachments: (draft.attachments ?? []).map((file) => ({
         filename: file.filename,
         contentType: file.contentType || undefined,
         content: Buffer.from(file.contentBase64, "base64"),
+        cid: file.contentId,
       })),
       ...(draft.inReplyTo && draft.inReplyTo.mode !== "forward"
         ? {
@@ -1078,6 +1093,7 @@ export class ImapProvider implements MailProvider {
       accountId: this.account.id,
       folder,
       threadId,
+      internetId: envelope?.messageId ?? parsed?.messageId ?? undefined,
       from,
       to: (envelope?.to ?? [])
         .filter((entry) => Boolean(entry.address))

@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 
 import { User } from "lucide-react";
 
-import { TEXT_SIZE_PERCENT, type TextSize } from "@/lib/appearance";
+import { EMAIL_WIDTH_REM, TEXT_SIZE_PERCENT, type EmailWidth, type TextSize } from "@/lib/appearance";
 import { cn } from "@/lib/utils";
 
 import { PreviewFrame } from "./visual-fields";
@@ -66,9 +66,10 @@ function MailRow({
 const MODE_COLORS = {
   light: { bg: "#ffffff", side: "#f4f4f5", line: "#d4d4d8", strong: "#71717a", accent: "#e0e7ff" },
   dark: { bg: "#18181b", side: "#27272a", line: "#3f3f46", strong: "#a1a1aa", accent: "#312e81" },
+  dimmed: { bg: "#1f2125", side: "#272a2f", line: "#3b3f46", strong: "#a3a8b1", accent: "#2a3f78" },
 } as const;
 
-function ThemeMock({ mode, style }: { mode: "light" | "dark"; style?: CSSProperties }) {
+function ThemeMock({ mode, style }: { mode: "light" | "dark" | "dimmed"; style?: CSSProperties }) {
   const c = MODE_COLORS[mode];
   return (
     <div className="absolute inset-0 flex" style={{ background: c.bg, ...style }}>
@@ -93,7 +94,7 @@ function ThemeMock({ mode, style }: { mode: "light" | "dark"; style?: CSSPropert
   );
 }
 
-export function ThemePreview({ mode }: { mode: "system" | "light" | "dark" }) {
+export function ThemePreview({ mode }: { mode: "system" | "light" | "dark" | "dimmed" }) {
   return (
     <PreviewFrame className="bg-transparent">
       {mode === "system" ? (
@@ -116,6 +117,16 @@ export function TextSizeSample({ size }: { size: TextSize }) {
   return (
     <span className="font-semibold leading-none" style={{ fontSize: `${px}px` }}>
       Aa
+    </span>
+  );
+}
+
+/** A window with the email column drawn at a share of its width. */
+export function EmailWidthSample({ width }: { width: EmailWidth }) {
+  const share = (EMAIL_WIDTH_REM[width] / EMAIL_WIDTH_REM.wider) * 100;
+  return (
+    <span className="flex h-7 w-9 items-center justify-center rounded-[3px] border border-foreground/20">
+      <span className="h-5 rounded-[2px] bg-foreground/30" style={{ width: `${share}%` }} />
     </span>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { ArrowLeft, Forward, Loader2, Paperclip, Reply, ReplyAll } from "lucide-react";
 import { toast } from "sonner";
@@ -12,12 +12,15 @@ import type { Account, InvitationResponse, MailAction, MailFolder, MessageDetail
 import { Button } from "@/components/ui/button";
 import { ConfirmPopover } from "@/components/ui/confirm-popover";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ShortcutHint } from "@/components/ui/keyboard-shortcut-badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { collectArtifacts, withAnswer, type ThreadAttachment, type ThreadInvitation } from "@/lib/artifacts";
+import { EMAIL_WIDTH_REM, useAppearance } from "@/lib/appearance";
 import { buildReplySeed, type ComposeSeed } from "@/lib/compose";
 import { accountFor, contactLabel, formatFullDate, normalizeSubject } from "@/lib/format";
 import { isTypingTarget } from "@/lib/keyboard";
+import type { MailActions } from "@/lib/mail-actions";
 import { actionsForThread } from "@/lib/row-actions";
 import { DELETE_FOREVER_CONFIRM } from "@/lib/delete-confirm";
 import { withTimeout } from "@/lib/timeout";
@@ -29,6 +32,7 @@ import { ThreadCard } from "./thread-card";
 import { SenderAvatar } from "./sender-avatar";
 
 interface ThreadViewProps {
+  mailActions: MailActions;
   thread: Thread;
   folder: MailFolder;
   accounts: readonly Account[];
@@ -82,7 +86,7 @@ function ToolbarButton({
       )}
       <TooltipContent side="bottom">
         {label}
-        {hint ? <span className="ml-2 text-muted-foreground">{hint}</span> : null}
+        {hint ? <ShortcutHint hint={hint} /> : null}
       </TooltipContent>
     </Tooltip>
   );
@@ -142,6 +146,7 @@ function MessageSkeletons({ thread, slow }: { thread: Thread; slow: boolean }) {
 
 /** Full conversation: toolbar, subject, and each message (older ones collapsed). */
 export function ThreadView({
+  mailActions,
   thread,
   folder,
   accounts,
@@ -157,7 +162,8 @@ export function ThreadView({
   /** Bumped by "Try again" to run the download again. */
   const [attempt, setAttempt] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const markedRead = useRef<string | null>(null);
+  const markedRead = useRef(false);
+  const openedAt = useRef(mailActions.manualVersion);
 
   const idsKey = thread.messages.map((message) => message.id).join(",");
 
@@ -201,11 +207,10 @@ export function ThreadView({
 
   // Opening a conversation reads it, once per thread.
   useEffect(() => {
-    if (details && thread.unread && markedRead.current !== thread.id) {
-      markedRead.current = thread.id;
-      onAction("markRead");
-    }
-  }, [details, thread.id, thread.unread, onAction]);
+    if (!details || markedRead.current) return;
+    markedRead.current = true;
+    if (thread.unread && !mailActions.manuallyUnreadSince(thread.id, openedAt.current)) onAction("markRead");
+  }, [details, thread.id, thread.unread, onAction, mailActions]);
 
   const latest = details?.[details.length - 1];
   const actions = useMemo(() => actionsForThread(folder, thread), [folder, thread]);
@@ -240,6 +245,7 @@ export function ThreadView({
     attachments: !error && thread.messages.some((message) => message.hasAttachments),
     invitations: !error && thread.messages.some((message) => message.signal === "invitation"),
   };
+  const { emailWidth } = useAppearance();
   const cardShown = artifacts
     ? artifacts.attachments.length > 0 || artifacts.invitations.length > 0
     : expecting.attachments || expecting.invitations;
@@ -332,16 +338,19 @@ export function ThreadView({
         </div>
       </header>
 
-      <div className={cn("min-h-0 flex-1 overflow-y-auto pb-16", embedded ? "px-6 pt-4" : "px-8")}>
+      <div className={cn("min-h-0 flex-1 overflow-y-auto pb-16", embedded ? "px-6 pt-4" : cardShown ? "pl-8 pr-3" : "px-8")}>
         <div
           className={cn(
-            "mx-auto flex gap-8",
+            "gap-8",
             embedded
-              ? "max-w-3xl flex-col-reverse"
-              : cn("items-start", cardShown ? "max-w-[68rem]" : "max-w-3xl"),
+              ? "mx-auto flex max-w-3xl flex-col-reverse"
+              : cardShown
+                ? "grid w-full grid-cols-[minmax(0,1fr)_minmax(0,var(--reading-width))_1fr] items-start"
+                : "mx-auto flex max-w-[var(--reading-width)] items-start",
           )}
+          style={{ "--reading-width": `${EMAIL_WIDTH_REM[emailWidth]}rem` } as CSSProperties}
         >
-          <div className="min-w-0 flex-1">
+          <div className={cn("min-w-0 flex-1", cardShown && !embedded && "col-start-2")}>
             <h1 className="mb-1 text-2xl font-semibold leading-tight">
               {normalizeSubject(thread.latest.subject)}
             </h1>
@@ -419,7 +428,7 @@ export function ThreadView({
             </div>
           </div>
           {cardShown && (
-            <aside className={embedded ? "w-full" : "sticky top-0 w-72 shrink-0"}>
+            <aside className={embedded ? "w-full" : "sticky top-0 col-start-3 w-max max-w-72 justify-self-end"}>
               <ThreadCard
                 artifacts={artifacts}
                 expecting={expecting}

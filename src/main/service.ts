@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { MAX_AVATAR_BYTES, normalizeAlias } from "@shared/accounts";
 import { buildContactIndex, type ContactEntry } from "@shared/contacts";
-import { parseMessageId } from "@shared/ids";
+import { makeMessageId, parseMessageId } from "@shared/ids";
 import { MAIL_WINDOW } from "@shared/mail-window";
 import { MOVE_DESTINATION } from "@shared/threads";
 import type {
@@ -14,6 +14,7 @@ import type {
   ListQuery,
   ListResult,
   MailAction,
+  MailActionResult,
   MailFolder,
   MessageDetail,
   MessageSummary,
@@ -328,16 +329,32 @@ export class MailService {
     this.invitationAnswers?.set(ref.accountId, invitation.uid, response);
   }
 
-  async act(action: MailAction, ids: string[]): Promise<void> {
-    const byProvider = this.groupByProviderFolder(ids);
-    // Moving a message to the folder it is already in changes nothing: skip it rather than ask
-    // the server (some refuse) or patch the local copies as if the message had left.
-    const groups = [...byProvider.values()].filter(({ folder }) => MOVE_DESTINATION[action] !== folder);
-    await Promise.all(
-      groups.map(({ accountId, folder, nativeIds }) =>
-        this.providerForId(accountId).act(action, folder, nativeIds),
-      ),
-    );
+  async act(action: MailAction, ids: string[]): Promise<MailActionResult[]> {
+    const destination = MOVE_DESTINATION[action];
+    const groups = this.groupByProviderFolder([...new Set(ids)]);
+    const batches = await Promise.all([...groups.values()].map(async ({ accountId, folder, nativeIds }) => {
+      const source = folder === "pinned" ? "inbox" : folder;
+      try {
+        const results: MailActionResult[] = destination === source
+          ? nativeIds.map((id) => ({ id, status: "applied", nextId: id }))
+          : await this.providerForId(accountId).act(action, folder, nativeIds);
+        return results.map((result): MailActionResult => {
+          const id = makeMessageId({ accountId, folder, nativeId: result.id });
+          if (result.status !== "applied") return { ...result, id };
+          const nextId = destination && result.nextId
+            ? makeMessageId({ accountId, folder: destination, nativeId: result.nextId })
+            : undefined;
+          return { id, status: "applied", nextId };
+        });
+      } catch (error) {
+        return nativeIds.map((nativeId): MailActionResult => ({
+          id: makeMessageId({ accountId, folder, nativeId }),
+          status: "unknown",
+          error: describeError(error),
+        }));
+      }
+    }));
+    return batches.flat();
   }
 
   async send(draft: Draft): Promise<void> {

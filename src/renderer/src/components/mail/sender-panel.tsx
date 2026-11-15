@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 
-import { AtSign, ChevronRight, Pin } from "lucide-react";
+import { ChevronRight, Pin } from "lucide-react";
 
 import {
   groupSendersByDomain,
@@ -449,18 +449,16 @@ export function GroupByDomainButton({ state }: { state: SenderPanelState }) {
           aria-checked={byDomain}
           onClick={toggleByDomain}
           className={cn(
-            "inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+            "ml-3 inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             byDomain ? "bg-primary/80" : "bg-input",
           )}
         >
           <span
             className={cn(
-              "pointer-events-none flex size-5 items-center justify-center rounded-full bg-background shadow-lg transition-transform",
-              byDomain ? "translate-x-5 text-foreground" : "translate-x-0 text-muted-foreground",
+              "pointer-events-none block size-5 rounded-full bg-background shadow-lg transition-transform",
+              byDomain ? "translate-x-5" : "translate-x-0",
             )}
-          >
-            <AtSign className="size-3" strokeWidth={2.5} />
-          </span>
+          />
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">{byDomain ? "Stop grouping by domain" : "Group by domain"}</TooltipContent>

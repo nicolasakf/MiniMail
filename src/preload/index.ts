@@ -66,7 +66,32 @@ const api: MiniMailApi = {
     trust: (email) => invoke(IPC.sendersTrust, email),
     untrust: (email) => invoke(IPC.sendersUntrust, email),
   },
+  composeLibrary: {
+    get: () => invoke(IPC.composeLibraryGet),
+    set: (value) => invoke(IPC.composeLibrarySet, value),
+  },
+  delivery: {
+    list: () => invoke(IPC.deliveryList),
+    schedule: (record, draft, sendAt) => invoke(IPC.deliverySchedule, record, draft, sendAt),
+    cancel: (id) => invoke(IPC.deliveryCancel, id),
+  },
+  composerWindow: {
+    open: (draft) => invoke(IPC.composerWindowOpen, draft),
+    focus: (id) => invoke(IPC.composerWindowFocus, id),
+    initialDraft: () => invoke(IPC.composerWindowInitialDraft),
+    finish: () => invoke(IPC.composerWindowFinish),
+    onCloseRequested: (listener) => {
+      const handler = () => listener();
+      ipcRenderer.on(IPC.composerWindowCloseRequested, handler);
+      return () => ipcRenderer.removeListener(IPC.composerWindowCloseRequested, handler);
+    },
+  },
   drafts: {
+    onChanged: (listener) => {
+      const handler = () => listener();
+      ipcRenderer.on(IPC.draftsChanged, handler);
+      return () => ipcRenderer.removeListener(IPC.draftsChanged, handler);
+    },
     list: () => invoke(IPC.draftsList),
     save: (draft) => invoke(IPC.draftsSave, draft),
     remove: (id) => invoke(IPC.draftsDelete, id),

@@ -6,7 +6,8 @@ import animate from "tailwindcss-animate";
  * so MiniMail shares its look. `unread` is the one MiniMail-specific token.
  */
 const config: Config = {
-  darkMode: ["class"],
+  // "Dimmed" is a dark variant, so every `dark:` utility applies to it as well.
+  darkMode: ["variant", "&:is(.dark, .dimmed, .dark *, .dimmed *)"],
   content: ["./src/renderer/index.html", "./src/renderer/src/**/*.{ts,tsx}"],
   theme: {
     extend: {

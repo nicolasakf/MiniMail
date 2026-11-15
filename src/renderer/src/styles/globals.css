@@ -134,6 +134,48 @@ body,
     --chart-unread: 40 100% 39%;
     --unread: 217 91% 60%;
   }
+
+  /*
+   * Dimmed: the dark theme on shades of grey instead of near-black. Every `dark:` utility applies
+   * here too (see `darkMode` in tailwind.config.ts); only the surface tokens differ.
+   */
+  .dimmed {
+    color-scheme: dark;
+    --background: 220 9% 13%;
+    --foreground: 220 12% 93%;
+    --card: 220 9% 16%;
+    --card-foreground: 220 12% 93%;
+    --popover: 220 9% 17%;
+    --popover-foreground: 220 12% 93%;
+    --primary: 220 12% 96%;
+    --primary-foreground: 220 9% 12%;
+    --secondary: 220 8% 20%;
+    --secondary-foreground: 220 12% 95%;
+    --muted: 220 8% 20%;
+    --muted-foreground: 220 8% 68%;
+    --accent: 220 8% 24%;
+    --accent-foreground: 220 12% 95%;
+    --destructive: 0 60% 40%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 8% 23%;
+    --input: 220 8% 25%;
+    --ring: 220 10% 72%;
+    --sidebar-background: 220 8% 16.5%;
+    --sidebar-foreground: 220 12% 92%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 7% 22%;
+    --sidebar-accent-foreground: 220 12% 95%;
+    --sidebar-border: 220 8% 22%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+    --chart-1: 220 70% 55%;
+    --chart-2: 160 60% 47%;
+    --chart-3: 30 80% 57%;
+    --chart-4: 280 65% 63%;
+    --chart-5: 340 75% 58%;
+    --chart-unread: 40 100% 42%;
+    --unread: 217 91% 60%;
+  }
 }
 
 @layer base {
@@ -144,4 +186,105 @@ body,
   body {
     @apply bg-background font-sans text-foreground antialiased;
   }
+}
+
+.mail-editor {
+  min-height: 200px;
+  padding: .85rem 1.25rem 1rem;
+  outline: none;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.mail-editor-compact { min-height: 120px; }
+.mail-editor[data-empty="true"]::before {
+  content: attr(data-placeholder);
+  color: hsl(var(--muted-foreground));
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+.mail-editor p { min-height: 1.5em; }
+.mail-editor h1 { font-size: 1.65em; font-weight: 700; margin: .35em 0; }
+.mail-editor h2 { font-size: 1.3em; font-weight: 600; margin: .3em 0; }
+.mail-editor ul, .mail-editor ol { padding-left: 1.7em; }
+.mail-editor ul { list-style: disc; }
+.mail-editor ol { list-style: decimal; }
+.mail-editor a { color: hsl(var(--primary)); text-decoration: underline; cursor: text; }
+.mail-editor blockquote { border-left: 2px solid hsl(var(--border)); padding-left: .85em; margin: .4em 0; }
+.mail-editor table { border-collapse: collapse; table-layout: fixed; max-width: 100%; margin: .5em 0; }
+.mail-editor :is(td, th) { min-width: 32px; border: 1px solid hsl(var(--border)); padding: .25em .5em; position: relative; vertical-align: top; }
+.mail-editor th, .mail-editor .selectedCell { background: hsl(var(--muted)); }
+.mail-editor img { max-width: 100%; height: auto; }
+.mail-editor img.ProseMirror-selectednode { outline: 2px solid hsl(var(--ring)); }
+.mail-editor mark { color: #171717; }
+
+.mail-format-docked { position: sticky; top: 0; z-index: 1; padding: .35rem .75rem; background: hsl(var(--background)); }
+.mail-format-bar {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  width: max-content;
+  max-width: min(610px, calc(100vw - 48px));
+  align-items: center;
+  gap: 2px;
+  padding: .3rem;
+  border-radius: .65rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 6px 22px rgb(0 0 0 / 24%);
+  font-size: 12px;
+}
+.mail-format-docked .mail-format-bar { box-shadow: none; }
+/* A toolbar shown in place, in the composer's footer or the signature editor: flat and full width. */
+.mail-format-host .mail-format-bar {
+  width: 100%;
+  max-width: 100%;
+  padding: .3rem .75rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+/* Along the bottom of the composer its menus open upward. */
+.mail-format-host.mail-format-up .mail-format-panel { top: auto; bottom: calc(100% + .45rem); }
+.mail-format-tool {
+  display: inline-flex;
+  height: 28px;
+  min-width: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 5px;
+  border-radius: 5px;
+}
+.mail-format-tool svg { width: 15px; height: 15px; }
+.mail-format-tool[aria-pressed="true"], .mail-format-tool[aria-expanded="true"] {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+.mail-format-tool:hover, .mail-format-option:hover { background: hsl(var(--muted)); }
+.mail-format-panel {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + .45rem);
+  left: 0;
+  min-width: 100px;
+  max-height: min(260px, 45dvh);
+  overflow: auto;
+  padding: .25rem;
+  border-radius: .5rem;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--popover));
+  box-shadow: 0 6px 22px rgb(0 0 0 / 24%);
+}
+.mail-format-bar > div:nth-last-of-type(-n+4) .mail-format-panel { left: auto; right: 0; }
+.mail-format-option {
+  display: block;
+  width: 100%;
+  padding: .35rem .5rem;
+  border-radius: 4px;
+  text-align: left;
+  white-space: nowrap;
 }

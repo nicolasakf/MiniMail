@@ -23,6 +23,7 @@ import type { MailAction, MailFolder, MessageSummary, ShownFolder, UiPrefs } fro
 import { Composer } from "@/components/mail/composer";
 import { Dashboard, type DashboardSelection } from "@/components/mail/dashboard";
 import { FocusedList } from "@/components/mail/focused-list";
+import { ScheduledMail } from "@/components/mail/scheduled-mail";
 import { LocalDrafts } from "@/components/mail/local-drafts";
 import { categoryMenuIcon } from "@/components/mail/category-icon";
 import { ItemMenu, type MenuEntry } from "@/components/mail/item-menu";
@@ -185,7 +186,9 @@ export function MailApp() {
     act,
     assignCategory,
     undo,
-    onSettled,
+    actions,
+    actionVersion,
+    actionChanged,
   } = useMailbox(shownFolders);
   const { categories, ai, setState: setCategoryState } = useCategories();
   /** The toolbar's unread filter: lists show only conversations with unread mail, in every view and folder. */
@@ -220,18 +223,11 @@ export function MailApp() {
     (thread: Thread): MailFolder => (listFolder === "inbox" ? conversationFolder(thread) : listFolder),
     [listFolder],
   );
-  const dashboardMail = useDashboardMail(accounts.length, onDashboard);
-  const { apply: applyToDashboard, reload: reloadDashboard } = dashboardMail;
-
-  // Dashboard actions change its copy at once. Once an action reaches the server, is undone or
-  // fails, the copy is reloaded so it matches the server again.
-  useEffect(
-    () =>
-      onSettled(() => {
-        if (onDashboard) void reloadDashboard(true);
-      }),
-    [onSettled, reloadDashboard, onDashboard],
-  );
+  const dashboardMail = useDashboardMail(accounts.length, onDashboard, actions, actionVersion);
+  const { reload: reloadDashboard } = dashboardMail;
+  actionChanged.current = () => {
+    if (onDashboard) void reloadDashboard(true);
+  };
 
   const dashboardMessages = useMemo(() => dropFolderDuplicates(dashboardMail.messages), [dashboardMail.messages]);
 
@@ -315,7 +311,10 @@ export function MailApp() {
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
   const [compose, setCompose] = useState<ComposeState | null>(null);
+  const [composerMinimized, setComposerMinimized] = useState(false);
+  const activeComposer = compose !== null && !composerMinimized;
   const savedDrafts = useDrafts();
+  const [scheduledCount, setScheduledCount] = useState(0);
   const [itemMenu, setItemMenu] = useState<ItemMenuState | null>(null);
   // The card that asks before a conversation chosen in the menu is deleted for good.
   const [deleteConfirm, setDeleteConfirm] = useState<{ x: number; y: number; thread: Thread } | null>(null);
@@ -540,24 +539,21 @@ export function MailApp() {
         listFolder === "inbox" ? idsForAction(action, thread) : thread.messages.map((message) => message.id);
       if (ids.length === 0) return;
       if (removesFromView(action, listFolder) && !stays) selectNeighbor(thread);
-      // The Dashboard shows its own copy of the mail: it changes at once, like the list does.
-      if (inDrill) applyToDashboard(action, ids);
-      void act(action, ids);
+      act(action, ids, thread.messages);
     },
-    [act, applyToDashboard, drillShown, folder, inDrill, listFolder, selectNeighbor, shownFolders],
+    [act, drillShown, folder, inDrill, listFolder, selectNeighbor, shownFolders],
   );
 
   const actOnChecked = useCallback(
     (action: MailAction) => {
       const targets = threads.filter((thread) => checked.has(thread.id));
       const ids = targets.flatMap((thread) =>
-        inDrill ? idsForAction(action, thread) : thread.messages.map((message) => message.id),
+        listFolder === "inbox" ? idsForAction(action, thread) : thread.messages.map((message) => message.id),
       );
-      if (inDrill && ids.length > 0) applyToDashboard(action, ids);
-      void act(action, ids);
+      act(action, ids, targets.flatMap((thread) => thread.messages));
       setChecked(new Set());
     },
-    [act, applyToDashboard, checked, inDrill, threads],
+    [act, checked, listFolder, threads],
   );
 
   const toggleGroupRead = useCallback(
@@ -567,6 +563,7 @@ export function MailApp() {
       void act(
         unread ? "markRead" : "markUnread",
         members.flatMap((thread) => thread.messages.map((message) => message.id)),
+        members.flatMap((thread) => thread.messages),
       );
     },
     [act, threads],
@@ -789,10 +786,17 @@ export function MailApp() {
     (seed?: ComposeSeed) => {
       const fallbackAccount =
         scope !== "all" ? scope : (selectedThread?.accountId ?? accounts[0]?.id ?? "");
-      setCompose((previous) => ({
-        seed: seed ?? newMessageSeed(fallbackAccount),
-        id: (previous?.id ?? 0) + 1,
-      }));
+      const open = () => {
+        setComposerMinimized(false);
+        setCompose((previous) => previous ?? { seed: seed ?? newMessageSeed(fallbackAccount), id: Date.now() });
+      };
+      if (seed?.draftId) {
+        void api.composerWindow.focus(seed.draftId).then((focused) => {
+          if (!focused) open();
+        }, open);
+      } else {
+        open();
+      }
     },
     [accounts, scope, selectedThread],
   );
@@ -1010,10 +1014,25 @@ export function MailApp() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isMac]);
 
+  // ⌘U (Ctrl+U elsewhere) toggles the toolbar's unread-only filter, in the lists and the Dashboard's
+  // drill-downs alike. In a text field it is left alone.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "u" || event.shiftKey || event.altKey) return;
+      if (!(isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
+      if (activeComposer || settingsDialog.open || isTypingTarget(event.target)) return;
+      if (onDashboard && !drill) return; // the charts have no list to filter
+      event.preventDefault();
+      setUnreadOnly(!unreadOnly);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMac, activeComposer, settingsDialog.open, onDashboard, drill, unreadOnly, setUnreadOnly]);
+
   // ⌘1–⌘4 (Ctrl+1–4 elsewhere) switch the rail's tabs: Dashboard, Inbox, Drafts, Sent.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.shiftKey || event.altKey || compose || settingsDialog.open) return;
+      if (event.shiftKey || event.altKey || activeComposer || settingsDialog.open) return;
       if (!(isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
       const tab = ["1", "2", "3", "4"].indexOf(event.key);
       if (tab < 0) return;
@@ -1023,13 +1042,13 @@ export function MailApp() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isMac, compose, settingsDialog.open, openDashboard, navigateFolder]);
+  }, [isMac, activeComposer, settingsDialog.open, openDashboard, navigateFolder]);
 
   // Keyboard shortcuts, in the spirit of Spark: arrows/J/K move, Enter opens.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey) return;
-      if (compose || settingsDialog.open) return;
+      if (activeComposer || settingsDialog.open) return;
 
       // The Dashboard's charts have no list shortcuts, only ⌘Z to take back the last action. The
       // mail behind a chart is an ordinary list and uses all of them.
@@ -1061,6 +1080,17 @@ export function MailApp() {
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "a") {
         if (fullOpen || isTypingTarget(event.target)) return;
         selectAll();
+        event.preventDefault();
+        return;
+      }
+      // ⌘/Ctrl+Up/Down jumps to the top or bottom of the list on screen (the senders panel when it
+      // has the keyboard). With Shift it also selects everything on the way.
+      if ((event.metaKey || event.ctrlKey) && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        if (fullOpen || isTypingTarget(event.target)) return;
+        const jump = event.key === "ArrowDown" ? Number.MAX_SAFE_INTEGER : -Number.MAX_SAFE_INTEGER;
+        if (senderPanelFocused) moveSenderSelection(jump);
+        else if (event.shiftKey) extendSelection(jump);
+        else moveSelection(jump);
         event.preventDefault();
         return;
       }
@@ -1215,16 +1245,18 @@ export function MailApp() {
           else confirmThenAct("archive", (key) => `Press ${key} again to archive`);
           break;
         case "i":
-          // Back to the Inbox from wherever it is (Archive also has A for this).
-          if (targetFolder === "archive" || targetFolder === "trash" || targetFolder === "spam") act_("unarchive");
+          // Back to the Inbox from wherever it is (Archive also has A for this). A selection can mix
+          // folders (the Inbox list shows them all), so with one the key always acts, like the bar's
+          // "Move to Inbox" button; moving mail already in the Inbox does nothing.
+          if (bulk || targetFolder === "archive" || targetFolder === "trash" || targetFolder === "spam") {
+            act_("unarchive");
+          }
           break;
         case "d":
         case "Backspace":
         case "Delete":
-          // Trash is emptied for good; Spam moves to Trash with D and is emptied with Delete.
-          if (targetFolder === "trash" || (targetFolder === "spam" && event.key !== "d")) {
-            confirmThenAct("deleteForever", (key) => `Press ${key} again to delete forever`);
-          } else {
+          // Deleting forever has no shortcut (use the button or the menu); in Trash these keys do nothing.
+          if (targetFolder !== "trash") {
             confirmThenAct("trash", (key) => `Press ${key} again to move to Trash`);
           }
           break;
@@ -1281,7 +1313,7 @@ export function MailApp() {
     onDashboard,
     clearPendingConfirm,
     closeGroup,
-    compose,
+    activeComposer,
     moveSelection,
     moveBelowCards,
     moveBackToCards,
@@ -1428,13 +1460,14 @@ export function MailApp() {
         <ThreadView
           key={paneThread.id}
           embedded
+          mailActions={actions}
           thread={viewedThread ?? paneThread}
           folder={threadFolder(paneThread)}
           accounts={accounts}
           onBack={() => showInPane(null)}
           onAction={(action) => actOnThread(action, paneThread)}
           onCompose={startCompose}
-          shortcutsDisabled={compose !== null || settingsDialog.open}
+          shortcutsDisabled={activeComposer || settingsDialog.open}
         />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
@@ -1458,6 +1491,8 @@ export function MailApp() {
         onOpenSettings={() => setSettingsDialog({ open: true, tab: "appearance", adding: false })}
         aiOff={ai !== null && !ai.configured}
         sorting={ai?.pending ?? 0}
+        events={actions.events}
+        onClearEvents={() => actions.clearEvents()}
       />
 
       {/* With a thread open there is no list toolbar, so the panel keeps the full height beside it. */}
@@ -1479,10 +1514,13 @@ export function MailApp() {
             onRangeChange={setDashboardRange}
             onOpen={openDrill}
             onRefresh={() => void reloadDashboard(false)}
+            shownFolders={drillShown}
+            onToggleFolder={toggleDrillFolder}
           />
         ) : fullOpen && openThread ? (
           <ThreadView
             key={openThread.id}
+            mailActions={actions}
             thread={viewedThread ?? openThread}
             folder={threadFolder(openThread)}
             accounts={accounts}
@@ -1492,7 +1530,7 @@ export function MailApp() {
               if (removesFromView(action, listFolder)) setOpenThreadId(null);
             }}
             onCompose={startCompose}
-            shortcutsDisabled={compose !== null || settingsDialog.open}
+            shortcutsDisabled={activeComposer || settingsDialog.open}
           />
         ) : drill ? (
           <>
@@ -1514,6 +1552,8 @@ export function MailApp() {
                 scope={scope}
                 onScopeChange={setScope}
                 onManageAccounts={() => openAccounts(false)}
+                onRefresh={() => void reloadDashboard(false)}
+                refreshing={dashboardMail.loading}
                 {...headerActions}
               />
             )}
@@ -1573,6 +1613,8 @@ export function MailApp() {
                 scope={scope}
                 onScopeChange={setScope}
                 onManageAccounts={() => openAccounts(false)}
+                onRefresh={() => void refresh(false, true)}
+                refreshing={loading}
                 {...headerActions}
               />
             )}
@@ -1587,11 +1629,12 @@ export function MailApp() {
               onManage={() => openAccounts(false)}
             />
 
+            {folder === "drafts" && <ScheduledMail scope={scope} onVisible={setScheduledCount} />}
             {showNoAccounts ? (
               <NoAccounts demo={api.system.demo} onAdd={() => openAccounts(true)} />
             ) : loading && allThreads.length === 0 ? (
               <ListSkeleton />
-            ) : listThreads.length === 0 && folderDrafts.length === 0 ? (
+            ) : listThreads.length === 0 && folderDrafts.length === 0 && !(folder === "drafts" && scheduledCount) ? (
               <EmptyList folder={folder} query={query} unreadOnly={unreadOnly} />
             ) : (
               <>
@@ -1667,7 +1710,9 @@ export function MailApp() {
           key={compose.id}
           seed={compose.seed}
           accounts={accounts}
-          onClose={() => setCompose(null)}
+          minimized={composerMinimized}
+          onMinimizedChange={setComposerMinimized}
+          onClose={() => { setComposerMinimized(false); setCompose(null); }}
         />
       )}
 

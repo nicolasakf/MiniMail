@@ -7,6 +7,7 @@ import { logoRequestFor } from "@shared/logos";
 import { conversationFolder, MOVE_FOLDERS, type MoveFolder, type Thread } from "@shared/threads";
 import type { Account, MailAction, MailFolder } from "@shared/types";
 
+import { ShortcutHint } from "@/components/ui/keyboard-shortcut-badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAppearance } from "@/lib/appearance";
 import { accountFor, formatListTime, normalizeSubject, threadSenderLabel } from "@/lib/format";
@@ -141,7 +142,7 @@ export const ThreadRow = memo(function ThreadRow({
       </TooltipTrigger>
       <TooltipContent side="bottom">
         {label}
-        {hint ? <span className="ml-2 text-muted-foreground">{hint}</span> : null}
+        {hint ? <ShortcutHint hint={hint} /> : null}
       </TooltipContent>
     </Tooltip>
   ));
@@ -231,7 +232,7 @@ export const ThreadRow = memo(function ThreadRow({
               <>
                 {showFolder && <FolderBadge folder={rowFolder} />}
                 {accountMark}
-                <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">
+                <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-muted-foreground">
                   {formatListTime(latest.date)}
                 </span>
               </>
@@ -279,9 +280,7 @@ export const ThreadRow = memo(function ThreadRow({
         )}
       </div>
 
-      <div
-        className={cn("relative flex h-full shrink-0 items-center justify-end", showFolder ? "w-44" : "w-24")}
-      >
+      <div className="relative flex h-full shrink-0 items-center justify-end">
         {/* Hover actions sit just left of the time / account mark, over the end of the preview. */}
         {hovered && (
           <div
@@ -294,7 +293,7 @@ export const ThreadRow = memo(function ThreadRow({
         <div className="flex items-center gap-2">
           {showFolder && <FolderBadge folder={rowFolder} />}
           {accountMark}
-          <span className="text-[11px] font-semibold text-muted-foreground">
+          <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-muted-foreground">
             {formatListTime(latest.date)}
           </span>
         </div>

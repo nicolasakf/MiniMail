@@ -13,7 +13,7 @@ import {
   MIN_CRITERIA_LENGTH,
 } from "./categories";
 import { CODE_MODEL_PATTERN } from "./verification-code";
-import { SORT_FOLDERS } from "./types";
+import { MAX_ATTACHMENT_BYTES, MAX_DRAFT_ATTACHMENTS, SORT_FOLDERS } from "./types";
 import type { AddAccountInput, Category, Draft, ListQuery, MailView, SavedDraft, UiPrefs } from "./types";
 
 /**
@@ -109,6 +109,18 @@ export const listQuerySchema: z.ZodType<ListQuery> = z.object({
   cacheOnly: z.boolean().optional(),
 });
 
+const MAX_DRAFT_TEXT = 2_000_000;
+const draftFilesSchema = z.array(z.object({
+  filename: z.string().min(1),
+  contentType: z.string(),
+  contentBase64: z.string(),
+  contentId: z.string().regex(/^[a-z0-9-]+@minimail\.local$/).optional(),
+})).max(MAX_DRAFT_ATTACHMENTS).refine(
+  (files) => files.reduce((sum, file) => sum + Math.floor(file.contentBase64.length * 3 / 4)
+    - (file.contentBase64.endsWith("==") ? 2 : file.contentBase64.endsWith("=") ? 1 : 0), 0) <= MAX_ATTACHMENT_BYTES,
+  "Attachments exceed the total size limit.",
+);
+
 export const draftSchema: z.ZodType<Draft> = z.object({
   accountId: z.string(),
   to: z.array(contactSchema).min(1, "Add at least one recipient."),
@@ -116,16 +128,8 @@ export const draftSchema: z.ZodType<Draft> = z.object({
   bcc: z.array(contactSchema),
   subject: z.string(),
   text: z.string(),
-  attachments: z
-    .array(
-      z.object({
-        filename: z.string().min(1),
-        contentType: z.string(),
-        contentBase64: z.string(),
-      }),
-    )
-    .max(25)
-    .optional(),
+  html: z.string().optional(),
+  attachments: draftFilesSchema.optional(),
   inReplyTo: z
     .object({
       messageId: z.string(),
@@ -135,8 +139,6 @@ export const draftSchema: z.ZodType<Draft> = z.object({
     })
     .optional(),
 });
-
-const MAX_DRAFT_TEXT = 2_000_000;
 
 export const savedDraftSchema: z.ZodType<SavedDraft> = z.object({
   id: z.string().min(1).max(128),
@@ -154,6 +156,9 @@ export const savedDraftSchema: z.ZodType<SavedDraft> = z.object({
   }),
   subject: z.string().max(2000),
   body: z.string().max(MAX_DRAFT_TEXT),
+  sendAt: z.number().int().positive().optional(),
+  bodyHtml: z.string().max(MAX_DRAFT_TEXT * 2 + Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4).optional(),
+  attachments: draftFilesSchema.optional(),
   quoted: z.string().max(MAX_DRAFT_TEXT).optional(),
   inReplyTo: z
     .object({

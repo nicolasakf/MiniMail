@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { makeMessageId } from "@shared/ids";
+import type { MailAction, MailFolder } from "@shared/types";
 
 vi.mock("electron", () => ({
   safeStorage: {
@@ -30,7 +31,9 @@ afterEach(() => {
 
 /** A service whose providers are one recording stub. */
 function serviceWithStub() {
-  const act = vi.fn(async () => undefined);
+  const act = vi.fn(async (_action: MailAction, _folder: MailFolder, ids: string[]) =>
+    ids.map((id) => ({ id, status: "applied" as const, nextId: id })),
+  );
   const service = new MailService(
     new AccountStore(join(dir, "accounts.json")),
     {},

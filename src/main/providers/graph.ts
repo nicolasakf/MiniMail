@@ -4,6 +4,7 @@ import { CALENDAR_ACCESS_REQUIRED } from "@shared/accounts";
 import { classifyMessage } from "@shared/classify";
 import { makeMessageId, parseMessageId } from "@shared/ids";
 import { isAuthenticated } from "@shared/logos";
+import { MAX_ATTACHMENT_BYTES, MAX_INLINE_IMAGE_BYTES } from "@shared/types";
 import type {
   Account,
   Contact,
@@ -11,6 +12,7 @@ import type {
   Invitation,
   InvitationResponse,
   MailAction,
+  MailActionResult,
   MailFolder,
   MessageDetail,
   MessageSummary,
@@ -18,7 +20,7 @@ import type {
 
 import { logEvent } from "../log";
 import { patchSummaries, type SummaryStore } from "./summary-cache";
-import { makeSnippet, type AttachmentFile, type MailProvider } from "./types";
+import { describeError, makeSnippet, type AttachmentFile, type MailProvider } from "./types";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
@@ -97,6 +99,7 @@ const attachmentFileSchema = z.object({
   name: z.string().nullish(),
   contentType: z.string().nullish(),
   contentBytes: z.string().nullish(),
+  contentId: z.string().nullish(),
 });
 
 const listSchema = z.object({
@@ -113,6 +116,7 @@ type GraphMessage = z.infer<typeof messageSchema>;
 const LIST_FIELDS = [
   "id",
   "conversationId",
+  "internetMessageId",
   "subject",
   "from",
   "toRecipients",
@@ -254,7 +258,7 @@ export class GraphProvider implements MailProvider {
 
   async get(folder: MailFolder, nativeIds: string[]): Promise<MessageDetail[]> {
     const select =
-      `${LIST_FIELDS},body,ccRecipients,replyTo,internetMessageId&$expand=attachments($select=id,name,contentType,size,isInline),${EXPAND_LAST_VERB}`;
+      `${LIST_FIELDS},body,ccRecipients,replyTo&$expand=attachments($select=id,name,contentType,size,isInline),${EXPAND_LAST_VERB}`;
     const fetchOne = async (nativeId: string): Promise<MessageDetail> => {
       const raw = await this.request(
         "GET",
@@ -271,13 +275,33 @@ export class GraphProvider implements MailProvider {
 
       const isHtml = message.body?.contentType.toLowerCase() === "html";
       const invitation = summary.signal === "invitation" ? await this.invitationOf(nativeId, summary.subject) : null;
+      let html = isHtml ? (message.body?.content ?? null) : null;
+      if (html && /\bcid:/i.test(html)) {
+        let bytes = 0;
+        const inline = (message.attachments ?? []).filter((file) =>
+          file.isInline && /^image\/(?:png|jpeg|gif|webp|bmp)$/i.test(file.contentType ?? "") &&
+          file.size != null && file.size <= MAX_INLINE_IMAGE_BYTES).slice(0, 25);
+        for (const file of inline) {
+          bytes += file.size ?? 0;
+          if (bytes > MAX_ATTACHMENT_BYTES) break;
+          const path = `/me/messages/${encodeURIComponent(nativeId)}/attachments/${encodeURIComponent(file.id)}`;
+          const parsed = attachmentFileSchema.safeParse(await this.request("GET", path).catch(() => null));
+          if (!parsed.success) continue;
+          const { contentBytes, contentType, contentId } = parsed.data;
+          if (!contentBytes || !contentId || !contentType || !/^image\/(?:png|jpeg|gif|webp|bmp)$/i.test(contentType)
+            || !/^[a-z\d+/]+={0,2}$/i.test(contentBytes) || contentBytes.length > Math.ceil(MAX_INLINE_IMAGE_BYTES / 3) * 4) continue;
+          const cid = contentId.replace(/^<|>$/g, "");
+          html = html.replace(/(\bsrc\s*=\s*)(["'])cid:([^"']+)\2/gi, (match, prefix: string, quote: string, value: string) =>
+            value === cid ? `${prefix}${quote}data:${contentType};base64,${contentBytes}${quote}` : match);
+        }
+      }
       return {
         ...summary,
         cc: (message.ccRecipients ?? []).map(toContact),
         replyTo: message.replyTo?.[0] ? toContact(message.replyTo[0]) : null,
         messageId: message.internetMessageId ?? null,
         references: references ?? [],
-        html: isHtml ? (message.body?.content ?? null) : null,
+        html,
         text: isHtml ? null : (message.body?.content ?? null),
         attachments: (message.attachments ?? [])
           .filter((attachment) => !attachment.isInline)
@@ -385,7 +409,15 @@ export class GraphProvider implements MailProvider {
     };
   }
 
-  async act(action: MailAction, folder: MailFolder, nativeIds: string[]): Promise<void> {
+  private writes: Promise<unknown> = Promise.resolve();
+
+  private runWrites<T>(run: () => Promise<T>): Promise<T> {
+    const result = this.writes.then(run);
+    this.writes = result.catch(() => undefined);
+    return result;
+  }
+
+  async act(action: MailAction, folder: MailFolder, nativeIds: string[]): Promise<MailActionResult[]> {
     const run = (nativeId: string): Promise<unknown> => {
       const base = `/me/messages/${encodeURIComponent(nativeId)}`;
       switch (action) {
@@ -410,25 +442,33 @@ export class GraphProvider implements MailProvider {
       }
     };
 
-    // A small pool rather than one request per message: marking a big group read must not trip
-    // Graph's per-mailbox concurrency limit. After a failure no further requests start.
-    let next = 0;
-    let failure: { error: unknown } | undefined;
-    const worker = async (): Promise<void> => {
-      while (!failure && next < nativeIds.length) {
-        const nativeId = nativeIds[next++]!;
-        try {
-          await run(nativeId);
-        } catch (error) {
-          failure ??= { error };
+    // Share the worker pool across batches so concurrent requests respect the mailbox limit.
+    return this.runWrites(async () => {
+      let next = 0;
+      const results: MailActionResult[] = new Array(nativeIds.length);
+      const worker = async () => {
+        while (next < nativeIds.length) {
+          const index = next++;
+          const id = nativeIds[index];
+          try {
+            const response = await run(id);
+            const moved = z.object({ id: z.string() }).safeParse(response);
+            results[index] = { id, status: "applied", nextId: moved.success ? moved.data.id : undefined };
+          } catch (error) {
+            const rejected = error instanceof GraphError && error.status < 500 && error.status !== 408;
+            results[index] = { id, status: rejected ? "failed" : "unknown", error: describeError(error) };
+          }
         }
+      };
+      await Promise.all(Array.from({ length: Math.min(ACT_CONCURRENCY, nativeIds.length) }, worker));
+      const applied = new Set(results.filter((result) => result.status === "applied").map(({ id }) => id));
+      if (applied.size) {
+        this.patchCache(action, folder, applied);
+        if (folder === "inbox") this.patchCache(action, "pinned", applied);
+        if (folder === "pinned") this.patchCache(action, "inbox", applied);
       }
-    };
-    await Promise.all(
-      Array.from({ length: Math.min(ACT_CONCURRENCY, nativeIds.length) }, worker),
-    );
-    if (failure) throw failure.error;
-    this.patchCache(action, folder, new Set(nativeIds));
+      return results;
+    });
   }
 
   async send(draft: Draft): Promise<void> {
@@ -438,7 +478,7 @@ export class GraphProvider implements MailProvider {
       }));
     const message = {
       subject: draft.subject,
-      body: { contentType: "Text", content: draft.text },
+      body: draft.html ? { contentType: "HTML", content: draft.html } : { contentType: "Text", content: draft.text },
       toRecipients: recipients(draft.to),
       ccRecipients: recipients(draft.cc),
       bccRecipients: recipients(draft.bcc),
@@ -455,6 +495,7 @@ export class GraphProvider implements MailProvider {
       name: file.filename,
       contentType: file.contentType || "application/octet-stream",
       contentBytes: file.contentBase64,
+      ...(file.contentId ? { contentId: file.contentId, isInline: true } : {}),
     }));
 
     if (draft.inReplyTo && (await this.sendAsReply(draft.inReplyTo, message, attachments))) return;
@@ -551,6 +592,7 @@ export class GraphProvider implements MailProvider {
       accountId: this.account.id,
       folder,
       threadId: message.conversationId ?? message.id,
+      internetId: message.internetMessageId ?? undefined,
       from,
       to: (message.toRecipients ?? []).map(toContact),
       subject,

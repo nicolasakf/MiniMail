@@ -386,6 +386,25 @@ describe("GraphProvider", () => {
   const path = (call: RecordedCall) =>
     `${call.method} ${call.url.replace("https://graph.microsoft.com/v1.0", "")}`;
 
+  it("sends a formatted reply with its inline image on the same Outlook draft", async () => {
+    const calls = stubFetch((call) => call.url.endsWith("/createReply")
+      ? json({ id: "rich-draft" }, 201) : new Response(null, { status: 202 }));
+    const contentId = "test-image@minimail.local";
+    const html = `<p><strong>Sure.</strong></p><img src="cid:${contentId}">`;
+    await provider().send(draftSchema.parse({
+      ...replyDraft("reply"), html,
+      attachments: [{ filename: "image.png", contentType: "image/png", contentBase64: "aW1hZ2U=", contentId }],
+    }));
+    expect(calls.map(path)).toEqual([
+      "POST /me/messages/AAMk-1%3D/createReply",
+      "PATCH /me/messages/rich-draft",
+      "POST /me/messages/rich-draft/attachments",
+      "POST /me/messages/rich-draft/send",
+    ]);
+    expect(JSON.parse(calls[1].body ?? "").body).toEqual({ contentType: "HTML", content: html });
+    expect(JSON.parse(calls[2].body ?? "")).toMatchObject({ contentId, isInline: true, contentBytes: "aW1hZ2U=" });
+  });
+
   it("sends a reply through a reply draft so Outlook threads it and marks the original", async () => {
     const calls = stubFetch((call) =>
       call.url.endsWith("/createReplyAll") ? json({ id: "draft/1" }, 201) : new Response(null, { status: 202 }),
@@ -490,10 +509,23 @@ describe("GraphProvider", () => {
     expect(peak).toBeLessThanOrEqual(3);
   });
 
+  it("returns each Graph move result even when another message in the batch fails", async () => {
+    stubFetch(({ url }) => url.includes("/gone/")
+      ? json({ error: { code: "ErrorItemNotFound" } }, 404)
+      : json({ id: url.includes("/first/") ? "moved-first" : "moved-last" }));
+    await expect(provider().act("archive", "inbox", ["first", "gone", "last"])).resolves.toMatchObject([
+      { id: "first", status: "applied", nextId: "moved-first" },
+      { id: "gone", status: "failed", error: expect.stringContaining("ErrorItemNotFound") },
+      { id: "last", status: "applied", nextId: "moved-last" },
+    ]);
+  });
+
   it("does not repeat a write after a server error", async () => {
     const calls = stubFetch(() => json({ error: { code: "ServiceUnavailable" } }, 503));
     const p = new GraphProvider(outlookAccount, async () => "tok", undefined, async () => undefined);
-    await expect(p.act("markRead", "inbox", ["x"])).rejects.toThrow("ServiceUnavailable");
+    await expect(p.act("markRead", "inbox", ["x"])).resolves.toMatchObject([
+      { id: "x", status: "unknown", error: expect.stringContaining("ServiceUnavailable") },
+    ]);
     expect(calls).toHaveLength(1);
   });
 
@@ -524,7 +556,9 @@ describe("GraphProvider", () => {
   it("does not repeat a write after a 500", async () => {
     const calls = stubFetch(() => json({ error: { code: "UnknownError" } }, 500));
     const p = new GraphProvider(outlookAccount, async () => "tok", undefined, async () => undefined);
-    await expect(p.act("markRead", "inbox", ["x"])).rejects.toThrow("HTTP 500");
+    await expect(p.act("markRead", "inbox", ["x"])).resolves.toMatchObject([
+      { id: "x", status: "unknown", error: expect.stringContaining("HTTP 500") },
+    ]);
     expect(calls).toHaveLength(1);
   });
 

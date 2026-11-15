@@ -46,7 +46,14 @@ show the states a slow mail server produces: `?slow=8000` delays opening a messa
   panel by domain and expand a domain to see its senders. Opening a conversation there keeps
   the panel and replaces only the list.
 - **Categories you define**, sorted by AI. See the next section.
-- Conversation view, reply / reply all / forward, compose with account picker.
+- Conversation view, reply / reply all / forward, compose with account picker. The composer floats
+  over the mail instead of blocking it, so you can keep reading while you write; Esc closes it and
+  keeps a draft. Select text to show the formatting toolbar, or use the formatting button to keep
+  it open. The editor supports text styles, colors, fonts, links, lists, quotes, tables, and inline
+  images. Use the footer menu to insert an account signature, or to write one in the same editor
+  (or as HTML, which is sanitized when saved). Signatures and drafts are stored locally with OS
+  encryption. Minimize a draft to keep browsing the inbox, or open it in a separate desktop window.
+  Send Later (the arrow beside Send) queues mail in Drafts and sends when MiniMail is running.
 - Select mode (the pill switch) for bulk actions, search (loaded mail), light/dark/system theme.
 - HTML mail is sanitized and shown in a sandboxed frame; remote images are blocked until you
   click "Load images".
@@ -60,7 +67,7 @@ show the states a slow mail server produces: `?slow=8000` delays opening a messa
   trade you are choosing.
 
 Shortcuts: `↑ ↓` or `J K` move, `Enter` opens, `Esc` goes back, `E` done (archive),
-`#` / `Delete` trash, `P` pin, `U` read/unread, `X` select, `C` compose, `⌘K` search, `/` opens the menu of the selected item (also on right-click; type to filter its commands), `⌘Z` undoes the last archive / trash / spam / delete, `⌘↵` send.
+`#` / `Delete` trash, `P` pin, `U` read/unread, `X` select, `C` compose, `⌘K` search, `⌘U` toggles the unread-only filter, `/` opens the menu of the selected item (also on right-click; type to filter its commands), `⌘Z` undoes the last archive / trash / spam / delete, `⌘↵` send.
 
 **Startup speed.** Each account loads on its own, so a slow server never holds back the others,
 and MiniMail keeps a copy of the last list it saw (sender, subject, a short preview) so the

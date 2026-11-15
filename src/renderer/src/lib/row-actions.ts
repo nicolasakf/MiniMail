@@ -67,7 +67,7 @@ export function actionsForThread(folder: MailFolder, thread: Thread): RowAction[
   // Pin, read / unread, then the moves in the order Inbox, Archive, Trash, Spam (`moves` already is).
   const actions: RowAction[] = [...toggles, ...moves];
   if (folder === "trash" || folder === "spam") {
-    actions.push({ action: "deleteForever", label: "Delete forever", icon: Flame, hint: folder === "trash" ? "D D" : undefined });
+    actions.push({ action: "deleteForever", label: "Delete forever", icon: Flame });
   }
   return actions;
 }

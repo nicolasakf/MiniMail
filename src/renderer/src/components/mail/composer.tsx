@@ -1,36 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 
-import { Check, ChevronDown, Ellipsis, Loader2, Paperclip, Send, X } from "lucide-react";
-import { toast } from "sonner";
+import type { Editor } from "@tiptap/core";
+import { ALargeSmall, Maximize2, Minimize2, Minus, Paperclip, SquareArrowOutUpRight, Trash2, X } from "lucide-react";
 
-import { accountLabel } from "@shared/accounts";
-import type { ContactEntry } from "@shared/contacts";
-import { MAX_ATTACHMENT_BYTES, type Account, type Contact, type Draft, type DraftAttachment } from "@shared/types";
+import type { Account } from "@shared/types";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
-import { composeText, parseRecipients, type ComposeSeed } from "@/lib/compose";
-import { cachedContacts, refreshContacts } from "@/lib/contact-cache";
-import {
-  deleteDraft,
-  newDraftId,
-  saveDraft,
-  showDraftSavedToast,
-  type SavedDraft,
-} from "@/lib/drafts";
+import type { ComposeSeed } from "@/lib/compose";
+import { cleanEditorHtml } from "@/lib/rich-compose";
 import { cn } from "@/lib/utils";
 
-import { AccountMark } from "./account-mark";
-import { RecipientField } from "./recipient-field";
+import { SignatureMenu, SignatureSheet, useSignatureLibrary, type SignatureDraft } from "./compose-library";
+import { ComposerFields } from "./composer-fields";
+import { AttachmentList, DropOverlay, ErrorNotice, MinimizedBar, QuotedText, ScheduleNotice, SendButton } from "./composer-parts";
+import { useComposerSession } from "./composer-session";
+import { ToolButton } from "./composer-ui";
+import { RichEditor } from "./rich-editor";
 
 const TITLES: Record<ComposeSeed["mode"], string> = {
   new: "New message",
@@ -39,441 +25,332 @@ const TITLES: Record<ComposeSeed["mode"], string> = {
   forward: "Forward",
 };
 
-/** Reads a picked file into the base64 form a draft carries. */
-function readAttachment(file: File): Promise<DraftAttachment> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error(`Could not read ${file.name}`));
-    reader.onload = () => {
-      const url = String(reader.result);
-      resolve({
-        filename: file.name,
-        contentType: file.type || "application/octet-stream",
-        contentBase64: url.slice(url.indexOf(",") + 1),
-      });
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-const attachmentBytes = (file: DraftAttachment) => Math.floor((file.contentBase64.length * 3) / 4);
-
 interface ComposerProps {
   seed: ComposeSeed;
   accounts: readonly Account[];
-  onClose: () => void;
-}
-
-/** A labelled borderless row, so the header fields read as one continuous form. */
-function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-3 border-b border-border px-5">
-      <span className="w-14 shrink-0 self-start pt-[13px] text-sm text-muted-foreground">{label}</span>
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
-  );
-}
-
-/** Borderless field that sits flush in its row; the ring offset would paint over the row divider. */
-const BARE_INPUT =
-  "h-11 rounded-none border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0";
-
-/** The account to send from, in the same menu the account switcher uses, with each account's logo. */
-function FromPicker({
-  accounts,
-  value,
-  onChange,
-}: {
-  accounts: readonly Account[];
-  value: string;
-  onChange: (accountId: string) => void;
-}) {
-  const selected = accounts.find((account) => account.id === value);
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`From: ${selected ? accountLabel(selected) : "none"}. Change account`}
-          className="corner-squircle my-1.5 flex h-8 max-w-full items-center gap-2 rounded-lg px-2 -ml-2 text-sm outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent/60"
-        >
-          {selected ? (
-            <>
-              <AccountMark account={selected} size={20} />
-              <span className="min-w-0 truncate font-medium">{accountLabel(selected)}</span>
-              {selected.alias && (
-                <span className="min-w-0 truncate text-xs text-muted-foreground">{selected.email}</span>
-              )}
-            </>
-          ) : (
-            <span className="text-muted-foreground">Choose account</span>
-          )}
-          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
-        {accounts.map((account) => (
-          <DropdownMenuItem key={account.id} onSelect={() => onChange(account.id)}>
-            <span className="mr-2 flex w-6 shrink-0 justify-center">
-              <AccountMark account={account} size={22} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate">{accountLabel(account)}</span>
-              {account.alias && (
-                <span className="block truncate text-xs text-muted-foreground">{account.email}</span>
-              )}
-            </span>
-            {value === account.id && <Check className="size-4" />}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-/** Everyone we have exchanged mail with: what is already known at once, refreshed when it opens. */
-function useContactIndex(): ContactEntry[] {
-  const [contacts, setContacts] = useState<ContactEntry[]>(cachedContacts);
-  useEffect(() => {
-    let cancelled = false;
-    void refreshContacts().then((found) => {
-      if (!cancelled) setContacts(found);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return contacts;
+  /** Called once the message was sent, kept as a draft or moved to its own window. */
+  onClose: () => void | Promise<void>;
+  /** Fills a window of its own instead of floating over the mail. */
+  detached?: boolean;
+  minimized?: boolean;
+  onMinimizedChange?: (minimized: boolean) => void;
 }
 
 /**
- * Message composer in a dialog. Replies arrive with the quoted original folded under an ellipsis
- * and a forward carries the forwarded message in its body; everything stays editable before
- * sending. Closing it (the close button or Esc) keeps what was written as a draft.
+ * The message composer. It floats over the mail instead of blocking it: a modal dialog traps
+ * focus, locks the page and stacks its menus in layers that can fail to unwind, which is how the
+ * page used to be left unclickable after closing it. Here the only things that take over are the
+ * menus themselves, and each one closes on its own.
+ *
+ * Replies arrive with the quoted original folded under an ellipsis, and a forward carries the
+ * forwarded message in its body; everything stays editable. Closing it (the close button or Esc)
+ * keeps what was written as a draft.
  */
-export function Composer({ seed, accounts, onClose }: ComposerProps) {
-  const [accountId, setAccountId] = useState(seed.accountId || accounts[0]?.id || "");
-  const [to, setTo] = useState<Contact[]>(seed.to);
-  const [cc, setCc] = useState<Contact[]>(seed.cc);
-  const [bcc, setBcc] = useState<Contact[]>(seed.bcc ?? []);
-  const [toText, setToText] = useState(seed.pendingText?.to ?? "");
-  const [ccText, setCcText] = useState(seed.pendingText?.cc ?? "");
-  const [bccText, setBccText] = useState(seed.pendingText?.bcc ?? "");
-  const [showCcBcc, setShowCcBcc] = useState(
-    seed.cc.length > 0 || (seed.bcc?.length ?? 0) > 0 || Boolean(seed.pendingText?.cc || seed.pendingText?.bcc),
-  );
-  const [subject, setSubject] = useState(seed.subject);
-  const [body, setBody] = useState(seed.body);
-  const [quoted, setQuoted] = useState(seed.quoted ?? "");
-  const [showQuoted, setShowQuoted] = useState(false);
-  const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+export function Composer({ seed, accounts, onClose, detached, minimized, onMinimizedChange }: ComposerProps) {
+  const session = useComposerSession({ seed, accounts, onClose });
+  const { fields, set, locked, error, setError } = session;
+
+  const panel = useRef<HTMLElement>(null);
+  const editor = useRef<Editor | null>(null);
+  const scroll = useRef<HTMLDivElement>(null);
+  const overlay = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const contacts = useContactIndex();
+  const discardButton = useRef<HTMLButtonElement>(null);
+  const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
+  const [showToolbar, setShowToolbar] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [pickingTime, setPickingTime] = useState(false);
+  const [signatureDraft, setSignatureDraft] = useState<SignatureDraft | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
+  const signatures = useSignatureLibrary(fields.accountId, setError);
 
-  /** Identifies the draft: stays the same across saves of one opening, so each replaces the last. */
-  const draftId = useRef(seed.draftId ?? newDraftId());
+  const title = fields.subject.trim() || TITLES[seed.mode];
+  // The demo backend cannot queue mail for later.
+  const canSchedule = !api.system.demo;
 
-  const snapshot = () =>
-    JSON.stringify([accountId, to, cc, bcc, toText, ccText, bccText, subject, body, quoted]);
-  /** What the form held when it opened; Esc on an untouched form keeps nothing. */
-  const opened = useRef<string | null>(null);
-  opened.current ??= snapshot();
-
-  const addFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    try {
-      const added = await Promise.all(Array.from(files).map(readAttachment));
-      const next = [...attachments, ...added];
-      if (next.reduce((sum, file) => sum + attachmentBytes(file), 0) > MAX_ATTACHMENT_BYTES) {
-        setError(`Attachments can total at most ${formatBytes(MAX_ATTACHMENT_BYTES)}.`);
-        return;
-      }
-      setError(null);
-      setAttachments(next);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
-  };
-
-  const send = async () => {
-    if (sending) return;
-    const parsedTo = parseRecipients(toText);
-    const parsedCc = parseRecipients(ccText);
-    const parsedBcc = parseRecipients(bccText);
-    const invalid = [...parsedTo.invalid, ...parsedCc.invalid, ...parsedBcc.invalid];
-    const recipients = {
-      to: [...to, ...parsedTo.contacts],
-      cc: [...cc, ...parsedCc.contacts],
-      bcc: [...bcc, ...parsedBcc.contacts],
-    };
-
-    if (!accountId) return setError("Choose an account to send from.");
-    if (invalid.length > 0) return setError(`Not a valid address: ${invalid.join(", ")}`);
-    if (recipients.to.length === 0) return setError("Add at least one recipient.");
-
-    const draft: Draft = {
-      accountId,
-      ...recipients,
-      subject: subject.trim() || "(no subject)",
-      text: composeText(body, quoted),
-      ...(attachments.length > 0 ? { attachments } : {}),
-      inReplyTo: seed.inReplyTo,
-    };
-
-    setSending(true);
-    setError(null);
-    try {
-      await api.mail.send(draft);
-      void deleteDraft(draftId.current);
-      toast.success("Message sent");
-      onClose();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-      setSending(false);
-    }
-  };
-
-  /** Set while a draft is being written, and after a write failed (a second Esc then discards). */
-  const savingDraft = useRef(false);
-  const saveFailed = useRef(false);
-
-  /**
-   * Esc and the close button: write what was typed to disk as a draft, say so, and get out of the
-   * way. If the file cannot be written the composer stays open with the reason, so nothing is
-   * lost silently; closing again after that discards the text on purpose.
-   */
-  const closeKeepingDraft = async () => {
-    if (sending || savingDraft.current) return;
-    if (!saveFailed.current && snapshot() !== opened.current) {
-      const record: SavedDraft = {
-        id: draftId.current,
-        savedAt: new Date().toISOString(),
-        mode: seed.mode,
-        accountId,
-        to,
-        cc,
-        bcc,
-        pendingText: { to: toText, cc: ccText, bcc: bccText },
-        subject,
-        body,
-        quoted: quoted || undefined,
-        inReplyTo: seed.inReplyTo,
-      };
-      const empty =
-        to.length + cc.length + bcc.length === 0 &&
-        !toText.trim() &&
-        !ccText.trim() &&
-        !bccText.trim() &&
-        !subject.trim() &&
-        !body.trim();
-      savingDraft.current = true;
-      try {
-        if (empty) {
-          // Emptied out on purpose: nothing worth keeping, and an older save of it should go too.
-          await deleteDraft(record.id);
-        } else {
-          await saveDraft(record);
-          showDraftSavedToast(record.id);
+  // Where focus was when the composer opened, so closing it puts the user back there.
+  const [returnFocusTo] = useState(() => (detached ? null : document.activeElement));
+  useEffect(
+    () => () => {
+      requestAnimationFrame(() => {
+        // A strict-mode rehearsal unmounts and remounts at once; the panel is still on screen then.
+        if (panel.current?.isConnected) return;
+        if (returnFocusTo instanceof HTMLElement && returnFocusTo.isConnected && returnFocusTo !== document.body) {
+          returnFocusTo.focus({ preventScroll: true });
         }
-      } catch (reason) {
-        saveFailed.current = true;
-        setError(
-          `Could not save the draft: ${reason instanceof Error ? reason.message : String(reason)} ` +
-            "Close again to discard it.",
-        );
-        return;
-      } finally {
-        savingDraft.current = false;
-      }
+      });
+    },
+    [returnFocusTo],
+  );
+
+  // Coming back from minimized, the user wants to type: the To box if nobody is addressed yet.
+  const wasMinimized = useRef(minimized);
+  useEffect(() => {
+    if (wasMinimized.current && !minimized) {
+      requestAnimationFrame(() => {
+        if (fields.to.length === 0) panel.current?.querySelector<HTMLInputElement>('input[aria-label="To"]')?.focus();
+        else editor.current?.commands.focus("end");
+      });
     }
-    onClose();
+    wasMinimized.current = minimized;
+  }, [fields.to.length, minimized]);
+
+  const insertSignature = (html: string) => {
+    const current = editor.current;
+    if (!current) return;
+    const content = cleanEditorHtml(html, true);
+    if (current.isEmpty) current.chain().focus().insertContent(content).run();
+    else current.chain().focus("end").insertContentAt(current.state.doc.content.size, `<p></p>${content}`).run();
   };
+
+  const setTime = (time: number | undefined) => {
+    set.setSendAt(time);
+    setPickingTime(false);
+  };
+
+  const hasFiles = (event: React.DragEvent) => event.dataTransfer.types.includes("Files");
+
+  // Esc and ⌘↵ only reach the composer from inside it. Whenever the focused element goes away
+  // (a button that swaps itself for another, a strip that closes, a form that unlocks) focus falls
+  // to the page, so these put it back, and the shortcuts also work while nothing at all is focused.
+  const lastFocus = useRef<HTMLElement | null>(null);
+  const focusEditor = () => {
+    // After the render that removes whatever held focus, and past any `inert` still on its way off.
+    requestAnimationFrame(() => editor.current?.commands.focus());
+  };
+  const wasLocked = useRef(false);
+  useEffect(() => {
+    const nothingFocused = !document.activeElement || document.activeElement === document.body;
+    if (wasLocked.current && !locked && nothingFocused) {
+      const target = lastFocus.current?.isConnected ? lastFocus.current : panel.current?.querySelector<HTMLElement>(".mail-editor");
+      target?.focus();
+    }
+    wasLocked.current = locked;
+  }, [locked]);
+  const wasConfirming = useRef(false);
+  useEffect(() => {
+    if (wasConfirming.current && !confirmDiscard) discardButton.current?.focus();
+    wasConfirming.current = confirmDiscard;
+  }, [confirmDiscard]);
+  const keyWithNothingFocused = useEffectEvent((event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.isComposing || event.target !== document.body) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      void session.requestClose();
+    } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      void session.send();
+    }
+  });
+  useEffect(() => {
+    if (minimized) return;
+    const listener = (event: KeyboardEvent) => keyWithNothingFocused(event);
+    document.addEventListener("keydown", listener);
+    return () => document.removeEventListener("keydown", listener);
+  }, [minimized]);
 
   return (
-    <Dialog open onOpenChange={(open) => !open && void closeKeepingDraft()}>
-      <DialogContent
-        className="max-w-2xl gap-0 p-0"
-        // Esc closes an open suggestion list first; a second Esc closes (and saves) the composer.
-        onEscapeKeyDown={(event) => {
-          const target = event.target;
-          if (target instanceof HTMLElement && target.getAttribute("aria-expanded") === "true") {
-            event.preventDefault();
-          }
+    <>
+      {minimized && (
+        <MinimizedBar title={title} locked={locked} onRestore={() => onMinimizedChange?.(false)}
+          onClose={() => void session.requestClose()} />
+      )}
+      {/* Minimizing only hides the panel: the editor keeps its text, undo history and caret. */}
+      <section
+        ref={panel}
+        role="dialog"
+        aria-modal="false"
+        aria-label={title}
+        data-composer
+        className={cn(
+          minimized ? "hidden" : "flex",
+          "flex-col bg-background text-foreground",
+          detached
+            ? "relative h-dvh w-full"
+            : cn(
+                "corner-squircle fixed z-40 border border-border shadow-[0_24px_70px_-12px_rgb(0_0_0/0.55)] duration-200 animate-in fade-in-0 slide-in-from-bottom-3",
+                expanded
+                  ? "inset-x-6 inset-y-6 mx-auto max-w-[1040px]"
+                  : "bottom-4 right-4 h-[min(640px,calc(100dvh-32px))] w-[min(660px,calc(100vw-32px))]",
+              ),
+        )}
+        onFocus={(event) => {
+          if (event.target instanceof HTMLElement) lastFocus.current = event.target;
         }}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          // A menu, a suggestion list or a toolbar panel that used the key has marked it handled.
+          if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+          if (event.key === "Escape") {
             event.preventDefault();
-            void send();
+            void session.requestClose();
+          } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            void session.send();
           }
         }}
+        onDragEnter={(event) => {
+          if (!hasFiles(event)) return;
+          dragDepth.current += 1;
+          setDragging(true);
+        }}
+        onDragOver={(event) => {
+          if (hasFiles(event)) event.preventDefault();
+        }}
+        onDragLeave={(event) => {
+          if (!hasFiles(event)) return;
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDragging(false);
+        }}
+        onDrop={(event) => {
+          dragDepth.current = 0;
+          setDragging(false);
+          if (!event.dataTransfer.files.length) return;
+          event.preventDefault();
+          void session.addFiles(Array.from(event.dataTransfer.files));
+        }}
       >
-        <div className="border-b border-border px-5 py-4">
-          <DialogTitle className="text-base">{TITLES[seed.mode]}</DialogTitle>
-          <DialogDescription className="sr-only">Write and send an email message.</DialogDescription>
-        </div>
-
-        {accounts.length > 1 && (
-          <FieldRow label="From">
-            <FromPicker accounts={accounts} value={accountId} onChange={setAccountId} />
-          </FieldRow>
-        )}
-
-        <FieldRow label="To">
-          <RecipientField
-            label="To"
-            value={to}
-            onChange={setTo}
-            text={toText}
-            onTextChange={setToText}
-            contacts={contacts}
-            autoFocus={seed.to.length === 0}
-            placeholder="name@example.com"
-            trailing={
-              !showCcBcc && (
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => setShowCcBcc(true)}
-                >
-                  Cc / Bcc
-                </button>
-              )
-            }
-          />
-        </FieldRow>
-
-        {showCcBcc && (
-          <>
-            <FieldRow label="Cc">
-              <RecipientField
-                label="Cc"
-                value={cc}
-                onChange={setCc}
-                text={ccText}
-                onTextChange={setCcText}
-                contacts={contacts}
-              />
-            </FieldRow>
-            <FieldRow label="Bcc">
-              <RecipientField
-                label="Bcc"
-                value={bcc}
-                onChange={setBcc}
-                text={bccText}
-                onTextChange={setBccText}
-                contacts={contacts}
-              />
-            </FieldRow>
-          </>
-        )}
-
-        <FieldRow label="Subject">
-          <Input
-            value={subject}
-            aria-label="Subject"
-            className={BARE_INPUT}
-            onChange={(event) => setSubject(event.target.value)}
-          />
-        </FieldRow>
-
-        <Textarea
-          autoFocus={seed.to.length > 0}
-          value={body}
-          aria-label="Message"
-          placeholder="Write your message…"
-          className={cn(
-            "resize-none rounded-none border-0 bg-transparent px-5 py-4 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0",
-            quoted ? "min-h-[180px]" : "min-h-[280px]",
-          )}
-          onChange={(event) => setBody(event.target.value)}
-        />
-
-        {quoted && (
-          <div className="px-5 pb-4">
-            <button
-              type="button"
-              aria-expanded={showQuoted}
-              aria-label={showQuoted ? "Hide the quoted message" : "Show the quoted message"}
-              title={showQuoted ? "Hide the quoted message" : "Show the quoted message"}
-              className="corner-squircle inline-flex h-5 items-center rounded-md bg-muted px-2 text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => setShowQuoted((previous) => !previous)}
-            >
-              <Ellipsis className="size-4" />
-            </button>
-            {showQuoted && (
-              <Textarea
-                value={quoted}
-                aria-label="Quoted message"
-                className="mt-2 max-h-72 min-h-[72px] resize-none rounded-none border-0 border-l-2 border-border bg-transparent px-3 py-1 text-muted-foreground shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                onChange={(event) => setQuoted(event.target.value)}
-              />
+        {!detached && (
+          <header className="flex h-12 shrink-0 items-center gap-0.5 pl-5 pr-2.5">
+            <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold">{title}</h2>
+            <ToolButton label="Minimize" className="size-7 rounded-lg" disabled={locked}
+              onClick={() => onMinimizedChange?.(true)}><Minus /></ToolButton>
+            <ToolButton label={expanded ? "Compact view" : "Expand"} className="size-7 rounded-lg"
+              onClick={() => setExpanded((value) => !value)}>
+              {expanded ? <Minimize2 /> : <Maximize2 />}
+            </ToolButton>
+            {!api.system.demo && (
+              <ToolButton label="Open in a new window" className="size-7 rounded-lg" disabled={locked}
+                onClick={() => void session.detach()}><SquareArrowOutUpRight /></ToolButton>
             )}
+            <ToolButton label="Close" className="size-7 rounded-lg" disabled={locked}
+              onClick={() => void session.requestClose()}><X /></ToolButton>
+          </header>
+        )}
+
+        {/* Locked while it saves, sends or moves, and while the signature sheet is over it. */}
+        <div inert={locked || signatureDraft !== null} className="flex min-h-0 flex-1 flex-col">
+          <ComposerFields session={session} accounts={accounts} focusTo={seed.to.length === 0} />
+
+          <div
+            ref={scroll}
+            className="min-h-0 flex-1 overflow-y-auto"
+            onMouseDown={(event) => {
+              // The empty space under the text is part of the page: clicking it types there.
+              if (event.target !== event.currentTarget) return;
+              event.preventDefault();
+              editor.current?.commands.focus("end");
+            }}
+          >
+            <RichEditor
+              editorRef={editor}
+              overlayRef={overlay}
+              scrollRef={scroll}
+              initialText={seed.body}
+              initialHtml={seed.bodyHtml}
+              autoFocus={seed.to.length > 0}
+              showToolbar={showToolbar}
+              disabled={locked}
+              compact={Boolean(fields.quoted)}
+              toolbarHost={toolbarHost}
+              onError={setError}
+              onChange={(html) => { session.bodyHtml.current = html; }}
+              onSubmit={() => void session.send()}
+              onEscape={() => void session.requestClose()}
+            />
+            {fields.quoted && <QuotedText value={fields.quoted} onChange={set.setQuoted} />}
           </div>
-        )}
 
-        {attachments.length > 0 && (
-          <ul className="flex flex-wrap gap-2 px-5 pb-3">
-            {attachments.map((file, index) => (
-              <li
-                key={`${file.filename}-${index}`}
-                className="corner-squircle flex max-w-full items-center gap-1.5 rounded-lg bg-muted px-2 py-1 text-xs"
-              >
-                <Paperclip className="size-3 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">{file.filename}</span>
-                <span className="shrink-0 text-muted-foreground">{formatBytes(attachmentBytes(file))}</span>
-                <button
-                  type="button"
-                  aria-label={`Remove ${file.filename}`}
-                  className="shrink-0 text-muted-foreground hover:text-foreground"
-                  onClick={() => setAttachments((previous) => previous.filter((_, i) => i !== index))}
-                >
-                  <X className="size-3" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-3">
-          <input
-            ref={fileInput}
-            type="file"
-            multiple
-            hidden
-            onChange={(event) => {
-              void addFiles(event.target.files);
-              event.target.value = "";
+          {/* Outside the scrolling text, so a long message never pushes the attachments out of sight. */}
+          <AttachmentList
+            files={fields.attachments}
+            onRemove={(index) => {
+              session.removeAttachment(index);
+              focusEditor();
             }}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Attach files"
-            title="Attach files"
-            disabled={sending}
-            onClick={() => fileInput.current?.click()}
+
+          <ErrorNotice message={error} onDismiss={() => { setError(null); focusEditor(); }} />
+          <ScheduleNotice
+            sendAt={fields.sendAt}
+            picking={pickingTime}
+            onChange={() => setPickingTime(true)}
+            onSet={(time) => { setTime(time); focusEditor(); }}
+            onCancelPick={() => { setPickingTime(false); focusEditor(); }}
+            onClear={() => { setTime(undefined); focusEditor(); }}
+          />
+
+          {/* The text bubble floats from here, and the formatting bar, when shown, sits in the next box. */}
+          <div ref={overlay} className="relative z-10 h-0" />
+          <div ref={setToolbarHost} className="mail-format-host mail-format-up shrink-0 border-t border-border/50 empty:hidden" />
+
+          <footer
+            className="flex shrink-0 items-center gap-1 border-t border-border/50 px-3 py-2.5"
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && confirmDiscard) {
+                event.preventDefault();
+                setConfirmDiscard(false);
+              }
+            }}
           >
-            <Paperclip />
-          </Button>
-          <p className="min-w-0 flex-1 truncate text-sm text-red-400" role="alert">
-            {error}
-          </p>
-          <Button disabled={sending} onClick={() => void send()}>
-            {sending ? <Loader2 className="animate-spin" /> : <Send />}
-            Send
-            <span className="ml-1 text-xs opacity-60">⌘↵</span>
-          </Button>
+            <SendButton
+              sendAt={fields.sendAt}
+              sending={session.phase === "sending"}
+              disabled={locked}
+              canSchedule={canSchedule}
+              onSend={() => void session.send()}
+              onSchedule={setTime}
+              onClear={() => setTime(undefined)}
+              onPick={() => setPickingTime(true)}
+            />
+            <span aria-hidden className="mx-1.5 h-5 w-px bg-border" />
+            <ToolButton label="Formatting options" aria-pressed={showToolbar} onClick={() => setShowToolbar((value) => !value)}>
+              <ALargeSmall />
+            </ToolButton>
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              hidden
+              onChange={(event) => {
+                void session.addFiles(Array.from(event.target.files ?? []));
+                event.target.value = "";
+              }}
+            />
+            <ToolButton label="Attach files" onClick={() => fileInput.current?.click()}><Paperclip /></ToolButton>
+            <SignatureMenu library={signatures} disabled={locked} onInsert={insertSignature} onEdit={setSignatureDraft} />
+            <span className="flex-1" />
+            {confirmDiscard ? (
+              <div className="flex items-center gap-1 text-[13px]">
+                <span className="mr-1 text-muted-foreground">Discard this draft?</span>
+                <Button type="button" variant="ghost" autoFocus className="h-8 rounded-lg px-2.5 text-xs" onClick={() => setConfirmDiscard(false)}>Keep</Button>
+                <Button type="button" className="h-8 rounded-lg bg-red-600 px-2.5 text-xs text-white hover:bg-red-600/90"
+                  onClick={() => void session.discard()}>Discard</Button>
+              </div>
+            ) : (
+              <ToolButton ref={discardButton} label="Discard draft"
+                onClick={() => (session.hasContent() ? setConfirmDiscard(true) : void session.discard())}>
+                <Trash2 />
+              </ToolButton>
+            )}
+          </footer>
         </div>
-      </DialogContent>
-    </Dialog>
+
+        {signatureDraft && (
+          <SignatureSheet
+            draft={signatureDraft}
+            busy={signatures.busy}
+            onCancel={() => { setSignatureDraft(null); focusEditor(); }}
+            onSave={(next) => void signatures.save(next).then((saved) => {
+              if (!saved) return;
+              setSignatureDraft(null);
+              focusEditor();
+            })}
+          />
+        )}
+        {dragging && <DropOverlay />}
+      </section>
+    </>
   );
 }

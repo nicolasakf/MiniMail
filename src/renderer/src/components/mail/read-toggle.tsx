@@ -1,3 +1,4 @@
+import { ShortcutHint } from "@/components/ui/keyboard-shortcut-badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { HOVER_ON_TINT } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
@@ -43,7 +44,7 @@ export function ReadToggle({ unread, noun, onToggle, hint, all = false }: ReadTo
       </TooltipTrigger>
       <TooltipContent side="bottom">
         {label}
-        {hint ? <span className="ml-2 text-muted-foreground">{hint}</span> : null}
+        {hint ? <ShortcutHint hint={hint} /> : null}
       </TooltipContent>
     </Tooltip>
   );

@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button";
 import { ColorPicker } from "@/components/ui/color-picker";
 import { Separator } from "@/components/ui/separator";
 import { useLogoSettings } from "@/hooks/use-logo-settings";
-import { DEFAULT_ACCENT_COLOR, setAppearance, useAppearance, type TextSize } from "@/lib/appearance";
+import { DEFAULT_ACCENT_COLOR, EMAIL_WIDTH_REM, setAppearance, useAppearance, type EmailWidth, type TextSize } from "@/lib/appearance";
 
 import {
   CategoryLayoutPreview,
+  EmailWidthSample,
   PreviewsPreview,
   SenderPicturesPreview,
   SplitViewPreview,
@@ -24,6 +25,13 @@ const TEXT_SIZES: { value: TextSize; label: string; px: string }[] = [
   { value: "default", label: "Medium", px: "16 px" },
   { value: "large", label: "Large", px: "18 px" },
   { value: "larger", label: "Larger", px: "20 px" },
+];
+
+const EMAIL_WIDTHS: { value: EmailWidth; label: string }[] = [
+  { value: "compact", label: "Compact" },
+  { value: "default", label: "Default" },
+  { value: "wide", label: "Wide" },
+  { value: "wider", label: "Wider" },
 ];
 
 /** Swatches offered under the picker; the first is the built-in blue. */
@@ -43,7 +51,7 @@ const ACCENT_PRESETS = [
 /** Theme, highlight color, text size, what lists show and which sender pictures are looked up. */
 export function AppearanceTab() {
   const { theme, setTheme } = useTheme();
-  const { textSize, showPreviews, categoryLayout, splitView, accentColor } = useAppearance();
+  const { textSize, showPreviews, categoryLayout, splitView, accentColor, emailWidth } = useAppearance();
   // The picker opens inside this page so the settings dialog's focus trap lets you type in its hex field.
   const [pickerContainer, setPickerContainer] = useState<HTMLDivElement | null>(null);
   const { settings: logoSettings, update: updateLogoSettings } = useLogoSettings();
@@ -56,14 +64,15 @@ export function AppearanceTab() {
         <section className="max-w-2xl space-y-3">
           <SettingsSectionTitle title="Theme" />
           <div className="space-y-2">
-            <SettingsLabel label="Color mode" info="System follows your Mac's light or dark setting." />
+            <SettingsLabel label="Color mode" info="System follows your Mac's light or dark setting. Dimmed is a softer dark on shades of grey." />
             <SettingsVisualField
               ariaLabel="Color mode"
-              value={(theme as "system" | "light" | "dark" | undefined) ?? "system"}
+              value={(theme as "system" | "light" | "dark" | "dimmed" | undefined) ?? "system"}
               options={[
                 { value: "system", label: "System", preview: <ThemePreview mode="system" /> },
                 { value: "light", label: "Light", preview: <ThemePreview mode="light" /> },
                 { value: "dark", label: "Dark", preview: <ThemePreview mode="dark" /> },
+                { value: "dimmed", label: "Dimmed", preview: <ThemePreview mode="dimmed" /> },
               ]}
               onValueChange={setTheme}
             />
@@ -116,6 +125,27 @@ export function AppearanceTab() {
                 content: <TextSizeSample size={value} />,
               }))}
               onValueChange={(next) => setAppearance({ textSize: next })}
+            />
+          </SettingsRow>
+        </section>
+
+        <Separator />
+
+        <section className="max-w-2xl">
+          <SettingsRow
+            label="Email width"
+            info="The widest an email can grow when you read a conversation. Wider suits large windows and wide tables."
+          >
+            <SettingsTileField
+              ariaLabel="Email width"
+              value={emailWidth}
+              options={EMAIL_WIDTHS.map(({ value, label }) => ({
+                value,
+                label,
+                caption: `${Math.round(EMAIL_WIDTH_REM[value] * 16)} px`,
+                content: <EmailWidthSample width={value} />,
+              }))}
+              onValueChange={(next) => setAppearance({ emailWidth: next })}
             />
           </SettingsRow>
         </section>

@@ -81,7 +81,7 @@ export async function saveDraft(draft: SavedDraft): Promise<void> {
 export async function deleteDraft(id: string): Promise<void> {
   try {
     await ready();
-    if (cache.some((draft) => draft.id === id)) publish(await api.drafts.remove(id));
+    publish(await api.drafts.remove(id));
   } catch (error) {
     toast.error(`Could not delete the draft: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -96,7 +96,10 @@ export function useDrafts(): SavedDraft[] {
   return useSyncExternalStore((listener) => {
     listeners.add(listener);
     void ready();
-    return () => listeners.delete(listener);
+    const stop = api.drafts.onChanged(() => {
+      void api.drafts.list().then(publish).catch((error) => console.error("[drafts] could not refresh:", error));
+    });
+    return () => { listeners.delete(listener); stop(); };
   }, listDrafts);
 }
 
@@ -112,6 +115,9 @@ export function seedFromDraft(draft: SavedDraft): ComposeSeed {
     draftId: draft.id,
     subject: draft.subject,
     body: draft.body,
+    bodyHtml: draft.bodyHtml,
+    sendAt: draft.sendAt,
+    attachments: draft.attachments,
     quoted: draft.quoted,
     inReplyTo: draft.inReplyTo,
   };

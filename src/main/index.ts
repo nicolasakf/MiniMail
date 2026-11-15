@@ -25,6 +25,9 @@ import { LogoCache } from "./logos/logo-cache";
 import { LogoService } from "./logos/logo-service";
 import { LogoSettingsStore } from "./logos/logo-settings";
 import { safeFetch } from "./logos/net-guard";
+import { registerComposerWindows } from "./composer-windows";
+import { ComposeDelivery } from "./compose-delivery";
+import { ComposeLibraryStore } from "./compose-library";
 import { DraftStore } from "./draft-store";
 import { NotificationSettingsStore } from "./notification-settings";
 import { Notifier } from "./notifier";
@@ -59,6 +62,7 @@ let categoryStore: CategoryStore | null = null;
 let mailCache: MailCache | null = null;
 let logoCache: LogoCache | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
+let delivery: ComposeDelivery | null = null;
 let notifier: Notifier | null = null;
 let attachmentFiles: AttachmentFiles | null = null;
 /** Notifications on screen; Electron drops the click handler of one that is garbage collected. */
@@ -76,6 +80,21 @@ async function openExternalSafely(url: string): Promise<void> {
     throw new Error(`Refusing to open a ${protocol} link.`);
   }
   await shell.openExternal(url);
+}
+
+function protectNavigation(window: BrowserWindow): void {
+  // Links inside the app (or in rendered emails) go to the real browser, never a new Electron window.
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalSafely(url).catch(() => undefined);
+    return { action: "deny" };
+  });
+  window.webContents.on("will-navigate", (event, url) => {
+    const isAppUrl = rendererUrl ? url.startsWith(rendererUrl) : url.startsWith("file://");
+    if (!isAppUrl) {
+      event.preventDefault();
+      openExternalSafely(url).catch(() => undefined);
+    }
+  });
 }
 
 function createWindow(): void {
@@ -114,18 +133,7 @@ function createWindow(): void {
     if (mainWindow === window) mainWindow = null;
   });
 
-  // Links inside the app (or in rendered emails) go to the real browser, never a new Electron window.
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalSafely(url).catch(() => undefined);
-    return { action: "deny" };
-  });
-  window.webContents.on("will-navigate", (event, url) => {
-    const isAppUrl = rendererUrl ? url.startsWith(rendererUrl) : url.startsWith("file://");
-    if (!isAppUrl) {
-      event.preventDefault();
-      openExternalSafely(url).catch(() => undefined);
-    }
-  });
+  protectNavigation(window);
 
   if (rendererUrl) {
     void window.loadURL(rendererUrl);
@@ -263,6 +271,17 @@ if (!app.requestSingleInstanceLock()) {
       setBadge: setDockBadge,
       show: showNotification,
     });
+    const drafts = new DraftStore(join(userData, "drafts.json"), safeStorage);
+    delivery = new ComposeDelivery(
+      join(userData, "compose-delivery.json"), safeStorage, (draft) => service!.send(draft),
+      (record) => { drafts.save({ ...record, savedAt: new Date().toISOString(), sendAt: undefined }); },
+      (id) => { drafts.remove(id); },
+      (title, body) => showNotification({ title, body, silent: false }),
+      () => {
+        for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.draftsChanged);
+        mainWindow?.webContents.send(IPC.mailChanged);
+      },
+    );
     registerIpc({
       service,
       attachmentFiles,
@@ -274,18 +293,22 @@ if (!app.requestSingleInstanceLock()) {
       logos,
       logoSettings,
       trusted: new TrustedSenders(join(userData, "trusted-senders.json"), safeStorage),
-      drafts: new DraftStore(join(userData, "drafts.json"), safeStorage),
+      composeLibrary: new ComposeLibraryStore(join(userData, "compose-library.json"), safeStorage),
+      drafts,
+      delivery,
       prefs: new UiPrefsStore(join(userData, "ui-prefs.json")),
       oauthConfig,
       rendererUrl,
       openExternal: openExternalSafely,
     });
 
+    registerComposerWindows(() => mainWindow, rendererUrl, protectNavigation);
     createWindow();
     startPolling();
+    delivery.start();
 
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      if (!mainWindow) createWindow();
     });
   });
 
@@ -293,7 +316,8 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== "darwin") app.quit();
   });
 
-  app.on("before-quit", () => {
+  app.on("will-quit", () => {
+    delivery?.stop();
     if (pollTimer) clearInterval(pollTimer);
     setDockBadge(0);
     categoryStore?.flush();

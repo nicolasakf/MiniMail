@@ -59,6 +59,16 @@ describe("DraftStore", () => {
     expect(readFileSync(file, "utf8")).not.toContain("secret plans");
   });
 
+  it("restores formatted bodies and attachments when the app reopens", () => {
+    const rich = {
+      ...draft("rich"),
+      bodyHtml: "<p><strong>Hello there</strong></p>",
+      attachments: [{ filename: "hello.txt", contentType: "text/plain", contentBase64: "aGVsbG8=" }],
+    };
+    new DraftStore(file, fakeCipher()).save(rich);
+    expect(new DraftStore(file, fakeCipher()).list()).toEqual([rich]);
+  });
+
   it("replaces a draft with the same id and lists the newest first", () => {
     const store = new DraftStore(file, fakeCipher());
     store.save(draft("a", "2026-11-01T10:00:00.000Z"));

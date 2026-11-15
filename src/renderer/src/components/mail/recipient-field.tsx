@@ -153,7 +153,11 @@ export function RecipientField({
         }
         return;
       case "Escape":
-        if (open) setDismissed(true);
+        // Closing the suggestions is all this Esc does; the composer around it must not also close.
+        if (open) {
+          event.preventDefault();
+          setDismissed(true);
+        }
         return;
       case "Backspace":
         if (text === "" && value.length > 0) {
@@ -181,7 +185,7 @@ export function RecipientField({
           tabIndex={0}
           title={contact.email}
           aria-label={`${contactLabel(contact)} <${contact.email}>. Press Backspace to remove.`}
-          className="corner-squircle group/chip inline-flex h-7 max-w-[260px] items-center gap-1.5 rounded-lg border border-border bg-muted/60 pl-1 pr-1.5 text-sm outline-none focus-visible:border-sidebar-ring focus-visible:bg-sidebar-primary/20"
+          className="corner-squircle group/chip inline-flex h-7 max-w-[260px] items-center gap-1.5 rounded-full bg-muted pl-1 pr-1.5 text-[13px] outline-none transition-colors focus-visible:bg-sidebar-primary/25 focus-visible:ring-1 focus-visible:ring-sidebar-ring"
           onKeyDown={(event) => {
             if (event.key === "Backspace" || event.key === "Delete") {
               event.preventDefault();
@@ -249,7 +253,7 @@ export function RecipientField({
           id={listId}
           role="listbox"
           aria-label={`${label} suggestions`}
-          className="corner-squircle absolute left-0 top-full z-50 mt-1 max-h-64 w-full min-w-[280px] overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+          className="corner-squircle absolute left-0 top-full z-50 mt-1 max-h-64 w-full min-w-[280px] overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl"
         >
           {suggestions.map((entry, index) => {
             const contact = { name: entry.name, email: entry.email };

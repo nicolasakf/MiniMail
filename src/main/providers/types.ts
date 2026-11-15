@@ -2,6 +2,7 @@ import type {
   Draft,
   InvitationResponse,
   MailAction,
+  MailActionResult,
   MailFolder,
   MessageDetail,
   MessageSummary,
@@ -22,7 +23,7 @@ export interface MailProvider {
   /** The last list seen for this folder, without touching the network. Providers with no copy omit it. */
   cached?(folder: MailFolder): MessageSummary[];
   get(folder: MailFolder, nativeIds: string[]): Promise<MessageDetail[]>;
-  act(action: MailAction, folder: MailFolder, nativeIds: string[]): Promise<void>;
+  act(action: MailAction, folder: MailFolder, nativeIds: string[]): Promise<MailActionResult[]>;
   send(draft: Draft): Promise<void>;
   /** Downloads one attachment of a message, named by the `id` in its `AttachmentInfo`. */
   attachment(folder: MailFolder, nativeId: string, attachmentId: string): Promise<AttachmentFile>;

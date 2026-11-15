@@ -1,3 +1,4 @@
+import type { ComposeLibrary } from "./compose-library";
 import type { ImapSettings } from "./imap-settings";
 import type {
   Account,
@@ -9,8 +10,10 @@ import type {
   ListQuery,
   ListResult,
   MailAction,
+  MailActionResult,
   MessageDetail,
   SavedDraft,
+  ScheduledMessage,
   UiPrefs,
   SortCounts,
   SortFolder,
@@ -48,7 +51,7 @@ export interface MiniMailApi {
   mail: {
     list(query: ListQuery): Promise<ListResult>;
     get(ids: string[]): Promise<MessageDetail[]>;
-    act(action: MailAction, ids: string[]): Promise<void>;
+    act(action: MailAction, ids: string[]): Promise<MailActionResult[]>;
     send(draft: Draft): Promise<void>;
     /**
      * One-time codes in verification mail, by message id: the code, or null when there is none.
@@ -97,7 +100,24 @@ export interface MiniMailApi {
     trust(email: string): Promise<string[]>;
     untrust(email: string): Promise<string[]>;
   };
+  composeLibrary: {
+    get(): Promise<ComposeLibrary>;
+    set(value: ComposeLibrary): Promise<ComposeLibrary>;
+  };
+  delivery: {
+    list(): Promise<ScheduledMessage[]>;
+    schedule(record: SavedDraft, draft: Draft, sendAt: number): Promise<void>;
+    cancel(id: string): Promise<void>;
+  };
+  composerWindow: {
+    open(draft: SavedDraft): Promise<void>;
+    focus(draftId: string): Promise<boolean>;
+    initialDraft(): Promise<SavedDraft | null>;
+    finish(): Promise<void>;
+    onCloseRequested(listener: () => void): () => void;
+  };
   drafts: {
+    onChanged(listener: () => void): () => void;
     /** Drafts kept on this computer, most recently saved first. */
     list(): Promise<SavedDraft[]>;
     /** Writes the draft to disk (replacing the one with the same id); rejects if it could not be saved. */

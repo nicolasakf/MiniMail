@@ -1,6 +1,7 @@
-import { ipcMain, type IpcMainInvokeEvent } from "electron";
+import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { z } from "zod";
 
+import { composeLibrarySchema } from "@shared/compose-library";
 import { IPC } from "@shared/ipc";
 import {
   actionSchema,
@@ -27,12 +28,15 @@ import {
   savedDraftSchema,
   uiPrefsPatchSchema,
 } from "@shared/schemas";
+import { MOVE_DESTINATION } from "@shared/threads";
 import type { MailAction } from "@shared/types";
 
 import type { AiSettingsStore } from "./ai-settings";
 import { discoverAccountProvider, discoverImapSettings } from "./account-discovery";
 import type { AttachmentFiles } from "./attachment-files";
 import type { Categorizer } from "./categorizer";
+import type { ComposeDelivery } from "./compose-delivery";
+import type { ComposeLibraryStore } from "./compose-library";
 import type { DraftStore } from "./draft-store";
 import type { UiPrefsStore } from "./ui-prefs";
 import type { VerificationCodes } from "./verification-codes";
@@ -65,13 +69,15 @@ export function registerIpc(options: {
   logos: LogoService;
   logoSettings: LogoSettingsStore;
   trusted: TrustedSenders;
+  delivery: ComposeDelivery;
+  composeLibrary: ComposeLibraryStore;
   drafts: DraftStore;
   prefs: UiPrefsStore;
   oauthConfig: OAuthConfig;
   rendererUrl: string | undefined;
   openExternal: (url: string) => Promise<void>;
 }): void {
-  const { service, attachmentFiles, notifier, notificationSettings, categorizer, aiSettings, codes, logos, logoSettings, trusted, drafts, prefs, oauthConfig, rendererUrl, openExternal } = options;
+  const { service, attachmentFiles, notifier, notificationSettings, categorizer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, oauthConfig, rendererUrl, openExternal } = options;
 
   const handle = <Args extends unknown[], Result>(
     channel: string,
@@ -102,10 +108,18 @@ export function registerIpc(options: {
   handle(IPC.mailList, (query: unknown) => service.list(listQuerySchema.parse(query)));
   handle(IPC.mailGet, (ids: unknown) => service.get(idsSchema.parse(ids)));
   handle(IPC.mailAct, async (action: unknown, ids: unknown) => {
-    await service.act(actionSchema.parse(action) as MailAction, idsSchema.parse(ids));
-    notifier.userMoved(); // Mail the user filed away must not announce itself in its new folder.
+    const parsed = actionSchema.parse(action) as MailAction;
+    const targets = idsSchema.parse(ids);
+    const results = await service.act(parsed, targets);
+    if (MOVE_DESTINATION[parsed] && results.some((result) => result.status === "applied")) notifier.userMoved();
+    return results;
   });
   handle(IPC.mailSend, (draft: unknown) => service.send(draftSchema.parse(draft)));
+  handle(IPC.deliveryList, () => delivery.list());
+  handle(IPC.deliverySchedule, (record: unknown, draft: unknown, when: unknown) => {
+    delivery.schedule(savedDraftSchema.parse(record), draftSchema.parse(draft), z.number().int().positive().parse(when));
+  });
+  handle(IPC.deliveryCancel, (id: unknown) => delivery.cancel(draftIdSchema.parse(id)));
   handle(IPC.mailOpenAttachment, (messageId: unknown, attachmentId: unknown) => {
     const ref = attachmentRefSchema.parse({ messageId, attachmentId });
     return service.attachment(ref.messageId, ref.attachmentId).then((file) => attachmentFiles.open(file));
@@ -151,9 +165,22 @@ export function registerIpc(options: {
   handle(IPC.sendersTrusted, () => trusted.list());
   handle(IPC.sendersTrust, (email: unknown) => trusted.add(senderEmail.parse(email)));
   handle(IPC.sendersUntrust, (email: unknown) => trusted.remove(senderEmail.parse(email)));
+  handle(IPC.composeLibraryGet, () => composeLibrary.get());
+  handle(IPC.composeLibrarySet, (value: unknown) => composeLibrary.set(composeLibrarySchema.parse(value)));
   handle(IPC.draftsList, () => drafts.list());
-  handle(IPC.draftsSave, (draft: unknown) => drafts.save(savedDraftSchema.parse(draft)));
-  handle(IPC.draftsDelete, (id: unknown) => drafts.remove(draftIdSchema.parse(id)));
+  const publishDrafts = () => {
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.draftsChanged);
+  };
+  handle(IPC.draftsSave, (draft: unknown) => {
+    const list = drafts.save(savedDraftSchema.parse(draft));
+    publishDrafts();
+    return list;
+  });
+  handle(IPC.draftsDelete, (id: unknown) => {
+    const list = drafts.remove(draftIdSchema.parse(id));
+    publishDrafts();
+    return list;
+  });
   handle(IPC.prefsGet, () => prefs.get());
   handle(IPC.prefsSet, (patch: unknown) => prefs.set(uiPrefsPatchSchema.parse(patch)));
   handle(IPC.logosGet, (requests: unknown) => logos.get(logoRequestsSchema.parse(requests)));

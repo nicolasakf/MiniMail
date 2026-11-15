@@ -56,7 +56,7 @@ export function LocalDrafts({ drafts, onOpen }: LocalDraftsProps) {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Delete draft</TooltipContent>
               </Tooltip>
-              <span className="text-[11px] font-semibold text-muted-foreground group-hover:hidden">
+              <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-muted-foreground group-hover:hidden">
                 {formatListTime(draft.savedAt)}
               </span>
             </div>

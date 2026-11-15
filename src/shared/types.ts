@@ -173,6 +173,8 @@ export interface MessageSummary {
   accountId: string;
   folder: MailFolder;
   threadId: string;
+  /** RFC Message-ID, when available. It can help recognize a server-side move. */
+  internetId?: string;
   from: Contact;
   to: Contact[];
   subject: string;
@@ -252,6 +254,10 @@ export type MailAction =
   | "unpin"
   | "deleteForever";
 
+export type MailActionResult =
+  | { id: string; status: "applied"; nextId?: string }
+  | { id: string; status: "failed" | "unknown"; error: string };
+
 export interface ListQuery {
   /** Empty or omitted means every account. */
   accountIds?: string[];
@@ -269,10 +275,14 @@ export interface DraftAttachment {
   filename: string;
   contentType: string;
   contentBase64: string;
+  /** Present for an inline image referenced by the HTML body. */
+  contentId?: string;
 }
 
 /** Largest total size of the files attached to one message. */
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+export const MAX_DRAFT_ATTACHMENTS = 25;
+export const MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024;
 
 export interface Draft {
   accountId: string;
@@ -281,9 +291,18 @@ export interface Draft {
   bcc: Contact[];
   subject: string;
   text: string;
+  html?: string;
   attachments?: DraftAttachment[];
   /** Present when replying/forwarding, so providers can thread the message. */
   inReplyTo?: { messageId: string; nativeId: string; references: string[]; mode: "reply" | "replyAll" | "forward" };
+}
+
+export interface ScheduledMessage {
+  id: string;
+  subject: string;
+  accountId: string;
+  sendAt: number;
+  status: "scheduled" | "sending" | "needsReview";
 }
 
 export type ComposeMode = "new" | "reply" | "replyAll" | "forward";
@@ -305,6 +324,9 @@ export interface SavedDraft {
   pendingText: { to: string; cc: string; bcc: string };
   subject: string;
   body: string;
+  bodyHtml?: string;
+  sendAt?: number;
+  attachments?: DraftAttachment[];
   quoted?: string;
   inReplyTo?: Draft["inReplyTo"];
 }

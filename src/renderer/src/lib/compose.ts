@@ -1,4 +1,4 @@
-import type { Account, ComposeMode, Contact, Draft, MessageDetail } from "@shared/types";
+import type { Account, ComposeMode, Contact, Draft, DraftAttachment, MessageDetail } from "@shared/types";
 
 import { contactLabel, formatFullDate } from "./format";
 
@@ -18,6 +18,9 @@ export interface ComposeSeed {
   subject: string;
   /** What the user types; empty for a reply, whose quoted original lives in `quoted`. */
   body: string;
+  bodyHtml?: string;
+  sendAt?: number;
+  attachments?: DraftAttachment[];
   /** The quoted original of a reply, kept apart so it can stay collapsed under the reply. */
   quoted?: string;
   inReplyTo?: Draft["inReplyTo"];

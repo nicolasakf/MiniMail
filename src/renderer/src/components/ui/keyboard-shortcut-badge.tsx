@@ -2,6 +2,8 @@ import React from "react";
 
 import { cn } from "@/lib/utils";
 
+import { CmdOrCtrl, Enter } from "./keyboard-icons";
+
 export type ShortcutElement = string | React.ComponentType<{ className?: string }>;
 export type ShortcutSequence = ShortcutElement | ShortcutElement[];
 
@@ -61,4 +63,22 @@ export function KeyboardShortcutBadge({
       {renderShortcutSequence(sequence, iconClassName)}
     </kbd>
   );
+}
+
+/**
+ * Turns a plain-text hint ("U", "A A", "Esc", "↵", "⌘K", "Ctrl+2") into badge keys: the command key
+ * becomes the platform's icon or "Ctrl", and each space-separated part is its own key.
+ */
+export function shortcutSequence(hint: string): ShortcutElement[] {
+  return hint.split(/\s+/).filter(Boolean).flatMap((part): ShortcutElement[] => {
+    if (part === "↵") return [Enter];
+    if (part.startsWith("⌘")) return part.length > 1 ? [CmdOrCtrl, part.slice(1)] : [CmdOrCtrl];
+    if (/^ctrl\+./i.test(part)) return [CmdOrCtrl, part.slice(5)];
+    return [part];
+  });
+}
+
+/** A tooltip's shortcut: the badge for a plain-text hint, set apart from the tooltip text. */
+export function ShortcutHint({ hint, className }: { hint: string; className?: string }) {
+  return <KeyboardShortcutBadge className={cn("ml-2 align-middle", className)} sequence={shortcutSequence(hint)} />;
 }
