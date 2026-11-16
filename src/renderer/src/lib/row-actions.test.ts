@@ -4,7 +4,8 @@ import type { MailFolder } from "@shared/types";
 
 import { actionsForThread, rowHoverActions } from "./row-actions";
 
-const thread = { pinned: false, unread: false } as Parameters<typeof actionsForThread>[1];
+const thread = { pinned: false, unread: false, latest: { id: "acc|drafts|1" } } as Parameters<typeof actionsForThread>[1];
+const localDraft = { pinned: false, unread: false, latest: { id: "local-draft:d1" } } as Parameters<typeof actionsForThread>[1];
 const names = (folder: MailFolder) => actionsForThread(folder, thread).map((entry) => entry.action);
 
 describe("actionsForThread", () => {
@@ -28,5 +29,15 @@ describe("actionsForThread", () => {
       const hover = rowHoverActions(folder, thread).map((entry) => entry.action);
       expect(hover).toEqual(names(folder).filter((a) => a !== "markUnread" && a !== "deleteForever"));
     }
+  });
+
+  it("gives every draft, on the server or only here, just Pin and Delete", () => {
+    const pinned = { ...thread, pinned: true } as typeof thread;
+    for (const draft of [thread, localDraft]) {
+      expect(actionsForThread("drafts", draft).map((entry) => entry.action)).toEqual(["pin", "trash"]);
+      expect(rowHoverActions("drafts", draft).map((entry) => entry.action)).toEqual(["pin", "trash"]);
+    }
+    expect(actionsForThread("drafts", pinned).map((entry) => entry.action)).toEqual(["unpin", "trash"]);
+    expect(actionsForThread("drafts", thread)[1]).toMatchObject({ label: "Delete draft" });
   });
 });

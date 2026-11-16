@@ -14,6 +14,8 @@ import {
 import { MOVE_FOLDERS, type Thread } from "@shared/threads";
 import type { MailAction, MailFolder } from "@shared/types";
 
+import { isLocalDraftThread } from "./local-drafts";
+
 export interface RowAction {
   action: MailAction;
   label: string;
@@ -55,6 +57,7 @@ const MOVE_HINTS: Record<MoveTarget, string> = {
  * everywhere actions are listed.
  */
 export function actionsForThread(folder: MailFolder, thread: Thread): RowAction[] {
+  if (folder === "drafts" || isLocalDraftThread(thread)) return [pinAction(thread), DELETE_DRAFT];
   const moves = moveTargets(folder).map((target) => ({ ...MOVE_TARGETS[target], hint: MOVE_HINTS[target] }));
   const toggles: RowAction[] = [
     thread.pinned
@@ -72,6 +75,20 @@ export function actionsForThread(folder: MailFolder, thread: Thread): RowAction[
   return actions;
 }
 
+/**
+ * A draft is unfinished mail, not something to file: archiving only hides it and it is never
+ * unread. What is left is to pin it, to keep it at the top of Drafts (a pin is kept on this
+ * computer only, so it works the same for a draft on the server and one written here), and to
+ * delete it.
+ */
+const pinAction = (thread: Pick<Thread, "pinned">): RowAction =>
+  thread.pinned
+    ? { action: "unpin", label: "Unpin", icon: PinOff, hint: "P" }
+    : { action: "pin", label: "Pin", icon: Pin, hint: "P" };
+
+/** Delete: a draft written here is removed from this computer, one on the server goes to its Trash. */
+export const DELETE_DRAFT: RowAction = { action: "trash", label: "Delete draft", icon: Trash2, hint: "D D" };
+
 const MOVE_TARGETS: Record<(typeof MOVE_FOLDERS)[number], Omit<RowAction, "hint">> = {
   inbox: { action: "unarchive", label: "Move to Inbox", icon: Inbox },
   archive: { action: "archive", label: "Archive", icon: Archive },
@@ -83,7 +100,8 @@ const MOVE_TARGETS: Record<(typeof MOVE_FOLDERS)[number], Omit<RowAction, "hint"
  * The buttons shown on a row under the pointer, whatever folder it is in: Pin, then a move to
  * each of the other folders (Inbox, Archive, Trash, Spam).
  */
-export function rowHoverActions(folder: MailFolder, thread: Pick<Thread, "pinned">): RowAction[] {
+export function rowHoverActions(folder: MailFolder, thread: Pick<Thread, "pinned" | "latest">): RowAction[] {
+  if (folder === "drafts" || isLocalDraftThread(thread)) return [pinAction(thread), DELETE_DRAFT];
   return [
     thread.pinned
       ? { action: "unpin", label: "Unpin", icon: PinOff, hint: "P" }
