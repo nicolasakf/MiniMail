@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { Account, MessageDetail, MessageSummary } from "@shared/types";
 
 import { buildReplySeed, composeText, formatRecipients, parseRecipients } from "./compose";
-import { formatListTime, initialsOf, normalizeSubject, senderHue } from "./format";
+import { groupThreads } from "@shared/threads";
+
+import { formatListTime, initialsOf, normalizeSubject, senderHue, threadContacts } from "./format";
 import { applyOptimistic } from "./optimistic";
 
 function summary(id: string, overrides: Partial<MessageSummary> = {}): MessageSummary {
@@ -145,5 +147,22 @@ describe("format helpers", () => {
     expect(initialsOf({ name: "Samantha Reed", email: "s@x.com" })).toBe("SR");
     expect(initialsOf({ name: "", email: "yunwei@x.com" })).toBe("Y");
     expect(senderHue("a@x.com")).toBe(senderHue("a@x.com"));
+  });
+});
+
+describe("threadContacts", () => {
+  const at = (hour: number) => new Date(2026, 10, 9, hour).toISOString();
+  it("lists everyone who wrote, newest first, without the user's own addresses", () => {
+    const [thread] = groupThreads([
+      summary("1", { threadId: "t", from: { name: "Ann", email: "ann@a.com" }, date: at(9) }),
+      summary("2", { threadId: "t", from: { name: "Me", email: "me@x.com" }, date: at(10) }),
+      summary("3", { threadId: "t", from: { name: "Bob", email: "BOB@b.com" }, date: at(11) }),
+      summary("4", { threadId: "t", from: { name: "Ann again", email: "ann@a.com" }, date: at(12) }),
+    ]);
+    expect(threadContacts(thread!, ["Me@x.com"]).map((c) => c.email)).toEqual(["ann@a.com", "BOB@b.com"]);
+  });
+  it("falls back to the newest sender when only the user wrote", () => {
+    const [thread] = groupThreads([summary("1", { from: { name: "Me", email: "me@x.com" } })]);
+    expect(threadContacts(thread!, ["me@x.com"]).map((c) => c.email)).toEqual(["me@x.com"]);
   });
 });

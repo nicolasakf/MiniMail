@@ -98,6 +98,21 @@ export function threadSenderLabel(thread: Thread, folder: MailFolder): string {
   return people.length > 3 ? `${names.join(", ")} +${people.length - 3}` : names.join(", ");
 }
 
+/**
+ * The people a conversation is with: everyone who wrote in it, newest first, the user's own
+ * addresses left out. A conversation with nobody else (only the user wrote) falls back to its
+ * newest sender.
+ */
+export function threadContacts(thread: Thread, own: readonly string[]): Contact[] {
+  const mine = new Set(own.map((email) => email.trim().toLowerCase()));
+  const seen = new Map<string, Contact>();
+  for (const message of [...thread.messages].reverse()) {
+    const key = message.from.email.trim().toLowerCase();
+    if (key && !mine.has(key) && !seen.has(key)) seen.set(key, message.from);
+  }
+  return seen.size > 0 ? [...seen.values()] : [thread.latest.from];
+}
+
 /** The account a message belongs to, for tinting and labels. */
 export function accountFor(accounts: readonly Account[], accountId: string): Account | undefined {
   return accounts.find((account) => account.id === accountId);
