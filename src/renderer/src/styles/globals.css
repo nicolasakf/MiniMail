@@ -55,6 +55,22 @@ body,
   }
 }
 
+/*
+ * Sonner styles its action/cancel buttons with `[data-sonner-toast][data-styled='true']
+ * [data-button] { border-radius: 4px }`, which out-ranks `.corner-squircle`. Match it
+ * with one more class so toast buttons get the same squircle as every other button.
+ */
+.toaster [data-sonner-toast][data-styled='true'] [data-button] {
+  border-radius: 0.5rem;
+}
+
+@supports (corner-shape: squircle) {
+  .toaster [data-sonner-toast][data-styled='true'] [data-button] {
+    corner-shape: squircle;
+    border-radius: 1.8rem;
+  }
+}
+
 @layer base {
   :root {
     --font-sans: "Saira", ui-sans-serif, system-ui, sans-serif;
