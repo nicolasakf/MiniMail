@@ -6,3 +6,6 @@
  */
 export const HOVER_ON_TINT =
   "group-data-[tinted]:hover:bg-white/50 dark:group-data-[tinted]:hover:bg-white/15";
+
+/** The light red a blocked sender's name is shown in, wherever senders are listed. */
+export const BLOCKED_TEXT = "text-red-400 dark:text-red-400";
