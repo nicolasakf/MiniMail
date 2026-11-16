@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
-import { Check } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -77,9 +76,6 @@ export function SettingsVisualField<T extends string>({
               <span className="block text-xs font-medium">{option.label}</span>
               {option.description && <span className="block text-[11px] text-muted-foreground">{option.description}</span>}
             </span>
-            <RadioGroupPrimitive.Indicator className="flex size-4 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
-              <Check className="size-3" strokeWidth={3} />
-            </RadioGroupPrimitive.Indicator>
           </span>
         </RadioGroupPrimitive.Item>
       ))}
@@ -94,8 +90,8 @@ interface VisualToggleProps {
   /** Miniature and caption of the setting when it is on, and when it is off. */
   on: { label: string; preview: ReactNode };
   off: { label: string; preview: ReactNode };
-  /** "wide" by default; "regular" for a miniature of the whole window. */
-  size?: "regular" | "wide";
+  /** "wide" by default; "compact" or "regular" for a miniature of the whole window. */
+  size?: "compact" | "regular" | "wide";
   onCheckedChange: (checked: boolean) => void;
 }
 
@@ -152,5 +148,63 @@ export function SettingsTileField<T extends string>({ ariaLabel, value, options,
         </RadioGroupPrimitive.Item>
       ))}
     </RadioGroupPrimitive.Root>
+  );
+}
+
+interface MultiTileFieldProps<T extends string> {
+  ariaLabel: string;
+  values: readonly T[];
+  disabled?: boolean;
+  options: readonly {
+    value: T;
+    label: string;
+    /** Said on hover and to screen readers. */
+    description?: string;
+    /** Drawn in the tile's text colour, so it follows the tint. */
+    content: ReactNode;
+    /** Background and text colours of the tile while it is on; a primary tint when omitted. */
+    activeClassName?: string;
+  }[];
+  onToggle: (value: T, on: boolean) => void;
+}
+
+/** SettingsTileField for choices that can be on together: each tile switches on and off by itself. */
+export function SettingsMultiTileField<T extends string>({
+  ariaLabel,
+  values,
+  disabled,
+  options,
+  onToggle,
+}: MultiTileFieldProps<T>) {
+  return (
+    <div role="group" aria-label={ariaLabel} className="flex gap-1">
+      {options.map((option) => {
+        const checked = values.includes(option.value);
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={checked}
+            disabled={disabled}
+            title={option.description}
+            onClick={() => onToggle(option.value, !checked)}
+            className="group flex w-16 flex-col items-center gap-1 rounded-md focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <span
+              className={cn(
+                "corner-squircle flex size-14 items-center justify-center rounded-md transition-colors",
+                "group-focus-visible:ring-2 group-focus-visible:ring-ring",
+                checked
+                  ? (option.activeClassName ?? "bg-primary/15 text-primary")
+                  : "bg-muted/40 text-muted-foreground group-enabled:group-hover:bg-accent/60",
+              )}
+            >
+              {option.content}
+            </span>
+            <span className="text-xs font-medium leading-none">{option.label}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
