@@ -153,9 +153,16 @@ function buildChips(threads: readonly Thread[]): SenderChip[] {
  * Plain date-sectioned list used for every folder except the Inbox: no grouping,
  * just threads newest first under Today / Yesterday / Last Week / month headers.
  */
-export function buildFlatList(threads: readonly Thread[], now: Date): ListItem[] {
+export function buildFlatList(
+  threads: readonly Thread[],
+  now: Date,
+  /** Set to put pinned conversations under a collapsible "Pinned" heading before the date sections. */
+  options: { pinnedSection?: { collapsed: boolean } } = {},
+): ListItem[] {
+  const { pinnedSection } = options;
+  const pinned = pinnedSection ? threads.filter((thread) => thread.pinned) : [];
   const sections = new Map<string, { section: Section; items: ListItem[] }>();
-  for (const thread of threads) {
+  for (const thread of pinnedSection ? threads.filter((thread) => !thread.pinned) : threads) {
     const section = sectionFor(thread.latest.date, now);
     let bucket = sections.get(section.key);
     if (!bucket) {
@@ -166,6 +173,17 @@ export function buildFlatList(threads: readonly Thread[], now: Date): ListItem[]
   }
 
   const result: ListItem[] = [];
+  if (pinnedSection && pinned.length > 0) {
+    result.push({
+      type: "section",
+      key: PINNED_SECTION,
+      label: "Pinned",
+      collapsible: { collapsed: pinnedSection.collapsed, count: pinned.length },
+    });
+    if (!pinnedSection.collapsed) {
+      for (const thread of pinned) result.push({ type: "thread", key: thread.id, thread });
+    }
+  }
   const ordered = [...sections.values()].sort((a, b) => a.section.order - b.section.order);
   for (const { section, items } of ordered) {
     result.push({ type: "section", key: `section:${section.key}`, label: section.label });
