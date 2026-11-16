@@ -7,9 +7,11 @@ import { ColorPicker } from "@/components/ui/color-picker";
 import { Separator } from "@/components/ui/separator";
 import { useLogoSettings } from "@/hooks/use-logo-settings";
 import { DEFAULT_ACCENT_COLOR, EMAIL_WIDTH_REM, setAppearance, useAppearance, type EmailWidth, type TextSize } from "@/lib/appearance";
+import type { EmailBackground } from "@/lib/email-html";
 
 import {
   CategoryLayoutPreview,
+  EmailBackgroundSample,
   EmailWidthSample,
   PreviewsPreview,
   SenderPicturesPreview,
@@ -34,6 +36,11 @@ const EMAIL_WIDTHS: { value: EmailWidth; label: string }[] = [
   { value: "wider", label: "Wider" },
 ];
 
+const EMAIL_BACKGROUNDS: { value: EmailBackground; label: string; caption: string }[] = [
+  { value: "white", label: "White", caption: "Always" },
+  { value: "theme", label: "Theme", caption: "Beta" },
+];
+
 /** Swatches offered under the picker; the first is the built-in blue. */
 const ACCENT_PRESETS = [
   DEFAULT_ACCENT_COLOR,
@@ -51,7 +58,7 @@ const ACCENT_PRESETS = [
 /** Theme, highlight color, text size, what lists show and which sender pictures are looked up. */
 export function AppearanceTab() {
   const { theme, setTheme } = useTheme();
-  const { textSize, showPreviews, categoryLayout, splitView, accentColor, emailWidth } = useAppearance();
+  const { textSize, showPreviews, categoryLayout, splitView, accentColor, emailWidth, emailBackground } = useAppearance();
   // The picker opens inside this page so the settings dialog's focus trap lets you type in its hex field.
   const [pickerContainer, setPickerContainer] = useState<HTMLDivElement | null>(null);
   const { settings: logoSettings, update: updateLogoSettings } = useLogoSettings();
@@ -152,41 +159,69 @@ export function AppearanceTab() {
 
         <Separator />
 
-        <section className="max-w-2xl space-y-3">
-          <SettingsSectionTitle title="Lists" />
-          <div className="space-y-2">
-            <SettingsLabel label="Split view" info="Click a conversation to read it beside the list, without opening it full screen." />
+        <section className="max-w-2xl">
+          <SettingsRow
+            label="Email background"
+            info="In the dark and dimmed themes, emails that come with their own dark design always use it. For the rest, keep them on white, or recolor them to the theme (experimental: brand colors can shift)."
+          >
+            <SettingsTileField
+              ariaLabel="Email background"
+              value={emailBackground}
+              options={EMAIL_BACKGROUNDS.map(({ value, label, caption }) => ({
+                value,
+                label,
+                caption,
+                content: <EmailBackgroundSample background={value} />,
+              }))}
+              onValueChange={(next) => setAppearance({ emailBackground: next })}
+            />
+          </SettingsRow>
+        </section>
+
+        <Separator />
+
+        <section className="max-w-2xl">
+          <SettingsRow
+            label="Split view"
+            info="Click a conversation to read it beside the list, without opening it full screen."
+          >
             <SettingsVisualToggle
               ariaLabel="Split view"
-              size="regular"
+              size="compact"
               checked={splitView}
               onCheckedChange={(next) => setAppearance({ splitView: next })}
               on={{ label: "Beside the list", preview: <SplitViewPreview split /> }}
               off={{ label: "Full screen", preview: <SplitViewPreview split={false} /> }}
             />
-          </div>
-          <div className="space-y-2">
-            <SettingsLabel
-              label="Category layout"
-              info="How the Smart view shows your categories. Horizontal is one row per category; Vertical is a grid of cards, each listing its senders."
-            />
+          </SettingsRow>
+        </section>
+
+        <Separator />
+
+        <section className="max-w-2xl">
+          <SettingsRow
+            label="Category layout"
+            info="How the Smart view shows your categories. Horizontal is one row per category; Vertical is a grid of cards, each listing its senders."
+            description={splitView ? "Always horizontal in the split view." : undefined}
+          >
             <SettingsVisualField
               ariaLabel="Category layout"
               value={splitView ? "horizontal" : categoryLayout}
               disabled={splitView}
-              size="regular"
+              size="compact"
               options={[
                 { value: "horizontal", label: "Horizontal", preview: <CategoryLayoutPreview layout="horizontal" /> },
                 { value: "vertical", label: "Vertical", preview: <CategoryLayoutPreview layout="vertical" /> },
               ]}
               onValueChange={(next) => setAppearance({ categoryLayout: next })}
             />
-            {splitView && (
-              <p className="text-xs text-muted-foreground">Categories are always horizontal in the split view.</p>
-            )}
-          </div>
-          <div className="space-y-2">
-            <SettingsLabel label="Message previews" info="The first words of each message after its subject." />
+          </SettingsRow>
+        </section>
+
+        <Separator />
+
+        <section className="max-w-2xl">
+          <SettingsRow label="Message previews" info="The first words of each message after its subject.">
             <SettingsVisualToggle
               ariaLabel="Show message previews"
               checked={showPreviews}
@@ -194,7 +229,7 @@ export function AppearanceTab() {
               on={{ label: "With previews", preview: <PreviewsPreview shown /> }}
               off={{ label: "Subject only", preview: <PreviewsPreview shown={false} /> }}
             />
-          </div>
+          </SettingsRow>
         </section>
 
         <Separator />

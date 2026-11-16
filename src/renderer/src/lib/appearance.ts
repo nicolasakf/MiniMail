@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 import { hexToHslTriple, normalizeHexColor, readableTextOn } from "./color";
+import { EMAIL_BACKGROUNDS, type EmailBackground } from "./email-html";
 
 /**
  * Display choices that belong to this computer and need no round trip to the main process: how
@@ -48,6 +49,8 @@ export interface Appearance {
   accentColor: string | null;
   /** The widest the email column grows when reading a conversation. */
   emailWidth: EmailWidth;
+  /** In dark themes, whether messages without dark styling stay on white or are recolored to the theme. */
+  emailBackground: EmailBackground;
 }
 
 /** The built-in highlight blue, as the picker shows it (the light theme's selection blue). */
@@ -61,6 +64,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   splitListWidth: 400,
   accentColor: null,
   emailWidth: "default",
+  emailBackground: "white",
 };
 
 /** The layout lists actually use: the split view has no room for a grid of cards, so it is always horizontal. */
@@ -86,6 +90,9 @@ function read(): Appearance {
           : DEFAULT_APPEARANCE.splitListWidth,
       accentColor: typeof saved.accentColor === "string" ? normalizeHexColor(saved.accentColor) : DEFAULT_APPEARANCE.accentColor,
       emailWidth: EMAIL_WIDTHS.includes(saved.emailWidth as EmailWidth) ? (saved.emailWidth as EmailWidth) : DEFAULT_APPEARANCE.emailWidth,
+      emailBackground: EMAIL_BACKGROUNDS.includes(saved.emailBackground as EmailBackground)
+        ? (saved.emailBackground as EmailBackground)
+        : DEFAULT_APPEARANCE.emailBackground,
     };
   } catch {
     return { ...DEFAULT_APPEARANCE }; // Storage can be blocked; the defaults are fine.

@@ -2,13 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import DOMPurify from "dompurify";
 import { ImageOff, ShieldCheck } from "lucide-react";
+import { useTheme } from "next-themes";
 
 import { autoLoadsImages, trustKey } from "@shared/trust";
 import type { MessageDetail } from "@shared/types";
 
 import { Button } from "@/components/ui/button";
+import { useThemePalette, type ThemePalette } from "@/hooks/use-theme-palette";
+import { useAppearance } from "@/lib/appearance";
 import { api } from "@/lib/api";
+import { chooseEmailRender, hasDarkModeRules, invertRgb, pinLightColorScheme, type EmailRender } from "@/lib/email-html";
 import { trustSender, untrustSender, useTrustedSenders } from "@/lib/trusted-senders";
+import { cn } from "@/lib/utils";
 
 const REMOTE_CONTENT = /(?:src|background)\s*=\s*["']?\s*https?:|url\(\s*["']?\s*https?:/i;
 const EXTERNAL_LINK = /^(https?:|mailto:)/i;
@@ -44,19 +49,42 @@ export function sanitizeEmailHtml(html: string): string {
   });
 }
 
+const FLIP = "invert(1) hue-rotate(180deg)";
+
+/** The frame's own styles for each way of painting a message (see `EmailRender`). */
+function frameStyles(render: EmailRender, palette: ThemePalette): string {
+  const base = `overflow:hidden;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-wrap:anywhere`;
+  const shared = "img{max-width:100%;height:auto}table{max-width:100%}blockquote{margin:8px 0;padding-left:12px;border-left:3px solid";
+  if (render === "native") {
+    return `:root{color-scheme:dark}
+html,body{margin:0;padding:0;${base};background:transparent;color:${palette.foreground}}
+body{padding:16px}a{color:#8ab4f8}
+${shared} ${palette.border};color:${palette.muted}}`;
+  }
+  if (render === "inverted") {
+    // The page is flipped as a whole, so it is written as the light design and painted with the
+    // card's flipped color; images and video are flipped back to their own colors.
+    const page = invertRgb(palette.card) ?? "#fff";
+    return `:root{color-scheme:dark}
+html,body{margin:0;padding:0;${base};background:transparent}
+.mm{padding:16px;background:${page};color:#1f2328;filter:${FLIP}}
+.mm img,.mm video{filter:${FLIP}}a{color:#0b57d0}
+${shared} #d0d7de;color:#57606a}`;
+  }
+  return `html,body{margin:0;padding:0;${base};background:#fff;color:#1f2328}
+body{padding:16px}a{color:#0b57d0}
+${shared} #d0d7de;color:#57606a}`;
+}
+
 /** Wraps sanitized HTML in a document whose CSP blocks everything but inline styles and images. */
-function buildDocument(body: string, allowRemote: boolean): string {
+function buildDocument(body: string, allowRemote: boolean, render: EmailRender, palette: ThemePalette): string {
   const images = allowRemote ? "data: https: http:" : "data:";
+  const content = render === "inverted" ? `<div class="mm">${body}</div>` : body;
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${images}; style-src 'unsafe-inline'; font-src data:;">
 <style>
-  html,body{margin:0;padding:0;overflow:hidden;background:#fff;color:#1f2328;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-wrap:anywhere}
-  body{padding:16px}
-  img{max-width:100%;height:auto}
-  a{color:#0b57d0}
-  table{max-width:100%}
-  blockquote{margin:8px 0;padding-left:12px;border-left:3px solid #d0d7de;color:#57606a}
-</style></head><body>${body}</body></html>`;
+${frameStyles(render, palette)}
+</style></head><body>${content}</body></html>`;
 }
 
 type Sender = Pick<MessageDetail, "from" | "authenticated">;
@@ -71,9 +99,23 @@ function HtmlBody({ html, from, authenticated }: { html: string } & Sender) {
   const autoLoad = trusted !== null && autoLoadsImages(trusted, from, authenticated);
   const allowRemote = clicked || autoLoad;
 
+  const { resolvedTheme } = useTheme();
+  const { emailBackground } = useAppearance();
+  const palette = useThemePalette();
+
   const clean = useMemo(() => sanitizeEmailHtml(html), [html]);
+  const darkAware = useMemo(() => hasDarkModeRules(clean), [clean]);
+  const render = chooseEmailRender({
+    dark: resolvedTheme === "dark" || resolvedTheme === "dimmed",
+    darkAware,
+    background: emailBackground,
+  });
   const hasRemote = useMemo(() => REMOTE_CONTENT.test(clean), [clean]);
-  const document_ = useMemo(() => buildDocument(clean, allowRemote), [clean, allowRemote]);
+  const document_ = useMemo(
+    // A sender's dark rules only stay live when we paint a dark page for them.
+    () => buildDocument(render === "native" ? clean : pinLightColorScheme(clean), allowRemote, render, palette),
+    [clean, allowRemote, render, palette],
+  );
 
   /** Sizes the frame to its content and routes link clicks to the system browser. */
   const handleLoad = useCallback(() => {
@@ -145,7 +187,7 @@ function HtmlBody({ html, from, authenticated }: { html: string } & Sender) {
         scrolling="no"
         srcDoc={document_}
         onLoad={handleLoad}
-        className="w-full overflow-hidden rounded-lg border-0 bg-white"
+        className={cn("w-full overflow-hidden rounded-lg border-0", render === "white" ? "bg-white" : "bg-transparent")}
         style={{ height }}
       />
     </div>
