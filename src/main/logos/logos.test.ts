@@ -103,6 +103,33 @@ describe("safeFetch", () => {
     await expect(safeFetch(`http://icons.test:${port}/page`, { ...local, maxBytes: 4096 })).rejects.toThrow(/large/i);
   });
 
+  it("can POST a form body and hands back a redirect instead of following it", async () => {
+    const seen: { method?: string; type?: string; body: string }[] = [];
+    const poster = createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => (body += chunk));
+      req.on("end", () => {
+        seen.push({ method: req.method, type: req.headers["content-type"], body });
+        if (req.url === "/moved") res.writeHead(302, { Location: "/elsewhere" }).end();
+        else res.writeHead(200).end("ok");
+      });
+    });
+    await new Promise<void>((resolve) => poster.listen(0, "127.0.0.1", resolve));
+    const postPort = (poster.address() as { port: number }).port;
+    try {
+      const ok = await safeFetch(`http://unsub.test:${postPort}/u`, { ...local, postForm: "List-Unsubscribe=One-Click", maxRedirects: 0 });
+      expect(ok.status).toBe(200);
+      expect(seen[0]).toEqual({ method: "POST", type: "application/x-www-form-urlencoded", body: "List-Unsubscribe=One-Click" });
+      const moved = await safeFetch(`http://unsub.test:${postPort}/moved`, { ...local, postForm: "List-Unsubscribe=One-Click", maxRedirects: 0 });
+      // The redirect is handed back, never followed: a second request would mean the redirect was chased.
+      expect(moved.status).toBe(302);
+      expect(seen).toHaveLength(2);
+    } finally {
+      poster.closeAllConnections();
+      poster.close();
+    }
+  });
+
   it("refuses to connect to a host that resolves to a private address", async () => {
     const privateLookup = { allowHttp: true, lookup: local.lookup };
     await expect(safeFetch(`http://icons.test:${port}/x`, privateLookup)).rejects.toBeInstanceOf(BlockedDestinationError);

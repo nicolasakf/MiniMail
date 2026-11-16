@@ -1,9 +1,10 @@
 import {
   BURST_SIZE,
   FRESH_MS,
-  inQuietHours,
   messageNotifies,
   NOTIFY_FOLDERS,
+  settingsForAccount,
+  type AccountNotificationSettings,
   type NotificationSettings,
   type NotifyFolder,
 } from "@shared/notifications";
@@ -107,16 +108,23 @@ export class Notifier {
     const settings = this.deps.settings();
     const now = (this.deps.now ?? (() => new Date()))();
 
-    if (!settings.enabled) {
+    const accountIds = this.deps.accountIds();
+    const own = new Map(accountIds.map((id) => [id, settingsForAccount(settings, id)]));
+    if (![...own.values()].some((account) => account.enabled)) {
       this.deps.setBadge(0);
       this.known.clear(); // Turning it back on must not announce what arrived meanwhile.
       this.waiting.clear();
       return;
     }
 
-    const folders = new Set<NotifyFolder>(settings.folders);
+    const wantsFolder = (accountId: string, folder: NotifyFolder) => {
+      const account = own.get(accountId);
+      return !!account?.enabled && account.folders.includes(folder);
+    };
+    const folders = new Set<NotifyFolder>(
+      NOTIFY_FOLDERS.filter((folder) => accountIds.some((id) => wantsFolder(id, folder))),
+    );
     if (settings.dockBadge) folders.add("inbox");
-    const accountIds = this.deps.accountIds();
     const fresh: MessageSummary[] = [];
     const movedByUser = this.userMovedMail;
     this.userMovedMail = false;
@@ -132,6 +140,10 @@ export class Notifier {
       for (const accountId of accountIds) {
         if (failed.has(accountId)) continue; // Offline: keep what we knew rather than think it all vanished.
         const key = `${accountId}|${folder}`;
+        if (!wantsFolder(accountId, folder)) {
+          this.known.delete(key); // Turning it on later must not announce what is already there.
+          continue;
+        }
         const messages = result.messages.filter((message) => message.accountId === accountId);
         const before = this.known.get(key);
         const silent = !before || (movedByUser && folder !== "inbox");
@@ -139,7 +151,7 @@ export class Notifier {
         const nowKnown = new Set<string>();
         for (const message of messages) {
           const isNew = !silent && !before?.has(message.id);
-          if (isNew && !this.sortedOrWaited(message, settings, now)) continue; // Looked at again next check.
+          if (isNew && !this.sortedOrWaited(message, own.get(accountId)!, now)) continue; // Looked at again next check.
           if (isNew) arrived.push(message);
           nowKnown.add(message.id);
         }
@@ -148,7 +160,7 @@ export class Notifier {
       }
       if (folder === "inbox" && settings.dockBadge) {
         unread = result.messages.filter(
-          (message) => message.unread && !settings.mutedAccountIds.includes(message.accountId),
+          (message) => message.unread && own.get(message.accountId)?.enabled === true,
         ).length;
       }
     }
@@ -160,14 +172,17 @@ export class Notifier {
     const wanted = recent
       .filter((message) => messageNotifies(message, settings))
       .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
-    if (wanted.length === 0) return;
-    if (inQuietHours(settings.quietHours, now)) return;
-    if (settings.muteWhenFocused && this.deps.focused()) return;
-    this.deliver(wanted, settings);
+    const focused = this.deps.focused();
+    const audible = wanted.filter((message) => {
+      const account = settingsForAccount(settings, message.accountId);
+      return !(account.muteWhenFocused && focused);
+    });
+    if (audible.length === 0) return;
+    this.deliver(audible, settings);
   }
 
   /** False while a message should wait for the AI sorter (only when a category filter makes that matter). */
-  private sortedOrWaited(message: MessageSummary, settings: NotificationSettings, now: Date): boolean {
+  private sortedOrWaited(message: MessageSummary, settings: AccountNotificationSettings, now: Date): boolean {
     if (settings.categories.mode === "all" || !this.deps.sortingBusy()) return true;
     const since = this.waiting.get(message.id) ?? now.getTime();
     this.waiting.set(message.id, since);
@@ -175,10 +190,13 @@ export class Notifier {
   }
 
   private deliver(messages: MessageSummary[], settings: NotificationSettings): void {
-    const silent = !settings.sound;
+    const sounds = (batch: MessageSummary[]) =>
+      batch.some((message) => settingsForAccount(settings, message.accountId).sound);
     const grouped = settings.groupBursts ? messages.length >= BURST_SIZE : messages.length > MAX_INDIVIDUAL;
     if (!grouped) {
-      for (const message of messages) this.deps.show({ ...this.describe(message, settings), silent });
+      for (const message of messages) {
+        this.deps.show({ ...this.describe(message, settings), silent: !sounds([message]) });
+      }
       return;
     }
     const showBurst = (batch: MessageSummary[]) => {
@@ -188,24 +206,25 @@ export class Notifier {
       this.deps.show({
         title: `${batch.length} new messages`,
         body:
-          settings.content === "hidden"
+          batch.some((message) => settingsForAccount(settings, message.accountId).content === "hidden")
             ? ""
             : `From ${shown}${more > 0 ? ` and ${more} other${more === 1 ? "" : "s"}` : ""}`,
-        silent,
+        silent: !sounds(batch),
       });
     };
     if (settings.groupBursts) return showBurst(messages);
     for (const message of messages.slice(-MAX_INDIVIDUAL)) {
-      this.deps.show({ ...this.describe(message, settings), silent });
+      this.deps.show({ ...this.describe(message, settings), silent: !sounds([message]) });
     }
     showBurst(messages.slice(0, -MAX_INDIVIDUAL));
   }
 
   private describe(message: MessageSummary, settings: NotificationSettings): Omit<ShownNotification, "silent"> {
+    const { content } = settingsForAccount(settings, message.accountId);
     const place = message.folder === "inbox" ? "" : `${FOLDER_NAMES[message.folder as NotifyFolder]} · `;
-    if (settings.content === "hidden") return { title: `${place}New mail`, body: "" };
+    if (content === "hidden") return { title: `${place}New mail`, body: "" };
     const title = `${place}${senderName(message)}`;
-    if (settings.content === "sender") return { title, body: "New message" };
+    if (content === "sender") return { title, body: "New message" };
     const subject = message.subject.trim() || "(no subject)";
     const preview = message.snippet.trim();
     return { title, body: preview ? `${subject}\n${preview}` : subject };

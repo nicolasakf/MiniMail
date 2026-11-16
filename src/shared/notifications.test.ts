@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   categoryAllowed,
   DEFAULT_NOTIFICATION_SETTINGS,
-  inQuietHours,
+  isMutedForAccounts,
   isSenderMuted,
+  mutedKey,
   messageNotifies,
   normalizeMutedSender,
   NO_CATEGORY,
-  parseClock,
+  settingsForAccount,
+  withMutedSenders,
   type NotificationSettings,
 } from "./notifications";
 import { notificationSettingsSchema } from "./schemas";
@@ -66,7 +68,7 @@ describe("messageNotifies", () => {
   });
 
   it("skips silenced accounts and muted senders", () => {
-    expect(messageNotifies(message(), settings({ mutedAccountIds: ["a1"] }))).toBe(false);
+    expect(messageNotifies(message(), settings({ accounts: { a1: { enabled: false } } }))).toBe(false);
     expect(messageNotifies(message(), settings({ mutedSenders: ["ana@acme.com"] }))).toBe(false);
     expect(messageNotifies(message(), settings({ mutedSenders: ["@acme.com"] }))).toBe(false);
     expect(messageNotifies(message(), settings({ mutedSenders: ["@other.com"] }))).toBe(true);
@@ -101,32 +103,70 @@ describe("muted senders", () => {
 
   it("matches case-insensitively", () => {
     expect(isSenderMuted("ANA@Acme.com", ["ana@acme.com"])).toBe(true);
-    expect(isSenderMuted("bob@sub.acme.com", ["@acme.com"])).toBe(false);
+  });
+
+  it("lets a company domain cover its subdomains, and a subdomain only itself", () => {
+    expect(isSenderMuted("bob@sub.acme.com", ["@acme.com"])).toBe(true);
+    expect(isSenderMuted("bob@sub.acme.com", ["@sub.acme.com"])).toBe(true);
+    expect(isSenderMuted("bob@acme.com", ["@sub.acme.com"])).toBe(false);
+    expect(isSenderMuted("bob@other.com", ["@acme.com"])).toBe(false);
   });
 });
 
-describe("quiet hours", () => {
-  const at = (hours: number, minutes = 0) => new Date(2026, 10, 12, hours, minutes);
-  const overnight = { enabled: true, start: "22:00", end: "07:00" };
-
-  it("spans midnight", () => {
-    expect(inQuietHours(overnight, at(23))).toBe(true);
-    expect(inQuietHours(overnight, at(3))).toBe(true);
-    expect(inQuietHours(overnight, at(7))).toBe(false);
-    expect(inQuietHours(overnight, at(12))).toBe(false);
+describe("per-account settings", () => {
+  it("follow the defaults until an account overrides a choice", () => {
+    const base = settings({ content: "sender" });
+    expect(settingsForAccount(base, "a1").content).toBe("sender");
+    const own = settings({ content: "sender", accounts: { a1: { content: "hidden", sound: false } } });
+    expect(settingsForAccount(own, "a1")).toMatchObject({ content: "hidden", sound: false, enabled: true });
+    expect(settingsForAccount(own, "a2").content).toBe("sender");
   });
 
-  it("handles a same-day window and being off", () => {
-    const lunch = { enabled: true, start: "12:00", end: "13:30" };
-    expect(inQuietHours(lunch, at(13, 29))).toBe(true);
-    expect(inQuietHours(lunch, at(13, 30))).toBe(false);
-    expect(inQuietHours({ ...overnight, enabled: false }, at(23))).toBe(false);
+  it("let one account notify for more folders than the rest", () => {
+    const own = settings({ accounts: { a1: { folders: ["inbox", "spam"] } } });
+    expect(messageNotifies(message({ folder: "spam" }), own)).toBe(true);
+    expect(messageNotifies(message({ folder: "spam", accountId: "a2" }), own)).toBe(false);
   });
 
-  it("ignores a window that is empty or malformed", () => {
-    expect(inQuietHours({ enabled: true, start: "08:00", end: "08:00" }, at(8))).toBe(false);
-    expect(parseClock("25:00")).toBeNull();
-    expect(parseClock("7:00")).toBeNull();
-    expect(parseClock("07:05")).toBe(425);
+  it("let one account notify while the master switch is off", () => {
+    const own = settings({ enabled: false, accounts: { a1: { enabled: true } } });
+    expect(messageNotifies(message(), own)).toBe(true);
+    expect(messageNotifies(message({ accountId: "a2" }), own)).toBe(false);
+  });
+
+  it("read a name like constructor as an account without overrides", () => {
+    expect(settingsForAccount(settings(), "constructor").enabled).toBe(true);
+  });
+
+  it("pass the schema", () => {
+    const own = settings({ accounts: { a1: { sound: false, mutedSenders: ["@acme.com"] } } });
+    expect(notificationSettingsSchema.safeParse(own).success).toBe(true);
+    expect(notificationSettingsSchema.safeParse(settings({ accounts: { a1: { content: "loud" as never } } })).success).toBe(false);
+  });
+});
+
+describe("muting from a conversation", () => {
+  it("names a domain the way the muted list stores it", () => {
+    expect(mutedKey("senders", " Ana@Acme.com ")).toBe("ana@acme.com");
+    expect(mutedKey("domains", "Acme.com")).toBe("@acme.com");
+    expect(mutedKey("domains", "@acme.com")).toBe("@acme.com");
+  });
+
+  it("changes the shared list for accounts that follow it, and unmutes again", () => {
+    const muted = withMutedSenders(settings(), ["a1", "a2"], ["ana@acme.com"], true);
+    expect(muted.mutedSenders).toEqual(["ana@acme.com"]);
+    expect(isMutedForAccounts(muted, ["a1", "a2"], "ana@acme.com")).toBe(true);
+    expect(withMutedSenders(muted, ["a1"], ["ana@acme.com", "ana@acme.com"], true).mutedSenders).toEqual(["ana@acme.com"]);
+    expect(withMutedSenders(muted, ["a1"], ["ana@acme.com"], false).mutedSenders).toEqual([]);
+  });
+
+  it("changes an account's own list instead of the shared one when it has one", () => {
+    const base = settings({ accounts: { a1: { mutedSenders: ["bob@acme.com"] } } });
+    const muted = withMutedSenders(base, ["a1"], ["@acme.com"], true);
+    expect(muted.accounts.a1?.mutedSenders).toEqual(["bob@acme.com", "@acme.com"]);
+    expect(muted.mutedSenders).toEqual([]);
+    expect(isMutedForAccounts(muted, ["a1"], "@acme.com")).toBe(true);
+    expect(isMutedForAccounts(muted, ["a1", "a2"], "@acme.com")).toBe(false);
+    expect(isMutedForAccounts(muted, [], "@acme.com")).toBe(false);
   });
 });

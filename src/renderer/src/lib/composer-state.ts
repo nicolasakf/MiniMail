@@ -13,7 +13,7 @@ import {
   type SavedDraft,
 } from "@shared/types";
 
-import { parseRecipients } from "./compose";
+import { isValidAddress, parseRecipients } from "./compose";
 import { base64Bytes } from "./rich-compose";
 
 /** Everything the user can change in the composer. */
@@ -113,11 +113,21 @@ export function resolveRecipients(fields: ComposerFields): ResolvedRecipients {
   const to = parseRecipients(fields.toText);
   const cc = parseRecipients(fields.ccText);
   const bcc = parseRecipients(fields.bccText);
+  // A chip can hold something that is not an address (it is shown in red); it never gets sent to.
+  const bad = (list: readonly Contact[]) => list.filter((contact) => !isValidAddress(contact.email));
+  const good = (list: readonly Contact[]) => list.filter((contact) => isValidAddress(contact.email));
   return {
-    to: uniqueContacts([...fields.to, ...to.contacts]),
-    cc: uniqueContacts([...fields.cc, ...cc.contacts]),
-    bcc: uniqueContacts([...fields.bcc, ...bcc.contacts]),
-    invalid: [...to.invalid, ...cc.invalid, ...bcc.invalid],
+    to: uniqueContacts([...good(fields.to), ...to.contacts]),
+    cc: uniqueContacts([...good(fields.cc), ...cc.contacts]),
+    bcc: uniqueContacts([...good(fields.bcc), ...bcc.contacts]),
+    invalid: [
+      ...bad(fields.to).map((contact) => contact.email),
+      ...to.invalid,
+      ...bad(fields.cc).map((contact) => contact.email),
+      ...cc.invalid,
+      ...bad(fields.bcc).map((contact) => contact.email),
+      ...bcc.invalid,
+    ],
   };
 }
 
@@ -133,7 +143,7 @@ export function sendProblem(fields: ComposerFields, recipients: ResolvedRecipien
 /** The record kept on disk for a draft. */
 export function toSavedDraft(
   fields: ComposerFields,
-  meta: { id: string; mode: ComposeMode; bodyText: string; inReplyTo: Draft["inReplyTo"]; savedAt?: string },
+  meta: { id: string; mode: ComposeMode; bodyText: string; inReplyTo: Draft["inReplyTo"]; serverMessageId?: string; savedAt?: string },
 ): SavedDraft {
   return {
     id: meta.id,
@@ -151,5 +161,6 @@ export function toSavedDraft(
     attachments: fields.attachments.length ? [...fields.attachments] : undefined,
     quoted: fields.quoted || undefined,
     inReplyTo: meta.inReplyTo,
+    serverMessageId: meta.serverMessageId,
   };
 }

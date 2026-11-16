@@ -93,6 +93,12 @@ describe("recipients", () => {
     expect(resolveRecipients({ ...blank(), toText: "sam@x.com, nobody", bccText: "also bad" }).invalid).toEqual(["nobody", "also bad"]);
   });
 
+  it("reports a chip that is not an address instead of sending to it", () => {
+    const resolved = resolveRecipients({ ...blank(), to: [sam, { name: "", email: "nobody" }] });
+    expect(resolved.to).toEqual([sam]);
+    expect(resolved.invalid).toEqual(["nobody"]);
+  });
+
   it("de-duplicates by lowercase address, first one wins", () => {
     expect(uniqueContacts([{ name: "A", email: "a@x.com" }, { name: "", email: "A@X.com" }])).toEqual([{ name: "A", email: "a@x.com" }]);
   });

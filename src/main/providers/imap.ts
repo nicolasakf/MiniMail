@@ -13,6 +13,7 @@ import {
   type IcsEvent,
 } from "@shared/ics";
 import { firstHeader, isAuthenticated } from "@shared/logos";
+import { parseUnsubscribe } from "@shared/unsubscribe";
 import { makeMessageId } from "@shared/ids";
 import { zohoSettings, type ImapSettings, type MailServer } from "@shared/imap-settings";
 import { MAIL_WINDOW } from "@shared/mail-window";
@@ -541,13 +542,22 @@ export class ImapProvider implements MailProvider {
     lap("flags read", `, ${windowFlags.size} in window, ${fresh.length} new`);
     const working = new Map(known);
 
-    // Rows saved before sender authentication was recorded get it from their headers alone: one
-    // small command per 50 messages instead of downloading every preview again.
-    const legacy = [...windowFlags.keys()].filter((uid) => working.get(uid)?.authenticated === undefined && working.has(uid));
+    // Rows saved before sender authentication or the unsubscribe address was recorded get them
+    // from their headers alone: one small command per 50 messages instead of downloading every
+    // preview again.
+    const legacy = [...windowFlags.keys()].filter((uid) => {
+      const row = working.get(uid);
+      return (
+        row !== undefined &&
+        (row.authenticated === undefined ||
+          row.unsubscribe === undefined ||
+          (row.unsubscribe !== null && row.unsubscribe.listId === undefined))
+      );
+    });
     if (legacy.length > 0) {
-      await this.backfillAuthentication(path, legacy, working);
+      await this.backfillHeaders(path, legacy, working);
       this.persist?.save(folder, { uidValidity, messages: byNewest(working.values()) });
-      lap("authentication backfilled", `, ${legacy.length} messages`);
+      lap("headers backfilled", `, ${legacy.length} messages`);
     }
     let downloaded = 0;
     let batchSize = BATCH_FIRST;
@@ -611,8 +621,8 @@ export class ImapProvider implements MailProvider {
     return byNewest(next.values());
   }
 
-  /** Fills `authenticated` on cached rows from the Authentication-Results header alone. */
-  private async backfillAuthentication(
+  /** Fills `authenticated` and `unsubscribe` on cached rows from their headers alone. */
+  private async backfillHeaders(
     path: string,
     uids: readonly number[],
     working: Map<number, MessageSummary>,
@@ -625,7 +635,7 @@ export class ImapProvider implements MailProvider {
         try {
           for await (const message of client.fetch(
             batch,
-            { uid: true, headers: ["authentication-results"] },
+            { uid: true, headers: ["authentication-results", "list-unsubscribe", "list-unsubscribe-post", "list-id"] },
             { uid: true },
           )) {
             const row = working.get(message.uid);
@@ -635,6 +645,11 @@ export class ImapProvider implements MailProvider {
             working.set(message.uid, {
               ...row,
               authenticated: isAuthenticated(firstHeader(raw, "authentication-results"), row.from.email),
+              unsubscribe: parseUnsubscribe(
+                firstHeader(raw, "list-unsubscribe"),
+                firstHeader(raw, "list-unsubscribe-post"),
+                firstHeader(raw, "list-id"),
+              ),
             });
           }
         } finally {
@@ -644,7 +659,13 @@ export class ImapProvider implements MailProvider {
       // A message the server did not return (deleted meanwhile) is marked unverified so it is not asked again.
       for (const uid of batch) {
         const row = working.get(uid);
-        if (row && !answered.has(uid) && row.authenticated === undefined) working.set(uid, { ...row, authenticated: false });
+        if (row && !answered.has(uid)) {
+          working.set(uid, {
+            ...row,
+            authenticated: row.authenticated ?? false,
+            unsubscribe: row.unsubscribe ? { ...row.unsubscribe, listId: row.unsubscribe.listId ?? null } : (row.unsubscribe ?? null),
+          });
+        }
       }
     }
   }
@@ -1074,7 +1095,7 @@ export class ImapProvider implements MailProvider {
     };
     const subject = envelope?.subject ?? "(no subject)";
     const headers: Record<string, string | undefined> = {};
-    for (const name of ["list-unsubscribe", "list-id", "precedence", "auto-submitted"]) {
+    for (const name of ["list-unsubscribe", "list-unsubscribe-post", "list-id", "precedence", "auto-submitted"]) {
       headers[name] = parsed ? headerString(parsed, name) : undefined;
     }
 
@@ -1111,6 +1132,7 @@ export class ImapProvider implements MailProvider {
             from.email,
           )
         : undefined,
+      unsubscribe: parsed ? parseUnsubscribe(headers["list-unsubscribe"], headers["list-unsubscribe-post"], headers["list-id"]) : undefined,
       categoryId: null,
       signal: classifyMessage({
         fromEmail: from.email,

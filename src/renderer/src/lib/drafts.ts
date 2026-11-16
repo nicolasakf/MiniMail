@@ -2,11 +2,11 @@ import { useSyncExternalStore } from "react";
 
 import { toast } from "sonner";
 
-import type { SavedDraft } from "@shared/types";
+import type { DraftAttachment, MessageDetail, SavedDraft } from "@shared/types";
 
 import { api } from "./api";
 import { isTypingTarget } from "./keyboard";
-import type { ComposeSeed } from "./compose";
+import { messageToText, type ComposeSeed } from "./compose";
 
 export type { SavedDraft };
 
@@ -120,7 +120,40 @@ export function seedFromDraft(draft: SavedDraft): ComposeSeed {
     attachments: draft.attachments,
     quoted: draft.quoted,
     inReplyTo: draft.inReplyTo,
+    serverMessageId: draft.serverMessageId,
   };
+}
+
+/**
+ * What the composer opens with to continue a draft that sits in the mail server's Drafts folder
+ * (started in a webmail or on a phone). The quoted original of a reply stays in the body text.
+ */
+export function seedFromServerDraft(message: MessageDetail, attachments: DraftAttachment[]): ComposeSeed {
+  return {
+    mode: "new",
+    accountId: message.accountId,
+    to: message.to,
+    cc: message.cc,
+    subject: message.subject === "(no subject)" ? "" : message.subject,
+    body: messageToText(message),
+    attachments,
+    serverMessageId: message.id,
+  };
+}
+
+/**
+ * Removes the server's copy of a draft once the composer is done with it: trashed when the user
+ * discards it (so it can still be found), deleted for good once the message has been sent. Never
+ * rejects; the draft is already dealt with locally, so a failure only gets a note.
+ */
+export async function removeServerDraft(id: string | undefined, how: "sent" | "discarded"): Promise<void> {
+  if (!id) return;
+  try {
+    const [result] = await api.mail.act(how === "sent" ? "deleteForever" : "trash", [id]);
+    if (result?.status === "failed") throw new Error(result.error);
+  } catch (error) {
+    toast.error(`The draft is still in your server's Drafts folder: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 const DRAFT_TOAST_MS = 6000;

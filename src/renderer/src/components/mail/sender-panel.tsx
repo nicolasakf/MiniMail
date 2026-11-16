@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 
-import { ChevronRight, Pin } from "lucide-react";
+import { ChevronRight, Pin, ShieldBan, Zap } from "lucide-react";
 
+import { isBlockedAddress } from "@shared/blocklist";
 import {
   groupSendersByDomain,
   type SenderDomainGroup,
@@ -12,6 +13,7 @@ import type { Thread } from "@shared/threads";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePinnedDomains } from "@/hooks/use-pinned-domains";
+import { useBlockList } from "@/lib/blocklist";
 import { HOVER_ON_TINT } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 
@@ -83,6 +85,7 @@ function SenderRow({
   onSelect: (key: string) => void;
 }) {
   const ref = useScrollIntoView(selected);
+  const blocked = isBlockedAddress(useBlockList(), sender.email);
   return (
     <button
       ref={ref}
@@ -109,6 +112,7 @@ function SenderRow({
           <span className="block truncate text-xs text-muted-foreground">{sender.email}</span>
         )}
       </span>
+      {blocked && <ShieldBan aria-label="Blocked" className="size-3.5 shrink-0 text-red-400" />}
       <span className="shrink-0 text-xs text-muted-foreground">{sender.count}</span>
     </button>
   );
@@ -467,9 +471,43 @@ export function GroupByDomainButton({ state }: { state: SenderPanelState }) {
 }
 
 /** Names the sender whose mail the list under it shows. */
+/** The star that marks a sender or domain as priority (or clears it). */
+function PriorityToggle({ on, label, onToggle }: { on: boolean; label: string; onToggle: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={on ? `Remove priority from ${label}` : `Mark ${label} as priority`}
+          aria-pressed={on}
+          onClick={onToggle}
+          className={cn(
+            "corner-squircle flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent",
+            on ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Zap className={cn("size-4", on && "fill-current")} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{on ? "Priority: you are told about new mail" : "Mark as priority"}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function SenderHeading(
-  props: { sender: SenderEntry } | { domain: string; count: number },
+  props: ({ sender: SenderEntry } | { domain: string; count: number }) & {
+    /** Whether the sender or domain is marked as priority, and the star that changes it. */
+    priority?: boolean;
+    onTogglePriority?: () => void;
+  },
 ) {
+  const toggle = props.onTogglePriority && (
+    <PriorityToggle
+      on={props.priority === true}
+      label={"domain" in props ? props.domain : props.sender.email}
+      onToggle={props.onTogglePriority}
+    />
+  );
   if ("domain" in props) {
     return (
       <div className="flex shrink-0 items-center gap-2.5 px-6 pb-1 pt-1">
@@ -479,6 +517,7 @@ export function SenderHeading(
             All senders · {props.count} {props.count === 1 ? "conversation" : "conversations"}
           </div>
         </div>
+        {toggle}
       </div>
     );
   }
@@ -493,6 +532,7 @@ export function SenderHeading(
           {sender.count} {sender.count === 1 ? "conversation" : "conversations"}
         </div>
       </div>
+      {toggle}
     </div>
   );
 }

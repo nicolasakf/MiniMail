@@ -553,6 +553,11 @@ function seedMessages(): MessageDetail[] {
       hasAttachments: seed.attachments ?? false,
       // One sender fails authentication so the demo shows that a forged brand gets no logo.
       authenticated: seed.key !== "bank",
+      // Newsletters carry an unsubscribe address; Morning Brew only has a web page, to show that case too.
+      unsubscribe:
+        signal === "newsletter"
+          ? { url: `https://${seed.from.email.split("@")[1]}/unsubscribe`, oneClick: !seed.from.email.includes("morningbrew") }
+          : null,
       signal,
       categoryId: null,
     };
@@ -664,7 +669,7 @@ export function createDemoApi(): MiniMailApi {
   let demoLibrary: Awaited<ReturnType<MiniMailApi["composeLibrary"]["get"]>> = { signatures: [] };
   let demoDrafts: SavedDraft[] = [];
   let demoNotifications: NotificationSettings = structuredClone(DEFAULT_NOTIFICATION_SETTINGS);
-  let demoPrefs: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"] };
+  let demoPrefs: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [] };
   let aiConfigured = false;
   // A pretend "sort again" so the progress toast can be seen without a key.
   let sortStartedAt: number | null = null;
@@ -804,6 +809,11 @@ export function createDemoApi(): MiniMailApi {
         link.click();
         return true;
       },
+      async attachmentContent(messageId, attachmentId) {
+        const file = demoFile(messages, messageId, attachmentId);
+        await wait(150);
+        return { filename: file.name, contentType: "text/plain", contentBase64: btoa(`Demo attachment: ${file.name}\n`) };
+      },
       async respondToInvitation(messageId, response: InvitationResponse) {
         await wait(500);
         const target = messages.find((message) => message.id === messageId);
@@ -824,6 +834,18 @@ export function createDemoApi(): MiniMailApi {
           found[message.id] = extractVerificationCode({ subject: message.subject, text });
         }
         return found;
+      },
+      async unsubscribe(ids) {
+        await wait(300);
+        return ids.map((id) => {
+          const info = messages.find((message) => message.id === id)?.unsubscribe;
+          if (!info) return { id, status: "failed" as const, error: "This message cannot be unsubscribed from." };
+          // The university Career Center refuses, so the demo shows how a failed unsubscribe reaches the notifications popover.
+          if (info.url.includes("university.example")) {
+            return { id, status: "failed" as const, error: "The sender refused the request (status 403)." };
+          }
+          return info.oneClick ? { id, status: "done" as const } : { id, status: "manual" as const, url: info.url };
+        });
       },
       async act(action: MailAction, ids) {
         await wait(80);
@@ -951,7 +973,7 @@ export function createDemoApi(): MiniMailApi {
     },
     prefs: {
       async get() {
-        return { ...demoPrefs, shownFolders: [...demoPrefs.shownFolders] };
+        return { ...demoPrefs, shownFolders: [...demoPrefs.shownFolders], pinnedDrafts: [...demoPrefs.pinnedDrafts] };
       },
       async set(patch) {
         demoPrefs = { ...demoPrefs, ...patch };

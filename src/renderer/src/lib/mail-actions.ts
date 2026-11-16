@@ -105,6 +105,15 @@ export class MailActions {
     this.notices = [{ id: ++this.serial, at: Date.now(), title, detail, retry }, ...this.notices];
   }
 
+  /**
+   * Adds an event to the notifications popover for something that went wrong outside the move and
+   * flag commands this class sends (an unsubscribe, for example). `retry` shows a Retry button.
+   */
+  reportEvent(title: string, detail: string, retry?: () => void) {
+    this.report(title, detail, retry);
+    this.update();
+  }
+
   reportSyncError(account: string, detail: string) {
     const title = account ? `Could not sync ${account}` : "Could not sync mail";
     if (this.notices.some((notice) => notice.title === title && notice.detail === detail && Date.now() - notice.at < 60_000)) return;

@@ -10,7 +10,7 @@ import type { ListResult, MessageSummary } from "@shared/types";
 import { NotificationSettingsStore } from "./notification-settings";
 import { Notifier, type ShownNotification } from "./notifier";
 
-/** Noon local time, so quiet-hour windows mean the same thing in every time zone. */
+/** Noon local time, so the clock reads the same in every time zone. */
 const NOW = new Date(2026, 10, 12, 12, 0, 0);
 
 function message(id: string, patch: Partial<MessageSummary> = {}): MessageSummary {
@@ -153,13 +153,7 @@ describe("Notifier", () => {
     expect(t.shown.map((item) => item.title)).toEqual(["Sender 14"]);
   });
 
-  it("stays quiet during quiet hours and while focused", async () => {
-    const t = setup({ quietHours: { enabled: true, start: "11:00", end: "13:00" } });
-    await t.check();
-    t.folders.inbox = [message("10")];
-    await t.check();
-    expect(t.shown).toHaveLength(0);
-
+  it("stays quiet while focused", async () => {
     const u = setup({ muteWhenFocused: true });
     await u.check();
     u.focus(true);
@@ -205,11 +199,11 @@ describe("Notifier", () => {
     await t.check();
     expect(t.badge.at(-1)).toBe(2);
 
-    t.set({ mutedAccountIds: ["a1"] });
+    t.set({ accounts: { a1: { enabled: false } } });
     await t.check();
     expect(t.badge.at(-1)).toBe(0);
 
-    t.set({ mutedAccountIds: [], dockBadge: false });
+    t.set({ accounts: {}, dockBadge: false });
     await t.check();
     expect(t.badge.at(-1)).toBe(0);
   });
@@ -266,5 +260,13 @@ describe("NotificationSettingsStore", () => {
     const path = join(dir, "n.json");
     writeFileSync(path, JSON.stringify({ folders: ["bogus"] }));
     expect(new NotificationSettingsStore(path).get()).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
+  });
+
+  it("uses an account's own sound and detail choices", async () => {
+    const t = setup({ accounts: { a1: { sound: false, content: "hidden" } } });
+    await t.check();
+    t.folders.inbox = [message("1")];
+    await t.check();
+    expect(t.shown).toEqual([{ title: "New mail", body: "", silent: true }]);
   });
 });

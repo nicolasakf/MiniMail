@@ -48,6 +48,9 @@ export interface FetchOptions {
   /** Keep the first `maxBytes` and succeed instead of failing: for pages whose useful part is at the top. */
   truncate?: boolean;
   accept?: string;
+  /** Sends a POST with this form body (and does not follow redirects unless `maxRedirects` says so). */
+  postForm?: string;
+  /** How many redirects to follow (default 3). With 0 a redirect is returned as the answer, not followed. */
   maxRedirects?: number;
   /** For tests only. */
   allowHttp?: boolean;
@@ -67,7 +70,7 @@ export interface FetchedResource {
 
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 
-/** GET a public https URL. Rejects for blocked destinations, timeouts and oversized bodies. */
+/** GET (or, with `postForm`, POST) a public https URL. Rejects for blocked destinations, timeouts and oversized bodies. */
 export async function safeFetch(url: string, options: FetchOptions = {}): Promise<FetchedResource> {
   const deadline = Date.now() + (options.timeoutMs ?? 8000);
   let current = url;
@@ -75,7 +78,7 @@ export async function safeFetch(url: string, options: FetchOptions = {}): Promis
     const response = await getOnce(current, options, deadline);
     if (!REDIRECTS.has(response.status)) return { ...response, url: current };
     const location = response.location;
-    if (!location) return { ...response, url: current };
+    if (!location || (options.maxRedirects ?? 3) === 0) return { ...response, url: current };
     current = new URL(location, current).toString();
   }
   throw new Error("Too many redirects.");
@@ -137,12 +140,18 @@ function getOnce(rawUrl: string, options: FetchOptions, deadline: number): Promi
         hostname: url.hostname.replace(/^\[|\]$/g, ""),
         port: url.port || undefined,
         path: `${url.pathname}${url.search}`,
-        method: "GET",
+        method: options.postForm === undefined ? "GET" : "POST",
         headers: {
           // Generic on purpose: nothing about the user or their account.
           "User-Agent": "MiniMail",
           Accept: options.accept ?? "*/*",
           "Accept-Encoding": "identity",
+          ...(options.postForm === undefined
+            ? {}
+            : {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Content-Length": String(Buffer.byteLength(options.postForm)),
+              }),
         },
         // The connection uses exactly the addresses checked here, so a second DNS answer cannot
         // swap in a private one.
@@ -200,6 +209,6 @@ function getOnce(rawUrl: string, options: FetchOptions, deadline: number): Promi
     const overall = setTimeout(() => req.destroy(new Error("Timed out.")), remaining);
     req.on("close", () => clearTimeout(overall));
     req.on("error", (error) => reject(error));
-    req.end();
+    req.end(options.postForm);
   });
 }

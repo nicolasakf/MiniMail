@@ -18,6 +18,7 @@ import type {
   MailFolder,
   MessageDetail,
   MessageSummary,
+  UnsubscribeResult,
   SortCounts,
   SortFolder,
 } from "@shared/types";
@@ -40,6 +41,7 @@ import type { SummaryStore } from "./providers/summary-cache";
 import { describeError, type AttachmentFile, type MailAuth, type MailProvider } from "./providers/types";
 import { logEvent } from "./log";
 import { perfLog, perfTime } from "./perf";
+import { unsubscribeFrom } from "./unsubscribe";
 import type { AccountSecret, AccountStore } from "./store";
 
 const ACCOUNT_HUES = [210, 150, 30, 280, 340, 180];
@@ -355,6 +357,55 @@ export class MailService {
       }
     }));
     return batches.flat();
+  }
+
+  /**
+   * Unsubscribes from the list behind each message. The sender's address is read again from the
+   * message on the server, never taken from the window. Each message stands alone: one that cannot
+   * be read, or whose sender refuses, does not stop the others, and each failure is written to the
+   * log (the sender's host and the reason, never the full address, which carries a personal token).
+   */
+  async unsubscribe(ids: string[]): Promise<UnsubscribeResult[]> {
+    const wanted = [...new Set(ids)];
+    const found = new Map<string, MessageDetail>();
+    const unreadable = new Map<string, string>();
+    await Promise.all(
+      [...this.groupByProviderFolder(wanted).values()].map(async ({ accountId, folder, nativeIds }) => {
+        try {
+          for (const detail of await this.providerForId(accountId).get(folder, nativeIds)) found.set(detail.id, detail);
+        } catch (error) {
+          const reason = describeError(error);
+          for (const nativeId of nativeIds) unreadable.set(makeMessageId({ accountId, folder, nativeId }), reason);
+        }
+      }),
+    );
+    return Promise.all(
+      wanted.map(async (id): Promise<UnsubscribeResult> => {
+        const detail = found.get(id);
+        if (!detail) {
+          const reason = unreadable.get(id);
+          logEvent("unsubscribe", `could not read the message: ${reason ?? "the server did not return it"}`);
+          return {
+            id,
+            status: "failed",
+            error: reason
+              ? `The mail server could not give MiniMail this message (${reason}).`
+              : "The mail server no longer has this message.",
+          };
+        }
+        const result = await unsubscribeFrom(detail);
+        if (result.status === "failed") {
+          let host = "unknown host";
+          try {
+            host = new URL(detail.unsubscribe?.url ?? "").host || host;
+          } catch {
+            // No usable address; the reason says why.
+          }
+          logEvent("unsubscribe", `${host}: ${result.error}`);
+        }
+        return result;
+      }),
+    );
   }
 
   async send(draft: Draft): Promise<void> {

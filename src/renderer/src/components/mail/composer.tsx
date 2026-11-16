@@ -1,4 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import type { Editor } from "@tiptap/core";
 import { ALargeSmall, Maximize2, Minimize2, Minus, Paperclip, SquareArrowOutUpRight, Trash2, X } from "lucide-react";
@@ -13,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 import { SignatureMenu, SignatureSheet, useSignatureLibrary, type SignatureDraft } from "./compose-library";
 import { ComposerFields } from "./composer-fields";
-import { AttachmentList, DropOverlay, ErrorNotice, MinimizedBar, QuotedText, ScheduleNotice, SendButton } from "./composer-parts";
+import { AttachmentList, DropOverlay, ErrorNotice, MinimizedPill, QuotedText, ScheduleNotice, SendButton } from "./composer-parts";
 import { useComposerSession } from "./composer-session";
 import { ToolButton } from "./composer-ui";
 import { RichEditor } from "./rich-editor";
@@ -33,6 +34,10 @@ interface ComposerProps {
   /** Fills a window of its own instead of floating over the mail. */
   detached?: boolean;
   minimized?: boolean;
+  /** Where the pill of a minimized composer goes, shared with the other minimized ones. */
+  tray?: HTMLElement | null;
+  /** Other composers are minimized in the tray, so this one leaves room for it. */
+  trayBusy?: boolean;
   onMinimizedChange?: (minimized: boolean) => void;
 }
 
@@ -46,7 +51,7 @@ interface ComposerProps {
  * forwarded message in its body; everything stays editable. Closing it (the close button or Esc)
  * keeps what was written as a draft.
  */
-export function Composer({ seed, accounts, onClose, detached, minimized, onMinimizedChange }: ComposerProps) {
+export function Composer({ seed, accounts, onClose, detached, minimized, tray, trayBusy, onMinimizedChange }: ComposerProps) {
   const session = useComposerSession({ seed, accounts, onClose });
   const { fields, set, locked, error, setError } = session;
 
@@ -67,6 +72,7 @@ export function Composer({ seed, accounts, onClose, detached, minimized, onMinim
   const signatures = useSignatureLibrary(fields.accountId, setError);
 
   const title = fields.subject.trim() || TITLES[seed.mode];
+  const recipients = [...fields.to.map((contact) => contact.email), fields.toText.trim()].filter(Boolean);
   // The demo backend cannot queue mail for later.
   const canSchedule = !api.system.demo;
 
@@ -153,9 +159,10 @@ export function Composer({ seed, accounts, onClose, detached, minimized, onMinim
 
   return (
     <>
-      {minimized && (
-        <MinimizedBar title={title} locked={locked} onRestore={() => onMinimizedChange?.(false)}
-          onClose={() => void session.requestClose()} />
+      {minimized && tray && createPortal(
+        <MinimizedPill title={title} recipients={recipients} locked={locked}
+          onRestore={() => onMinimizedChange?.(false)} onClose={() => void session.requestClose()} />,
+        tray,
       )}
       {/* Minimizing only hides the panel: the editor keeps its text, undo history and caret. */}
       <section
@@ -170,10 +177,14 @@ export function Composer({ seed, accounts, onClose, detached, minimized, onMinim
           detached
             ? "relative h-dvh w-full"
             : cn(
-                "corner-squircle fixed z-40 border border-border shadow-[0_24px_70px_-12px_rgb(0_0_0/0.55)] duration-200 animate-in fade-in-0 slide-in-from-bottom-3",
+                // electron-no-drag: the expanded panel sits over the app's window-drag headers, which would swallow clicks on its buttons.
+                "corner-squircle electron-no-drag fixed z-40 border border-border shadow-[0_24px_70px_-12px_rgb(0_0_0/0.55)] duration-200 animate-in fade-in-0 slide-in-from-bottom-3",
                 expanded
-                  ? "inset-x-6 inset-y-6 mx-auto max-w-[1040px]"
-                  : "bottom-4 right-4 h-[min(640px,calc(100dvh-32px))] w-[min(660px,calc(100vw-32px))]",
+                  ? cn("inset-x-6 top-6 mx-auto max-w-[1040px]", trayBusy ? "bottom-[76px]" : "bottom-6")
+                  : cn(
+                      "right-4 w-[min(660px,calc(100vw-32px))]",
+                      trayBusy ? "bottom-[76px] h-[min(640px,calc(100dvh-92px))]" : "bottom-4 h-[min(640px,calc(100dvh-32px))]",
+                    ),
               ),
         )}
         onFocus={(event) => {

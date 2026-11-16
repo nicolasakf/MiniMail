@@ -114,6 +114,7 @@ export function registerIpc(options: {
     if (MOVE_DESTINATION[parsed] && results.some((result) => result.status === "applied")) notifier.userMoved();
     return results;
   });
+  handle(IPC.mailUnsubscribe, (ids: unknown) => service.unsubscribe(idsSchema.parse(ids)));
   handle(IPC.mailSend, (draft: unknown) => service.send(draftSchema.parse(draft)));
   handle(IPC.deliveryList, () => delivery.list());
   handle(IPC.deliverySchedule, (record: unknown, draft: unknown, when: unknown) => {
@@ -127,6 +128,11 @@ export function registerIpc(options: {
   handle(IPC.mailSaveAttachment, (messageId: unknown, attachmentId: unknown) => {
     const ref = attachmentRefSchema.parse({ messageId, attachmentId });
     return service.attachment(ref.messageId, ref.attachmentId).then((file) => attachmentFiles.save(file));
+  });
+  handle(IPC.mailAttachmentContent, async (messageId: unknown, attachmentId: unknown) => {
+    const ref = attachmentRefSchema.parse({ messageId, attachmentId });
+    const file = await service.attachment(ref.messageId, ref.attachmentId);
+    return { filename: file.filename, contentType: file.contentType, contentBase64: file.data.toString("base64") };
   });
   handle(IPC.mailRespond, (messageId: unknown, response: unknown) =>
     service.respondToInvitation(z.string().min(1).parse(messageId), invitationResponseSchema.parse(response)),

@@ -4,6 +4,7 @@ import { CALENDAR_ACCESS_REQUIRED } from "@shared/accounts";
 import { classifyMessage } from "@shared/classify";
 import { makeMessageId, parseMessageId } from "@shared/ids";
 import { isAuthenticated } from "@shared/logos";
+import { parseUnsubscribe } from "@shared/unsubscribe";
 import { MAX_ATTACHMENT_BYTES, MAX_INLINE_IMAGE_BYTES } from "@shared/types";
 import type {
   Account,
@@ -609,6 +610,9 @@ export class GraphProvider implements MailProvider {
             )?.value,
             from.email,
           )
+        : undefined,
+      unsubscribe: message.internetMessageHeaders
+        ? parseUnsubscribe(headers["list-unsubscribe"], headers["list-unsubscribe-post"], headers["list-id"])
         : undefined,
       categoryId: null,
       signal: classifyMessage({

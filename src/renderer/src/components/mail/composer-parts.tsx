@@ -244,21 +244,31 @@ export function DropOverlay() {
   );
 }
 
-/** What is left of a minimized composer: a strip along the bottom edge. */
-export function MinimizedBar({ title, locked, onRestore, onClose }: {
+/**
+ * What is left of a minimized composer: a floating pill in the tray at the bottom right, sized to
+ * its content. The subject sits on top and the first recipient below it, with a "+N" for any more,
+ * so several can be told apart.
+ */
+export function MinimizedPill({ title, recipients, locked, onRestore, onClose }: {
   title: string;
+  /** Where it is going: the first is shown, the rest as a "+N". */
+  recipients: readonly string[];
   locked: boolean;
   onRestore: () => void;
   onClose: () => void;
 }) {
   return (
-    <div className="fixed bottom-0 right-6 z-40 flex h-11 w-[min(300px,calc(100vw-48px))] items-center rounded-t-2xl border border-b-0 border-border bg-background pl-4 pr-2 shadow-2xl animate-in fade-in-0 slide-in-from-bottom-2">
+    <div className="corner-squircle electron-no-drag flex h-12 min-w-0 max-w-[260px] shrink items-center rounded-full border border-border bg-background pl-4 pr-1.5 shadow-[0_10px_30px_-8px_rgb(0_0_0/0.5)] duration-150 animate-in fade-in-0 zoom-in-95">
       <button type="button" aria-label={`Restore ${title}`}
-        className="min-w-0 flex-1 truncate text-left text-[13px] font-medium outline-none hover:text-sidebar-primary focus-visible:text-sidebar-primary"
+        className="group min-w-0 flex-1 text-left outline-none"
         onClick={onRestore}>
-        {title}
+        <span className="block truncate text-[13px] font-medium leading-tight group-hover:text-sidebar-primary group-focus-visible:text-sidebar-primary">{title}</span>
+        <span className="flex text-[11px] leading-tight text-muted-foreground">
+          <span className="min-w-0 truncate">{recipients[0] ?? "No recipients"}</span>
+          {recipients.length > 1 && <span className="ml-1 shrink-0">+{recipients.length - 1}</span>}
+        </span>
       </button>
-      <ToolButton label="Close minimized draft" className="size-7 rounded-lg" disabled={locked} onClick={onClose}><X /></ToolButton>
+      <ToolButton label="Close minimized draft" className="ml-1 size-7 shrink-0 rounded-full" disabled={locked} onClick={onClose}><X /></ToolButton>
     </div>
   );
 }

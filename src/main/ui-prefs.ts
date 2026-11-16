@@ -7,7 +7,7 @@ import type { UiPrefs } from "@shared/types";
 
 import { writePrivateFile } from "./category-store";
 
-const DEFAULTS: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"] };
+const DEFAULTS: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [] };
 
 /** Each choice is checked on its own, so one bad value does not reset the others. */
 const fileSchema = z.object({
@@ -15,15 +15,16 @@ const fileSchema = z.object({
   view: z.enum(["category", "sender", "list"]).catch(DEFAULTS.view),
   unreadOnly: z.boolean().catch(DEFAULTS.unreadOnly),
   shownFolders: shownFoldersSchema.catch([...DEFAULTS.shownFolders]),
+  pinnedDrafts: z.array(z.string().min(1).max(2048)).max(500).catch([]),
 });
 
 /**
  * Choices the app reopens with: the selected view tab and the list filters (unread only, and
- * which of Inbox, Archive, Trash and Spam mail shows in the Inbox list). Holds no mail data, so it is a plain
+ * which of Inbox, Archive, Trash and Spam mail shows in the Inbox list), and which drafts are pinned. Holds no mail data, so it is a plain
  * file, written the moment a choice changes.
  */
 export class UiPrefsStore {
-  private prefs: UiPrefs = { ...DEFAULTS, shownFolders: [...DEFAULTS.shownFolders] };
+  private prefs: UiPrefs = { ...DEFAULTS, shownFolders: [...DEFAULTS.shownFolders], pinnedDrafts: [] };
 
   constructor(private readonly filePath: string) {
     if (!existsSync(filePath)) return;
@@ -36,7 +37,7 @@ export class UiPrefsStore {
   }
 
   get(): UiPrefs {
-    return { ...this.prefs, shownFolders: [...this.prefs.shownFolders] };
+    return { ...this.prefs, shownFolders: [...this.prefs.shownFolders], pinnedDrafts: [...this.prefs.pinnedDrafts] };
   }
 
   set(patch: Partial<UiPrefs>): void {

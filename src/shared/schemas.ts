@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { MAX_ALIAS_LENGTH, MAX_AVATAR_BYTES, normalizeAlias } from "./accounts";
 import type { LogoRequest, LogoSettings } from "./logos";
-import { MAX_MUTED_SENDERS, MAX_NOTIFICATION_IDS, NOTIFY_FOLDERS, parseClock, type NotificationSettings } from "./notifications";
+import { MAX_MUTED_SENDERS, MAX_NOTIFICATION_IDS, NOTIFY_FOLDERS, type NotificationSettings } from "./notifications";
 import { MAIL_WINDOW } from "./mail-window";
 import { imapSettingsSchema } from "./imap-settings";
 import {
@@ -168,6 +168,7 @@ export const savedDraftSchema: z.ZodType<SavedDraft> = z.object({
       mode: z.enum(["reply", "replyAll", "forward"]),
     })
     .optional(),
+  serverMessageId: z.string().min(1).max(2048).optional(),
 });
 
 export const draftIdSchema = z.string().min(1).max(128);
@@ -182,6 +183,7 @@ export const uiPrefsPatchSchema: z.ZodType<Partial<UiPrefs>> = z
     view: mailViewSchema,
     unreadOnly: z.boolean(),
     shownFolders: shownFoldersSchema,
+    pinnedDrafts: z.array(z.string().min(1).max(2048)).max(500),
   })
   .partial()
   .strict();
@@ -219,13 +221,9 @@ export const logoSettingsSchema: z.ZodType<LogoSettings> = z.object({
   personPhotos: z.boolean(),
 });
 
-const clockSchema = z.string().refine((value) => parseClock(value) !== null, "Use a time like 22:00.");
-
-/** Every choice on the Notifications page; the whole object is replaced on each change. */
-export const notificationSettingsSchema: z.ZodType<NotificationSettings> = z.object({
+const accountNotificationShape = {
   enabled: z.boolean(),
   folders: z.array(z.enum(NOTIFY_FOLDERS)).max(NOTIFY_FOLDERS.length),
-  mutedAccountIds: z.array(z.string().min(1).max(128)).max(MAX_NOTIFICATION_IDS),
   categories: z.object({
     mode: z.enum(["all", "only", "except"]),
     ids: z.array(z.string().min(1).max(64)).max(MAX_NOTIFICATION_IDS),
@@ -233,10 +231,17 @@ export const notificationSettingsSchema: z.ZodType<NotificationSettings> = z.obj
   mutedSenders: z.array(z.string().min(3).max(320)).max(MAX_MUTED_SENDERS),
   content: z.enum(["full", "sender", "hidden"]),
   sound: z.boolean(),
-  dockBadge: z.boolean(),
   muteWhenFocused: z.boolean(),
+};
+
+/** Every choice on the Notifications page; the whole object is replaced on each change. */
+export const notificationSettingsSchema: z.ZodType<NotificationSettings> = z.object({
+  ...accountNotificationShape,
+  accounts: z
+    .record(z.string().min(1).max(128), z.object(accountNotificationShape).partial())
+    .refine((accounts) => Object.keys(accounts).length <= MAX_NOTIFICATION_IDS, "Too many accounts."),
+  dockBadge: z.boolean(),
   groupBursts: z.boolean(),
-  quietHours: z.object({ enabled: z.boolean(), start: clockSchema, end: clockSchema }),
 });
 
 /** Vercel AI Gateway API key typed by the user. */

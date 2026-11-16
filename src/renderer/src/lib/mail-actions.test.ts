@@ -128,3 +128,19 @@ describe("mail action reconciliation", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("reportEvent", () => {
+  it("puts a failure in the notifications list, newest first, and asks the window to redraw", () => {
+    const update = vi.fn();
+    const retry = vi.fn();
+    const actions = new MailActions(vi.fn(), update, vi.fn());
+    actions.reportEvent("Could not unsubscribe from News", "The sender did not answer in time.", retry);
+    actions.reportEvent("Could not unsubscribe from Deals", "The sender refused the request (status 403).");
+    expect(update).toHaveBeenCalledTimes(2);
+    expect(actions.events.map((event) => event.title)).toEqual([
+      "Could not unsubscribe from Deals",
+      "Could not unsubscribe from News",
+    ]);
+    expect(actions.events[1]).toMatchObject({ detail: "The sender did not answer in time.", retry });
+  });
+});

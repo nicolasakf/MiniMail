@@ -1,8 +1,11 @@
 import { memo, useRef, useState, type CSSProperties } from "react";
 
-import { Archive, Inbox, Paperclip, ShieldAlert, Trash2, type LucideIcon } from "lucide-react";
+import { Archive, Inbox, ListX, Paperclip, ShieldAlert, ShieldBan, Zap, Trash2, type LucideIcon } from "lucide-react";
 
 import { accountDetail } from "@shared/accounts";
+import { isBlockedThread } from "@shared/blocklist";
+import { isPriorityThread } from "@shared/priority";
+import { unsubscribeCommand } from "@shared/unsubscribe";
 import { logoRequestFor } from "@shared/logos";
 import { conversationFolder, MOVE_FOLDERS, type MoveFolder, type Thread } from "@shared/threads";
 import type { Account, MailAction, MailFolder } from "@shared/types";
@@ -12,7 +15,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useAppearance } from "@/lib/appearance";
 import { accountFor, formatListTime, normalizeSubject, threadSenderLabel } from "@/lib/format";
 import { folderStyle } from "@/lib/folder-style";
+import { useBlockList } from "@/lib/blocklist";
+import { usePriority } from "@/lib/priority";
+import { isLocalDraftThread } from "@/lib/local-drafts";
 import { rowHoverActions } from "@/lib/row-actions";
+import { unsubscribeButton } from "@/lib/unsubscribe-confirm";
+import { useUnsubscribed } from "@/lib/unsubscribed";
 import { HOVER_ON_TINT } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +64,11 @@ interface ThreadRowProps {
   onSelect: (key: string, modifiers?: SelectModifiers) => void;
   rowKey: string;
   onAction: (action: MailAction, thread: Thread) => void;
+  /**
+   * Asks to unsubscribe from the list behind the conversation; `point` is where the button is, so
+   * the confirmation card can open beside it. The button shows only when its mail offers a way.
+   */
+  onUnsubscribe?: (thread: Thread, point: { x: number; y: number }) => void;
   /** Right-click: opens the row's menu at the pointer. */
   onMenu: (key: string, x: number, y: number) => void;
 }
@@ -99,10 +112,14 @@ export const ThreadRow = memo(function ThreadRow({
   onSelect,
   rowKey,
   onAction,
+  onUnsubscribe,
   onMenu,
 }: ThreadRowProps) {
   const [hovered, setHovered] = useState(false);
   const { showPreviews } = useAppearance();
+  const priority = isPriorityThread(usePriority(), thread);
+  // Mail from a blocked sender or domain is marked with a block icon beside the sender (Sent and Drafts show recipients).
+  const blocked = isBlockedThread(useBlockList(), thread) && folder !== "sent" && folder !== "drafts";
   /**
    * A press that started on this row. Picking from the Move menu closes it under the pointer,
    * and the browser then delivers that click to whichever row is below: only a click whose
@@ -116,8 +133,12 @@ export const ThreadRow = memo(function ThreadRow({
   const rowStyle = folder === "inbox" && !showFolder ? folderStyle(rowFolder) : undefined;
   const account = accountFor(accounts, thread.accountId);
   const actions = hovered ? rowHoverActions(rowFolder, thread) : [];
+  // Unsubscribe comes first, before Pin, and only for mail that offers a way to.
+  const unsubscribedLists = useUnsubscribed();
+  const unsubscribeCmd = hovered && onUnsubscribe !== undefined ? unsubscribeCommand([thread], unsubscribedLists) : null;
+  const unsubscribable = unsubscribeCmd?.shown === true;
   // Each action button is 24px wide with a 2px gap; the fade starts 20px before the first one.
-  const actionsWidth = actions.length * 26 + 4;
+  const actionsWidth = (actions.length + (unsubscribable ? 1 : 0)) * 26 + 4;
   const hoverFade: CSSProperties | undefined = hovered
     ? (() => {
         const mask = `linear-gradient(to right, black calc(100% - ${actionsWidth + 20}px), transparent calc(100% - ${actionsWidth}px))`;
@@ -128,6 +149,32 @@ export const ThreadRow = memo(function ThreadRow({
     folder === "sent" || folder === "drafts" ? (latest.to[0] ?? latest.from) : latest.from;
 
   /** The row's own commands, shown while it is hovered. */
+  const unsubscribeAction = unsubscribable && unsubscribeCmd ? unsubscribeButton(unsubscribeCmd, false) : null;
+  const unsubscribeIconButton = unsubscribeAction ? (
+    <Tooltip key="unsubscribe">
+      <TooltipTrigger asChild>
+        {/* A greyed-out button gets no pointer events, so the span is what shows the tooltip. */}
+        <span className="flex">
+          <button
+            type="button"
+            aria-label="Unsubscribe"
+            disabled={unsubscribeAction.disabled}
+            className={cn(
+              "corner-squircle flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors enabled:hover:bg-accent enabled:hover:text-foreground disabled:opacity-40",
+              HOVER_ON_TINT,
+            )}
+            onClick={(event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              onUnsubscribe?.(thread, { x: box.left, y: box.bottom });
+            }}
+          >
+            <ListX className="size-3.5" />
+          </button>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{unsubscribeAction.label}</TooltipContent>
+    </Tooltip>
+  ) : null;
   const actionButtons = actions.map(({ action, label, icon: Icon, hint }) => (
     <Tooltip key={action}>
       <TooltipTrigger asChild>
@@ -146,10 +193,24 @@ export const ThreadRow = memo(function ThreadRow({
       </TooltipContent>
     </Tooltip>
   ));
-  const senderIcon = rowStyle && (
-    <span title={`In ${rowStyle.label}`} className="flex shrink-0">
-      <rowStyle.icon aria-label={`In ${rowStyle.label}`} className={cn("size-3.5", rowStyle.text)} />
-    </span>
+  const senderIcon = (
+    <>
+      {priority && (
+        <span title="Priority" className="flex shrink-0">
+          <Zap aria-label="Priority" className="size-3.5 fill-amber-500 text-amber-500" />
+        </span>
+      )}
+      {blocked && (
+        <span title="Blocked" className="flex shrink-0">
+          <ShieldBan aria-label="Blocked" className="size-3.5 text-red-400" />
+        </span>
+      )}
+      {rowStyle && (
+        <span title={`In ${rowStyle.label}`} className="flex shrink-0">
+          <rowStyle.icon aria-label={`In ${rowStyle.label}`} className={cn("size-3.5", rowStyle.text)} />
+        </span>
+      )}
+    </>
   );
   const accountMark =
     showAccountDot && account ? (
@@ -199,12 +260,15 @@ export const ThreadRow = memo(function ThreadRow({
       }}
     >
       <span className="-mx-1 flex size-6 shrink-0 items-center justify-center">
-        <ReadToggle
-          unread={thread.unread}
-          noun="conversation"
-          hint="U"
-          onToggle={() => onAction(thread.unread ? "markRead" : "markUnread", thread)}
-        />
+        {/* A draft is never read or unread, so its slot stays empty. */}
+        {folder !== "drafts" && !isLocalDraftThread(thread) && (
+          <ReadToggle
+            unread={thread.unread}
+            noun="conversation"
+            hint="U"
+            onToggle={() => onAction(thread.unread ? "markRead" : "markUnread", thread)}
+          />
+        )}
       </span>
 
       {/* In the stacked layout the logo is larger and centered between the sender and the subject. */}
@@ -226,6 +290,7 @@ export const ThreadRow = memo(function ThreadRow({
             {hovered ? (
               // The commands take the place of the folder, account and time, which would not all fit beside them.
               <div className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
+                {unsubscribeIconButton}
                 {actionButtons}
               </div>
             ) : (
@@ -287,6 +352,7 @@ export const ThreadRow = memo(function ThreadRow({
             className="absolute right-full top-0 flex h-full items-center gap-0.5 pr-1"
             onClick={(event) => event.stopPropagation()}
           >
+            {unsubscribeIconButton}
             {actionButtons}
           </div>
         )}

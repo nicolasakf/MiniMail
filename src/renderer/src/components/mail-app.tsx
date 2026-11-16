@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Archive, ArrowUpRight, Ban, FolderInput, Inbox, Mail, MailOpen, PanelRightClose, PanelRightOpen, Pin, PinOff, ShieldAlert, Trash2, type LucideIcon } from "lucide-react";
+import { Archive, ArrowUpRight, Ban, BellOff, FolderInput, Inbox, ListX, Mail, MailOpen, PanelRightClose, PanelRightOpen, Pencil, Pin, PinOff, ShieldAlert, ShieldBan, Trash2, User, Zap, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { iconFor } from "@shared/categories";
@@ -15,19 +15,22 @@ import {
   type GroupListItem,
   type ListItem,
 } from "@shared/focus-list";
+import { isBlockedEntry, mailToTrash, type BlockKind } from "@shared/blocklist";
+import { planUnsubscribe, unsubscribeCommand } from "@shared/unsubscribe";
 import { dropFolderDuplicates, matchesDrill, receivedMail, type DashboardRange } from "@shared/dashboard";
+import { isPriorityEntry, isPriorityThread, priorityInbox, PRIORITY_GROUP, PRIORITY_GROUP_DEF } from "@shared/priority";
 import { buildSenders, threadsFromDomain, threadsFromSender } from "@shared/sender-list";
 import { conversationFolder, groupThreads, MOVE_DESTINATION, withRelatedMessages, type Thread } from "@shared/threads";
-import type { MailAction, MailFolder, MessageSummary, ShownFolder, UiPrefs } from "@shared/types";
+import type { Contact, MailAction, MailFolder, MessageSummary, ShownFolder, UiPrefs } from "@shared/types";
 
 import { Composer } from "@/components/mail/composer";
 import { Dashboard, type DashboardSelection } from "@/components/mail/dashboard";
 import { FocusedList } from "@/components/mail/focused-list";
 import { ScheduledMail } from "@/components/mail/scheduled-mail";
-import { LocalDrafts } from "@/components/mail/local-drafts";
 import { categoryMenuIcon } from "@/components/mail/category-icon";
 import { ItemMenu, type MenuEntry } from "@/components/mail/item-menu";
-import { DrillHeader, GroupHeader, ListHeader, VIEWS, type MailView } from "@/components/mail/list-header";
+import { PriorityChip } from "@/components/mail/priority-card";
+import { DrillHeader, FOCUS_SEARCH_EVENT, GroupHeader, ListHeader, VIEWS, type MailView } from "@/components/mail/list-header";
 import type { SelectModifiers } from "@/components/mail/thread-row";
 import { Rail } from "@/components/mail/rail";
 import { SplitHandle } from "@/components/mail/split-handle";
@@ -40,7 +43,7 @@ import {
   type SenderPanelState,
 } from "@/components/mail/sender-panel";
 import { AccountErrorToasts, EmptyList, ListSkeleton, NoAccounts } from "@/components/mail/states";
-import { ThreadView } from "@/components/mail/thread-view";
+import { BlockMenuButton, CategoryMenuButton, MuteMenuButton, ThreadView } from "@/components/mail/thread-view";
 import { useIsMac } from "@/hooks/use-platform";
 import { SettingsDialog, type SettingsTab } from "@/components/settings/settings-dialog";
 import { ConfirmPopover } from "@/components/ui/confirm-popover";
@@ -55,11 +58,19 @@ import { api } from "@/lib/api";
 import { effectiveCategoryLayout, setAppearance, useAppearance } from "@/lib/appearance";
 import { newMessageSeed, type ComposeSeed } from "@/lib/compose";
 import { refreshContacts } from "@/lib/contact-cache";
-import { seedFromDraft, useDrafts } from "@/lib/drafts";
-import { FOLDER_TITLES } from "@/lib/format";
+import { deleteDraft, removeServerDraft, saveDraft, seedFromDraft, seedFromServerDraft, useDrafts } from "@/lib/drafts";
+import { setDraftsPinned, usePinnedDrafts } from "@/lib/pinned-drafts";
+import { draftIdOf, draftMessage, draftThreads, isLocalDraftId } from "@/lib/local-drafts";
+import { contactLabel, FOLDER_TITLES } from "@/lib/format";
 import { isTypingTarget } from "@/lib/keyboard";
 import { DELETE_FOREVER_CONFIRM } from "@/lib/delete-confirm";
-import { actionsForThread } from "@/lib/row-actions";
+import { unsubscribeButton, unsubscribeConfirm } from "@/lib/unsubscribe-confirm";
+import { recordUnsubscribed, useUnsubscribed } from "@/lib/unsubscribed";
+import { blockSections, blockTargets, muteSections, useBlockList } from "@/lib/blocklist";
+import { mutedCheck, withMute } from "@/lib/mute";
+import { useNotificationSettings } from "@/hooks/use-notification-settings";
+import { prioritySections, setBlockedClearingPriority, togglePriority, usePriority } from "@/lib/priority";
+import { actionsForThread, DELETE_DRAFT } from "@/lib/row-actions";
 import { cn } from "@/lib/utils";
 
 /** The folders behind ⌘2–⌘4, in rail order (⌘1 is the Dashboard). */
@@ -141,6 +152,8 @@ interface ComposeState {
   seed: ComposeSeed;
   /** Remounts the composer so each opening starts from a fresh seed. */
   id: number;
+  /** Folded into the tray at the bottom right; its editor stays mounted. */
+  minimized: boolean;
 }
 
 /**
@@ -183,7 +196,7 @@ export function MailApp() {
     query,
     setQuery,
     refresh,
-    act,
+    act: mailboxAct,
     assignCategory,
     undo,
     actions,
@@ -191,10 +204,22 @@ export function MailApp() {
     actionChanged,
   } = useMailbox(shownFolders);
   const { categories, ai, setState: setCategoryState } = useCategories();
+  /** Files conversations under a category (or none) and says so; the menu and the open conversation share it. */
+  const fileUnderCategory = useCallback(
+    (targets: string[], categoryId: string | null) => {
+      void assignCategory(targets, categoryId);
+      const where = categoryId === null ? "no category" : (categories.find((c) => c.id === categoryId)?.name ?? "category");
+      toast(`${targets.length > 1 ? `${targets.length} conversations` : "Conversation"} moved to ${where}`);
+    },
+    [assignCategory, categories],
+  );
   /** The toolbar's unread filter: lists show only conversations with unread mail, in every view and folder. */
   const [unreadOnly, setUnreadOnlyState] = useState(false);
+  /** While the priority list is open its unread filter starts on; `prev` is what to go back to when it closes. */
+  const priorityFilter = useRef<{ prev: boolean; touched: boolean } | null>(null);
   const setUnreadOnly = useCallback(
     (on: boolean) => {
+      if (priorityFilter.current) priorityFilter.current.touched = true;
       setUnreadOnlyState(on);
       savePrefs({ unreadOnly: on });
     },
@@ -216,12 +241,22 @@ export function MailApp() {
       previous.includes(name) ? previous.filter((entry) => entry !== name) : [...previous, name],
     );
   }, []);
+  /**
+   * The open conversation after an action moved it out of the list (archived, trashed, ...): it stays
+   * on screen, filed under its new folder, instead of closing.
+   */
+  const [held, setHeld] = useState<{ thread: Thread; folder: MailFolder } | null>(null);
   /** The folder the list on screen belongs to: a Dashboard list mixes folders, like the Inbox list. */
   const listFolder: MailFolder = inDrill ? "inbox" : folder;
   /** The folder a conversation is in; in a list that mixes folders that can be Archive, Trash or Spam. */
   const threadFolder = useCallback(
-    (thread: Thread): MailFolder => (listFolder === "inbox" ? conversationFolder(thread) : listFolder),
-    [listFolder],
+    (thread: Thread): MailFolder =>
+      held && held.thread.id === thread.id
+        ? held.folder
+        : listFolder === "inbox"
+          ? conversationFolder(thread)
+          : listFolder,
+    [listFolder, held],
   );
   const dashboardMail = useDashboardMail(accounts.length, onDashboard, actions, actionVersion);
   const { reload: reloadDashboard } = dashboardMail;
@@ -240,8 +275,13 @@ export function MailApp() {
   }, [drill, dashboardMessages, accounts]);
 
   /** Whole conversations of the matching mail (the user's own replies included), newest first. */
+  const drillKept = useRef<{ drill: DashboardSelection | null; keys: Set<string> }>({ drill: null, keys: new Set() });
   const drillThreads = useMemo(() => {
-    const keys = new Set(drillMatches.map((message) => `${message.accountId}:${message.threadId}`));
+    // A conversation stays in the list for as long as this Dashboard list is open, even when it
+    // stops matching: opening an unread one marks it read, and it must not vanish from under the reader.
+    if (drillKept.current.drill !== drill) drillKept.current = { drill, keys: new Set() };
+    const keys = drillKept.current.keys;
+    for (const message of drillMatches) keys.add(`${message.accountId}:${message.threadId}`);
     return groupThreads(
       dashboardMessages.filter((message) => keys.has(`${message.accountId}:${message.threadId}`)),
     );
@@ -265,14 +305,90 @@ export function MailApp() {
     return unreadOnly ? shown.filter((thread) => thread.unread) : shown;
   }, [drillThreads, inDrillView, query, unreadOnly]);
 
-  const threads = useMemo(
+  const savedDrafts = useDrafts();
+  // A server draft that was opened here and kept lives on as a local draft; list only that one.
+  const keptServerDrafts = useMemo(
+    () => new Set(savedDrafts.flatMap((draft) => (draft.serverMessageId ? [draft.serverMessageId] : []))),
+    [savedDrafts],
+  );
+  /** The drafts written here, as conversations beside the server's (same rows, selection and menus). */
+  const localDraftThreads = useMemo(() => {
+    if (folder !== "drafts" || inDrill) return [];
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const messages = savedDrafts
+      .filter((draft) => scope === "all" || draft.accountId === scope)
+      .map((draft) => {
+        const account = accounts.find((item) => item.id === draft.accountId);
+        return draftMessage(draft, { name: "", email: account?.email ?? "" });
+      })
+      .filter((message) => words.length === 0 || matchesQuery(message, words));
+    return draftThreads(messages);
+  }, [accounts, folder, inDrill, query, savedDrafts, scope]);
+  const pinnedDrafts = usePinnedDrafts();
+  const threads = useMemo(() => {
+    if (inDrill) return drillListThreads;
+    const shown = unreadOnly ? allThreads.filter((thread) => thread.unread) : allThreads;
+    if (folder !== "drafts") return shown;
+    const server =
+      keptServerDrafts.size === 0
+        ? shown
+        : shown.filter((thread) => !thread.messages.some((message) => keptServerDrafts.has(message.id)));
+    const local = unreadOnly ? [] : localDraftThreads;
+    const all =
+      local.length === 0
+        ? server
+        : [...local, ...server].sort((a, b) => Date.parse(b.latest.date) - Date.parse(a.latest.date));
+    // Pins on drafts are this app's own: the server's flag is ignored, so a draft pinned or starred elsewhere is not.
+    return all.map((thread) => (thread.pinned === pinnedDrafts.has(thread.latest.id) ? thread : { ...thread, pinned: pinnedDrafts.has(thread.latest.id) }));
+  }, [allThreads, drillListThreads, folder, inDrill, keptServerDrafts, localDraftThreads, pinnedDrafts, unreadOnly]);
+
+  /**
+   * Every action goes through here. A draft written here is on this computer only: deleting it
+   * removes the file entry (and the server draft it was opened from); the other actions have no
+   * meaning for it and are left out. Everything else goes on to the mailbox.
+   */
+  const act = useCallback<typeof mailboxAct>(
+    (action, ids, source) => {
+      if (folder === "drafts" && !inDrill) {
+        // Drafts can be pinned (on this computer only) or deleted; archive, read and the rest mean nothing for them.
+        if (action === "pin" || action === "unpin") return setDraftsPinned(ids, action === "pin");
+        if (action !== "trash" && action !== "deleteForever") return;
+        setDraftsPinned(ids, false);
+      }
+      const local = ids.filter(isLocalDraftId);
+      if (local.length === 0) return mailboxAct(action, ids, source);
+      const rest = ids.filter((id) => !isLocalDraftId(id));
+      if (rest.length > 0) mailboxAct(action, rest, source);
+      if (action !== "trash" && action !== "deleteForever") return;
+      const removed = local.flatMap((id) => savedDrafts.filter((draft) => draft.id === draftIdOf(id)));
+      if (removed.length === 0) return;
+      for (const draft of removed) {
+        void deleteDraft(draft.id);
+        void removeServerDraft(draft.serverMessageId, "discarded");
+      }
+      toast(removed.length === 1 ? "Draft deleted" : `${removed.length} drafts deleted`, {
+        duration: 6000,
+        action: {
+          label: "Undo",
+          // The server copy is in its Trash by now, so the restored draft stands on its own.
+          onClick: () => removed.forEach((draft) => void saveDraft({ ...draft, serverMessageId: undefined }).catch(() => undefined)),
+        },
+      });
+    },
+    [folder, inDrill, mailboxAct, savedDrafts],
+  );
+  const priority = usePriority();
+  /** Conversations in the list with unread priority mail: what the card beside the view tabs counts. */
+  const priorityThreads = useMemo(
     () =>
-      inDrill
-        ? drillListThreads
-        : unreadOnly
-          ? allThreads.filter((thread) => thread.unread)
-          : allThreads,
-    [allThreads, drillListThreads, inDrill, unreadOnly],
+      folder === "inbox" && !onDashboard
+        ? priorityInbox(
+            priority,
+            allThreads,
+            accounts.map((account) => account.email),
+          )
+        : [],
+    [priority, allThreads, accounts, folder, onDashboard],
   );
   const [view, setView] = useState<MailView>("category");
   /** Drafts and Sent are always a plain list: the Smart and Sender views make no sense there. */
@@ -310,14 +426,24 @@ export function MailApp() {
   const cardBelowKey = useRef<string | null>(null);
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const [searchOpen, setSearchOpen] = useState(false);
-  const [compose, setCompose] = useState<ComposeState | null>(null);
-  const [composerMinimized, setComposerMinimized] = useState(false);
-  const activeComposer = compose !== null && !composerMinimized;
-  const savedDrafts = useDrafts();
+  // Any number of composers can be open; at most one is out of the tray, the rest are minimized.
+  const [composes, setComposes] = useState<readonly ComposeState[]>([]);
+  const [composerTray, setComposerTray] = useState<HTMLElement | null>(null);
+  const activeComposer = composes.some((item) => !item.minimized);
+  const setComposeMinimized = useCallback((id: number, minimized: boolean) => {
+    setComposes((previous) =>
+      previous.map((item) => (item.id === id ? { ...item, minimized } : minimized ? item : { ...item, minimized: true })),
+    );
+  }, []);
+  const closeCompose = useCallback((id: number) => {
+    setComposes((previous) => previous.filter((item) => item.id !== id));
+  }, []);
   const [scheduledCount, setScheduledCount] = useState(0);
   const [itemMenu, setItemMenu] = useState<ItemMenuState | null>(null);
   // The card that asks before a conversation chosen in the menu is deleted for good.
   const [deleteConfirm, setDeleteConfirm] = useState<{ x: number; y: number; thread: Thread } | null>(null);
+  /** The card asking before an unsubscribe started from a row or its menu, anchored at the point it was asked from. */
+  const [unsubscribeAsk, setUnsubscribeAsk] = useState<{ x: number; y: number; threads: Thread[] } | null>(null);
   // Learn who the user writes to as soon as accounts are known, so the composer can suggest at once.
   useEffect(() => {
     if (accountsLoaded && accounts.length > 0) void refreshContacts();
@@ -384,11 +510,18 @@ export function MailApp() {
   // The group stays open while the unread filter hides all its mail (it then shows the empty state);
   // it only closes once it has no mail at all.
   const openGroup = useMemo(() => {
+    if (openGroupKind === PRIORITY_GROUP) {
+      // The priority list is not a category: it works from every view tab and holds the conversations
+      // of marked senders and domains too. It opens with the unread filter on (see `priorityOpen`).
+      const isPriority = (thread: Thread) => isPriorityThread(priority, thread);
+      if (folder !== "inbox" || onDashboard || !allThreads.some(isPriority)) return null;
+      return { def: PRIORITY_GROUP_DEF, threads: threads.filter(isPriority) };
+    }
     if (!focused || openGroupKind === null) return null;
     const def = groupDefs(categories).find((candidate) => candidate.kind === openGroupKind);
     if (!def || threadsInGroup(inDrill ? drillThreads : allThreads, openGroupKind).length === 0) return null;
     return { def, threads: threadsInGroup(threads, openGroupKind) };
-  }, [focused, openGroupKind, categories, allThreads, drillThreads, inDrill, threads]);
+  }, [focused, openGroupKind, categories, allThreads, drillThreads, inDrill, threads, priority, folder, onDashboard]);
 
   const senderView = activeView === "sender";
   const senders = useMemo(() => (senderView ? buildSenders(threads) : []), [senderView, threads]);
@@ -411,7 +544,11 @@ export function MailApp() {
   const categoryLayout = effectiveCategoryLayout(appearance);
   const { minimized, setCategoryMinimized } = useMinimizedCategories();
   const { items, dockGroups } = useMemo(() => {
-    if (!focused || openGroup) return { items: buildFlatList(listThreads, now), dockGroups: [] };
+    if (!focused || openGroup) {
+      // Drafts keep their pinned ones at the top, under a heading, as the Inbox does.
+      const pinnedSection = folder === "drafts" && !inDrill ? { collapsed: pinnedCollapsed } : undefined;
+      return { items: buildFlatList(listThreads, now, { pinnedSection }), dockGroups: [] };
+    }
     const all = buildFocusedList(threads, { now, categories, pinnedCollapsed });
     // Minimized categories leave the category rows (and their place in the keyboard navigation).
     const isDocked = (item: ListItem): item is GroupListItem => item.type === "group" && minimized.has(item.kind);
@@ -431,7 +568,7 @@ export function MailApp() {
     const slim = minimizedExpanded ? docked.map((group): ListItem => ({ ...group, slim: true })) : [];
     rest.splice(at < 0 ? rest.length : at, 0, heading, ...slim);
     return { items: rest, dockGroups: docked };
-  }, [focused, openGroup, threads, listThreads, now, categories, pinnedCollapsed, minimized, categoryLayout, minimizedExpanded]);
+  }, [focused, openGroup, folder, inDrill, threads, listThreads, now, categories, pinnedCollapsed, minimized, categoryLayout, minimizedExpanded]);
   const navigable = useMemo(() => items.filter((item) => item.type !== "section"), [items]);
   /** Split view: the selected conversation is read beside the list instead of replacing it. */
   const split = appearance.splitView && !(onDashboard && !drill) && !(accountsLoaded && accounts.length === 0);
@@ -439,10 +576,14 @@ export function MailApp() {
     // Looked up unfiltered: reading a conversation must not make it vanish from under the reader.
     () =>
       openThreadId
-        ? (inDrill ? drillThreads : allThreads).find((thread) => thread.id === openThreadId)
+        ? ((inDrill ? drillThreads : allThreads).find((thread) => thread.id === openThreadId) ??
+          (held?.thread.id === openThreadId ? held.thread : undefined))
         : undefined,
-    [openThreadId, inDrill, drillThreads, allThreads],
+    [openThreadId, inDrill, drillThreads, allThreads, held],
   );
+  useEffect(() => {
+    if (held && held.thread.id !== openThreadId) setHeld(null);
+  }, [held, openThreadId]);
   // A folder list loads only its own folder, so the rest of a conversation (the user's replies in
   // Sent, what they received in the Inbox or Archive) is added when a conversation opens.
   const conversationMail = useConversationMail(openThread !== undefined && folder !== "drafts");
@@ -471,6 +612,22 @@ export function MailApp() {
   useEffect(() => {
     if (openGroupKind !== null && !openGroup) setOpenGroupKind(null);
   }, [openGroupKind, openGroup]);
+
+  // The priority list opens with the unread filter on (turn it off in the toolbar to see read mail too).
+  // The filter goes back to what it was when the list closes, unless the user changed it meanwhile.
+  const priorityOpen = openGroupKind === PRIORITY_GROUP;
+  useEffect(() => {
+    if (priorityOpen && !priorityFilter.current) {
+      priorityFilter.current = { prev: unreadOnly, touched: false };
+      setUnreadOnlyState(true);
+    } else if (!priorityOpen && priorityFilter.current) {
+      const { prev, touched } = priorityFilter.current;
+      priorityFilter.current = null;
+      if (!touched) setUnreadOnlyState(prev);
+    }
+    // Only opening and closing matter; the filter's own changes are tracked through `touched`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [priorityOpen]);
 
   useEffect(() => {
     if (openThreadId && !openThread) setOpenThreadId(null);
@@ -511,7 +668,7 @@ export function MailApp() {
 
   /** Moves the selection to the nearest row that is not part of `thread`, before it disappears. */
   const selectNeighbor = useCallback(
-    (thread: Thread) => {
+    (thread: Thread, keepPane = false) => {
       const index = navigable.findIndex(
         (item) => item.type === "thread" && item.thread.id === thread.id,
       );
@@ -522,7 +679,7 @@ export function MailApp() {
       if (!next) return;
       setSelectedKey(next.key);
       // The conversation being read leaves with its row: the pane moves on to the neighbor.
-      if (split && openThreadId === thread.id) showInPane(paneIdFor(next));
+      if (split && !keepPane && openThreadId === thread.id) showInPane(paneIdFor(next));
     },
     [navigable, split, openThreadId, showInPane],
   );
@@ -538,10 +695,26 @@ export function MailApp() {
       const ids =
         listFolder === "inbox" ? idsForAction(action, thread) : thread.messages.map((message) => message.id);
       if (ids.length === 0) return;
-      if (removesFromView(action, listFolder) && !stays) selectNeighbor(thread);
+      // The conversation being read stays open, filed under its new folder; only deleting it forever ends it.
+      const keepOpen = openThreadId === thread.id && removesFromView(action, listFolder) && action !== "deleteForever";
+      if (keepOpen) {
+        const to = MOVE_DESTINATION[action];
+        setHeld({
+          thread: {
+            ...thread,
+            messages: thread.messages.map((message) => ({
+              ...message,
+              ...(to ? { folder: to } : {}),
+              ...(action === "unpin" ? { pinned: false } : {}),
+            })),
+          },
+          folder: to ?? threadFolder(thread),
+        });
+      }
+      if (removesFromView(action, listFolder) && !stays) selectNeighbor(thread, keepOpen);
       act(action, ids, thread.messages);
     },
-    [act, drillShown, folder, inDrill, listFolder, selectNeighbor, shownFolders],
+    [act, drillShown, folder, inDrill, listFolder, openThreadId, selectNeighbor, shownFolders, threadFolder],
   );
 
   const actOnChecked = useCallback(
@@ -555,6 +728,189 @@ export function MailApp() {
     },
     [act, checked, listFolder, threads],
   );
+
+  const blocklist = useBlockList();
+  const ownAddresses = useMemo(() => accounts.map((account) => account.email), [accounts]);
+
+  /**
+   * Blocks (or, when all of them already are, unblocks) the sender or domain of these conversations.
+   * Blocking sends the conversations on screen to the Trash at once; mail that arrives later or sits
+   * in other lists is swept there by the effect below.
+   */
+  const blockThreads = useCallback(
+    (kind: BlockKind, targets: readonly Thread[], only?: readonly string[]) => {
+      const { senders, domains } = blockTargets(targets, ownAddresses);
+      // `only` names the people picked from a conversation's menu; without it, the newest senders.
+      const values = only ?? (kind === "senders" ? senders : domains);
+      if (values.length === 0) return;
+      const unblock = values.every((value) => isBlockedEntry(blocklist, kind, value));
+      setBlockedClearingPriority(kind, values, !unblock);
+      const what = values.length === 1 ? (kind === "domains" ? `@${values[0]}` : values[0]) : `${values.length} ${kind}`;
+      if (unblock) {
+        toast(`Unblocked ${what}`);
+        return;
+      }
+      toast(`Blocked ${what}`, {
+        description: "Their mail goes to the Trash.",
+        action: { label: "Unblock", onClick: () => setBlockedClearingPriority(kind, values, false) },
+      });
+      const moving = targets.filter((thread) => threadFolder(thread) !== "trash");
+      if (moving.length === 1) actOnThread("trash", moving[0]!);
+      else if (moving.length > 1) {
+        act("trash", moving.flatMap((thread) => thread.messages.map((message) => message.id)), moving.flatMap((thread) => thread.messages));
+        setChecked(new Set());
+      }
+    },
+    [act, actOnThread, blocklist, ownAddresses, threadFolder],
+  );
+
+  const { settings: notifySettings, update: updateNotify } = useNotificationSettings();
+
+  /**
+   * Mutes (or, when all of them already are, unmutes) the sender or domain of these conversations.
+   * Only notifications stop: the mail is filed where it always was.
+   */
+  const muteThreads = useCallback(
+    (kind: BlockKind, targets: readonly Thread[], only?: readonly string[]) => {
+      if (!notifySettings) return;
+      const { senders, domains } = blockTargets(targets, ownAddresses);
+      const values = only ?? (kind === "senders" ? senders : domains);
+      if (values.length === 0) return;
+      const accountIds = [...new Set(targets.map((thread) => thread.accountId))];
+      const isMuted = mutedCheck(notifySettings, accountIds);
+      const unmute = values.every((value) => isMuted(kind, value));
+      void updateNotify((current) => withMute(current, accountIds, kind, values, !unmute));
+      const what = values.length === 1 ? (kind === "domains" ? `@${values[0]}` : values[0]) : `${values.length} ${kind}`;
+      if (unmute) {
+        toast(`Unmuted ${what}`);
+        return;
+      }
+      toast(`Muted ${what}`, {
+        description: "You won't be notified about their new mail.",
+        action: { label: "Unmute", onClick: () => void updateNotify((current) => withMute(current, accountIds, kind, values, false)) },
+      });
+    },
+    [notifySettings, ownAddresses, updateNotify],
+  );
+
+  /**
+   * Unsubscribes from the lists behind these conversations: one request per sender. Conversations
+   * whose mail offers no way to unsubscribe are left alone and counted in the answer.
+   */
+  const unsubscribedLists = useUnsubscribed();
+  const unsubscribeThreads = useCallback(
+    async (targets: readonly Thread[]) => {
+      const plan = planUnsubscribe(targets, unsubscribedLists);
+      if (plan.entries.length === 0) {
+        toast("Nothing to unsubscribe from", {
+          description: plan.alreadyDone > 0 ? "You have already unsubscribed from these lists." : "These conversations have no unsubscribe option.",
+        });
+        return;
+      }
+      const toastId = toast.loading(plan.entries.length === 1 ? "Unsubscribing…" : `Unsubscribing from ${plan.entries.length} lists…`);
+      let results: Awaited<ReturnType<typeof api.mail.unsubscribe>>;
+      try {
+        results = await api.mail.unsubscribe(plan.entries.map((entry) => entry.messageId));
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        toast.error("Couldn't unsubscribe", { id: toastId, description: reason });
+        actions.reportEvent("Could not unsubscribe", reason, () => void unsubscribeThreads(targets));
+        return;
+      }
+      const outcomes = plan.entries.map((entry) => ({
+        entry,
+        name: contactLabel(entry.sender),
+        result: results.find((result) => result.id === entry.messageId),
+      }));
+      const done = outcomes.filter(({ result }) => result?.status === "done");
+      const pages = outcomes.flatMap(({ result }) => (result?.status === "manual" ? [result.url] : []));
+      const failed = outcomes.filter(({ result }) => !result || result.status === "failed");
+      // A request the sender accepted is remembered, so the buttons for that list grey out.
+      recordUnsubscribed(done.map(({ entry }) => entry.key));
+      // Every failure is also kept in the notifications popover, with the reason and a way to try again.
+      for (const { entry, name, result } of failed) {
+        actions.reportEvent(
+          `Could not unsubscribe from ${name}`,
+          result?.status === "failed" ? result.error : "The mail server did not answer.",
+          () => void unsubscribeThreads(entry.threads),
+        );
+      }
+
+      if (outcomes.length === 1) {
+        const [only] = outcomes;
+        if (pages.length === 1) {
+          // A sender that only has a web page: the user finishes there.
+          void api.system.openExternal(pages[0]!).catch(() => undefined);
+          toast.success(`Opened the unsubscribe page of ${only!.name}`, {
+            id: toastId,
+            description: `Finish unsubscribing there.${plan.skipped + plan.alreadyDone > 0 ? ` ${plan.skipped + plan.alreadyDone} skipped.` : ""}`,
+          });
+          return;
+        }
+        if (failed.length === 1) {
+          const result = only!.result;
+          toast.error(`Couldn't unsubscribe from ${only!.name}`, {
+            id: toastId,
+            description: result?.status === "failed" ? result.error : "No answer from the mail server.",
+          });
+          return;
+        }
+      }
+
+      const archive = () => {
+        const moving = done.flatMap(({ entry }) => entry.threads);
+        act("archive", moving.flatMap((thread) => thread.messages.map((message) => message.id)), moving.flatMap((thread) => thread.messages));
+      };
+      const notes = [
+        pages.length > 0 ? `${pages.length} only offer${pages.length === 1 ? "s" : ""} a web page` : "",
+        failed.length > 0 ? `${failed.length} failed (see Notifications)` : "",
+        plan.alreadyDone > 0 ? `${plan.alreadyDone} already unsubscribed` : "",
+        plan.skipped > 0 ? `${plan.skipped} had no unsubscribe option` : "",
+      ].filter(Boolean);
+      const title =
+        done.length === 0
+          ? "Nothing was sent"
+          : done.length === 1
+            ? `Unsubscribed from ${done[0]!.name}`
+            : `Unsubscribed from ${done.length} lists`;
+      (done.length > 0 ? toast.success : toast.warning)(title, {
+        id: toastId,
+        description: notes.length > 0 ? `${notes.join(", ")}.` : "Archive their mail too?",
+        action:
+          pages.length > 0
+            ? {
+                label: pages.length === 1 ? "Open page" : `Open ${Math.min(pages.length, 5)} pages`,
+                // A handful at most: each page is a browser tab the user has to finish.
+                onClick: () => pages.slice(0, 5).forEach((url) => void api.system.openExternal(url).catch(() => undefined)),
+              }
+            : done.length > 0
+              ? { label: "Archive", onClick: archive }
+              : undefined,
+      });
+    },
+    [act, actions, unsubscribedLists],
+  );
+
+  /** Searches the list for one person's address, leaving a conversation that is open full screen. */
+  const searchFrom = useCallback(
+    (contact: Contact) => {
+      if (fullOpen) setOpenThreadId(null);
+      setQuery(contact.email);
+      setSearchOpen(true);
+    },
+    [fullOpen, setQuery],
+  );
+
+  /** Blocked mail in the Inbox or Archive goes to the Trash, new arrivals included; each message is sent once. */
+  const trashedForBlock = useRef(new Set<string>());
+  useEffect(() => {
+    const rows = mailToTrash(blocklist, allThreads.flatMap((thread) => thread.messages), ownAddresses).filter(
+      (message) => !trashedForBlock.current.has(message.id),
+    );
+    if (rows.length === 0) return;
+    for (const row of rows) trashedForBlock.current.add(row.id);
+    actions.enqueue("trash", rows, false);
+  }, [actions, allThreads, blocklist, ownAddresses]);
 
   const toggleGroupRead = useCallback(
     (kind: GroupKind, unread: boolean) => {
@@ -596,6 +952,7 @@ export function MailApp() {
 
   const showGroup = useCallback((kind: GroupKind) => {
     setOpenGroupKind(kind);
+    setSenderPanelFocus(false);
     setChecked(new Set());
   }, []);
 
@@ -787,8 +1144,16 @@ export function MailApp() {
       const fallbackAccount =
         scope !== "all" ? scope : (selectedThread?.accountId ?? accounts[0]?.id ?? "");
       const open = () => {
-        setComposerMinimized(false);
-        setCompose((previous) => previous ?? { seed: seed ?? newMessageSeed(fallbackAccount), id: Date.now() });
+        setComposes((previous) => {
+          // A draft that is already open here comes back instead of opening twice.
+          const existing = seed?.draftId ? previous.find((item) => item.seed.draftId === seed.draftId) : undefined;
+          if (existing) return previous.map((item) => ({ ...item, minimized: item.id !== existing.id }));
+          const id = Math.max(Date.now(), ...previous.map((item) => item.id + 1));
+          return [
+            ...previous.map((item) => ({ ...item, minimized: true })),
+            { seed: seed ?? newMessageSeed(fallbackAccount), id, minimized: false },
+          ];
+        });
       };
       if (seed?.draftId) {
         void api.composerWindow.focus(seed.draftId).then((focused) => {
@@ -800,6 +1165,44 @@ export function MailApp() {
     },
     [accounts, scope, selectedThread],
   );
+
+  /** The server draft being fetched, so a second click while it loads does not open it twice. */
+  const openingDraft = useRef<string | null>(null);
+  /**
+   * Opens a conversation from the list. A draft the mail server holds (started in a webmail or on a
+   * phone) is not read: it opens in the composer to be continued, like one written here.
+   */
+  const openFromList = useCallback(
+    (thread: Thread) => {
+      if (folder !== "drafts" || inDrill) return showInPane(thread.id);
+      const message = thread.latest;
+      const localId = draftIdOf(message.id);
+      if (localId !== null) {
+        const draft = savedDrafts.find((item) => item.id === localId);
+        if (draft) startCompose(seedFromDraft(draft));
+        return;
+      }
+      if (openingDraft.current === message.id) return;
+      openingDraft.current = message.id;
+      void (async () => {
+        try {
+          const [detail] = await api.mail.get([message.id]);
+          if (!detail) throw new Error("That draft is no longer on the server.");
+          const files = await Promise.all(detail.attachments.map((file) => api.mail.attachmentContent(detail.id, file.id)));
+          startCompose(seedFromServerDraft(detail, files));
+        } catch (error) {
+          toast.error(`Could not open the draft: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+          openingDraft.current = null;
+        }
+      })();
+    },
+    [folder, inDrill, savedDrafts, showInPane, startCompose],
+  );
+
+  const editCategories = useCallback(() => {
+    setSettingsDialog({ open: true, tab: "categories", adding: false });
+  }, []);
 
   const openAccounts = useCallback((adding: boolean) => {
     setSettingsDialog({ open: true, tab: "accounts", adding });
@@ -859,6 +1262,15 @@ export function MailApp() {
     setItemMenu({ x: (rect?.left ?? 0) + 56, y: rect?.bottom ?? 120, key: selectedKey });
   }, [fullOpen, selectedKey]);
 
+  /** The hover button of a row: asks first, beside the button. A row inside a multi-selection acts on the whole selection. */
+  const askUnsubscribe = useCallback(
+    (thread: Thread, point: { x: number; y: number }) => {
+      const targets = checked.has(thread.id) && checked.size > 1 ? threads.filter((t) => checked.has(t.id)) : [thread];
+      setUnsubscribeAsk({ ...point, threads: targets });
+    },
+    [checked, threads],
+  );
+
   /** The commands of the menu on screen, built from the current state of its item. */
   const menuEntries = useMemo((): MenuEntry[] => {
     if (!itemMenu) return [];
@@ -876,7 +1288,7 @@ export function MailApp() {
           label: "Open",
           icon: ArrowUpRight,
           hint: "↵",
-          run: () => setOpenThreadId(thread.id),
+          run: () => openFromList(thread),
         });
       }
       const isDanger = (action: string) => action === "trash" || action === "deleteForever" || action === "spam";
@@ -893,7 +1305,6 @@ export function MailApp() {
             return;
           }
           actOnThread(action, thread);
-          if (fullOpen && removesFromView(action, listFolder)) setOpenThreadId(null);
         },
       });
       const actions = actionsForThread(threadFolder(thread), thread);
@@ -901,11 +1312,7 @@ export function MailApp() {
       if (categories.length > 0 && listFolder !== "sent" && listFolder !== "drafts") {
         // A menu opened on a row inside a multi-selection acts on the whole selection.
         const targets = checked.has(thread.id) && checked.size > 1 ? [...checked] : [thread.id];
-        const filed = (categoryId: string | null) => () => {
-          void assignCategory(targets, categoryId);
-          const where = categoryId === null ? "no category" : (categories.find((c) => c.id === categoryId)?.name ?? "category");
-          toast(`${targets.length > 1 ? `${targets.length} conversations` : "Conversation"} moved to ${where}`);
-        };
+        const filed = (categoryId: string | null) => () => fileUnderCategory(targets, categoryId);
         entries.push({
           id: "moveToCategory",
           label: "Move to category",
@@ -926,11 +1333,117 @@ export function MailApp() {
               current: thread.categoryId === null,
               run: filed(null),
             },
+            {
+              id: "category:edit",
+              label: "Edit categories",
+              icon: Pencil,
+              separatorBefore: true,
+              run: editCategories,
+            },
           ],
         });
       }
-      // Spam, trash and delete go last, set apart from the everyday commands.
+      if (listFolder !== "sent" && listFolder !== "drafts") {
+        entries.push({
+          id: "priority",
+          label: "Priority",
+          icon: Zap,
+          run: () => undefined,
+          children: prioritySections(thread, ownAddresses).flatMap((section): MenuEntry[] => {
+            const choices = section.choices.map((choice): MenuEntry => ({
+              id: `priority:${choice.kind}:${choice.value}`,
+              label: choice.label,
+              icon: Zap,
+              current: isPriorityEntry(priority, choice.kind, choice.value),
+              keepOpen: true,
+              run: () => togglePriority(choice.kind, choice.value),
+            }));
+            // With several people, each opens a menu of their own address and domain.
+            if (!section.contact) return choices;
+            return [{ id: `priority:person:${section.contact.email}`, label: contactLabel(section.contact), icon: User, run: () => undefined, children: choices }];
+          }),
+        });
+      }
+      if (listFolder !== "sent" && listFolder !== "drafts") {
+        // A menu opened on a row inside a multi-selection acts on the whole selection.
+        const targets =
+          checked.has(thread.id) && checked.size > 1 ? threads.filter((t) => checked.has(t.id)) : [thread];
+        const sections = muteSections(
+          mutedCheck(notifySettings, [...new Set(targets.map((t) => t.accountId))]),
+          targets,
+          ownAddresses,
+        );
+        if (sections.length > 0) {
+          entries.push({
+            id: "mute",
+            label: "Mute",
+            icon: BellOff,
+            run: () => undefined,
+            children: sections.flatMap((section): MenuEntry[] => {
+              const choices = section.choices.map((choice): MenuEntry => ({
+                id: `mute:${section.contact?.email ?? ""}:${choice.kind}`,
+                label: choice.label,
+                icon: BellOff,
+                // Only a person picked from a conversation's menu is named; otherwise the newest senders.
+                run: () => muteThreads(choice.kind, targets, section.contact ? choice.values : undefined),
+              }));
+              // With several people, each opens a menu of their own address and domain.
+              if (!section.contact) return choices;
+              return [{ id: `mute:person:${section.contact.email}`, label: contactLabel(section.contact), icon: User, run: () => undefined, children: choices }];
+            }),
+          });
+        }
+      }
+      {
+        // A menu opened on a row inside a multi-selection acts on the whole selection. The command stays
+        // when only some of them can be unsubscribed from; the others are simply skipped.
+        const targets =
+          checked.has(thread.id) && checked.size > 1 ? threads.filter((t) => checked.has(t.id)) : [thread];
+        const command = unsubscribeCommand(targets, unsubscribedLists);
+        if (command.shown) {
+          const { label, disabled } = unsubscribeButton(command, targets.length > 1);
+          entries.push({
+            id: "unsubscribe",
+            label: "Unsubscribe",
+            icon: ListX,
+            disabled,
+            // The tooltip: why it is greyed out, or that the list keeps sending.
+            note: label === "Unsubscribe" ? undefined : label,
+            run: () => setUnsubscribeAsk({ x: itemMenu.x, y: itemMenu.y, threads: targets }),
+          });
+        }
+      }
+      // Spam, trash and delete go last, set apart from the everyday commands; Block follows Spam.
       const danger = actions.filter((a) => isDanger(a.action)).map(actionEntry);
+      if (listFolder !== "sent" && listFolder !== "drafts") {
+        // A menu opened on a row inside a multi-selection acts on the whole selection.
+        const targets =
+          checked.has(thread.id) && checked.size > 1 ? threads.filter((t) => checked.has(t.id)) : [thread];
+        const sections = blockSections(blocklist, targets, ownAddresses);
+        if (sections.length > 0) {
+          const block: MenuEntry = {
+            id: "block",
+            label: "Block",
+            icon: ShieldBan,
+            destructive: true,
+            run: () => undefined,
+            children: sections.flatMap((section): MenuEntry[] => {
+              const choices = section.choices.map((choice): MenuEntry => ({
+                id: `block:${section.contact?.email ?? ""}:${choice.kind}`,
+                label: choice.label,
+                icon: ShieldBan,
+                // Only a person picked from a conversation's menu is named; otherwise the newest senders.
+                run: () => blockThreads(choice.kind, targets, section.contact ? choice.values : undefined),
+              }));
+              // With several people, each opens a menu of their own address and domain.
+              if (!section.contact) return choices;
+              return [{ id: `block:person:${section.contact.email}`, label: contactLabel(section.contact), icon: User, run: () => undefined, children: choices }];
+            }),
+          };
+          const at = danger.findIndex((entry) => entry.id === "deleteForever");
+          danger.splice(at < 0 ? danger.length : at, 0, block);
+        }
+      }
       if (danger.length > 0 && entries.length > 0) danger[0] = { ...danger[0]!, separatorBefore: true };
       entries.push(...danger);
       return entries;
@@ -965,6 +1478,13 @@ export function MailApp() {
               icon: PanelRightClose,
               run: () => setCategoryMinimized(item.kind, true),
             },
+        {
+          id: "editCategories",
+          label: "Edit categories",
+          icon: Pencil,
+          separatorBefore: true,
+          run: editCategories,
+        },
       ];
     }
     return [];
@@ -983,7 +1503,18 @@ export function MailApp() {
     toggleGroupRead,
     categories,
     checked,
-    assignCategory,
+    fileUnderCategory,
+    editCategories,
+    priority,
+    blocklist,
+    blockThreads,
+    muteThreads,
+    unsubscribeThreads,
+    unsubscribedLists,
+    notifySettings,
+    ownAddresses,
+    threads,
+    openFromList,
   ]);
 
   // A menu whose item vanished (archived from elsewhere, list refreshed) has nothing left to show.
@@ -1063,7 +1594,9 @@ export function MailApp() {
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "k") {
         if (fullOpen) return; // no list on screen to search
         setItemMenu(null);
-        setSearchOpen(true);
+        // Already searching: ⌘K again puts the cursor back in the box with its text selected.
+        if (searchOpen) window.dispatchEvent(new CustomEvent(FOCUS_SEARCH_EVENT, { detail: { select: true } }));
+        else setSearchOpen(true);
         event.preventDefault();
         return;
       }
@@ -1113,7 +1646,7 @@ export function MailApp() {
         }
         if (!target) return;
         actOnThread(action, target);
-        if (fullOpen && removesFromView(action, listFolder)) setOpenThreadId(null);
+        if (fullOpen && action === "deleteForever") setOpenThreadId(null);
       };
       /** Archive, trash, spam and delete need the same key twice: the first press only asks. */
       const confirmThenAct = (action: MailAction, message: (key: string) => string) => {
@@ -1210,8 +1743,15 @@ export function MailApp() {
           break;
         case "ArrowUp":
         case "k":
-          // Nothing sits above the row of vertical cards (left and right step between them).
           if (fullOpen) break;
+          // Up from the first row goes back into the open search box, as Down leaves it.
+          if (searchOpen && selectedItem && navigable[0]?.key === selectedItem.key) {
+            // The key must not also act in the box it just moved to (K would type a "k").
+            event.preventDefault();
+            window.dispatchEvent(new CustomEvent(FOCUS_SEARCH_EVENT, { detail: { select: false } }));
+            return;
+          }
+          // Nothing sits above the row of vertical cards (left and right step between them).
           if (selectedItem?.type === "group" && categoryLayout === "vertical") break;
           // From the first conversation under the cards, Up returns to the card Down left.
           if (
@@ -1237,7 +1777,7 @@ export function MailApp() {
         case "o":
           if (fullOpen) return;
           if (selectedItem?.type === "group") showGroup(selectedItem.kind);
-          else if (selectedThread) showInPane(selectedThread.id);
+          else if (selectedThread) openFromList(selectedThread);
           break;
         case "a":
           // In Archive, A is the way back to the inbox and needs no confirmation.
@@ -1324,6 +1864,7 @@ export function MailApp() {
     openThread,
     fullOpen,
     showInPane,
+    openFromList,
     searchOpen,
     checked,
     actOnChecked,
@@ -1350,6 +1891,13 @@ export function MailApp() {
    */
   const bulkActions = useMemo((): { action: MailAction; label: string; icon: LucideIcon }[] => {
     const selected = threads.filter((thread) => checked.has(thread.id));
+    if (listFolder === "drafts") {
+      const pinned = selected.length > 0 && selected.every((thread) => thread.pinned);
+      return [
+        pinned ? { action: "unpin", label: "Unpin", icon: PinOff } : { action: "pin", label: "Pin", icon: Pin },
+        { action: "trash", label: DELETE_DRAFT.label, icon: DELETE_DRAFT.icon },
+      ];
+    }
     const anyUnread = selected.some((thread) => thread.unread);
     const allPinned = selected.length > 0 && selected.every((thread) => thread.pinned);
     return [
@@ -1364,28 +1912,96 @@ export function MailApp() {
       { action: "trash", label: "Move to Trash", icon: Trash2 },
       { action: "spam", label: "Report spam", icon: ShieldAlert },
     ];
-  }, [checked, threads]);
+  }, [checked, listFolder, threads]);
 
+  const selectedThreads = useMemo(() => threads.filter((thread) => checked.has(thread.id)), [checked, threads]);
+  const bulkUnsubscribe = useMemo(() => unsubscribeCommand(selectedThreads, unsubscribedLists), [selectedThreads, unsubscribedLists]);
+  // In a selection the tip speaks of lists, not of one list.
+  const bulkUnsubscribeTip = unsubscribeButton(bulkUnsubscribe, selectedThreads.length > 1).label;
+
+  // Same order as the email view's toolbar: Pin, read / unread, Category, Mute, Block, Unsubscribe, a divider, then the moves.
+  const bulkButton = ({ action, label, icon: Icon }: (typeof bulkActions)[number]) => (
+    <Tooltip key={action}>
+      <TooltipTrigger asChild>
+        <Button size="icon" variant="ghost" aria-label={label} className="size-8" onClick={() => actOnChecked(action)}>
+          <Icon />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{label}</TooltipContent>
+    </Tooltip>
+  );
+  const bulkMoves = bulkActions.filter(({ action }) => MOVE_ACTIONS.has(action));
   const bulkBar =
     checked.size > 0 ? (
       <div className="corner-squircle absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-border bg-popover px-3 py-2 shadow-lg">
         <span className="mr-2 text-sm text-muted-foreground">{checked.size} selected</span>
-        {bulkActions.map(({ action, label, icon: Icon }) => (
-          <Tooltip key={action}>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label={label}
-                className="size-8"
-                onClick={() => actOnChecked(action)}
+        <span className="mr-1 h-5 w-px bg-border" />
+        {bulkActions.filter(({ action }) => !MOVE_ACTIONS.has(action)).map(bulkButton)}
+        {categories.length > 0 && listFolder !== "sent" && listFolder !== "drafts" && (
+          <CategoryMenuButton
+            placement="bar"
+            categories={categories}
+            onMove={(categoryId) => {
+              fileUnderCategory([...checked], categoryId);
+              setChecked(new Set());
+            }}
+            onEdit={editCategories}
+          />
+        )}
+        {listFolder !== "sent" && listFolder !== "drafts" && (
+          <>
+            <MuteMenuButton
+              placement="bar"
+              threads={selectedThreads}
+              own={ownAddresses}
+              onMute={(kind, values) => {
+                muteThreads(kind, selectedThreads, values);
+                setChecked(new Set());
+              }}
+            />
+            <BlockMenuButton
+              placement="bar"
+              threads={selectedThreads}
+              own={ownAddresses}
+              onBlock={(kind, values) => {
+                blockThreads(kind, selectedThreads, values);
+                setChecked(new Set());
+              }}
+            />
+          </>
+        )}
+        {bulkUnsubscribe.shown && (
+          <Tooltip>
+            {bulkUnsubscribe.enabled ? (
+              <ConfirmPopover
+                {...unsubscribeConfirm(planUnsubscribe(selectedThreads, unsubscribedLists).entries.length)}
+                side="top"
+                onConfirm={() => {
+                  void unsubscribeThreads(selectedThreads);
+                  setChecked(new Set());
+                }}
               >
-                <Icon />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="top">{label}</TooltipContent>
+                <TooltipTrigger asChild>
+                  <Button size="icon" variant="ghost" aria-label="Unsubscribe" className="size-8">
+                    <ListX />
+                  </Button>
+                </TooltipTrigger>
+              </ConfirmPopover>
+            ) : (
+              <TooltipTrigger asChild>
+                {/* A greyed-out button gets no pointer events, so the span is what shows the tooltip. */}
+                <span className="flex">
+                  <Button size="icon" variant="ghost" aria-label="Unsubscribe" className="size-8" disabled>
+                    <ListX />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+            )}
+            <TooltipContent side="top">{bulkUnsubscribeTip}</TooltipContent>
           </Tooltip>
-        ))}
+        )}
+        {bulkMoves.length > 0 && <span className="mx-1 h-5 w-px bg-border" />}
+        {bulkMoves.map(bulkButton)}
       </div>
     ) : null;
 
@@ -1399,19 +2015,11 @@ export function MailApp() {
     onSearchOpenChange: setSearchOpen,
     query,
     onQueryChange: setQuery,
+    onEnterList: () => moveSelection(-Number.MAX_SAFE_INTEGER),
     onCompose: () => startCompose(),
   };
 
   const showNoAccounts = accountsLoaded && accounts.length === 0;
-  // Drafts written here are kept on this computer; the Drafts folder lists them above the server's.
-  const folderDrafts = useMemo(
-    () =>
-      folder === "drafts"
-        ? savedDrafts.filter((draft) => scope === "all" || draft.accountId === scope)
-        : [],
-    [folder, savedDrafts, scope],
-  );
-
   const senderPanelState = useSenderPanelState(
     senders,
     activeSenderKey,
@@ -1450,6 +2058,10 @@ export function MailApp() {
     />
   ) : null;
 
+  /** The categories an open conversation can be moved to; none in Sent and Drafts, as in the menu. */
+  const openThreadCategories =
+    categories.length > 0 && listFolder !== "sent" && listFolder !== "drafts" ? categories : undefined;
+
   /** Split view: the selected conversation, under the same toolbar as the list. */
   const readingPane = split ? (
     <section
@@ -1467,6 +2079,13 @@ export function MailApp() {
           onBack={() => showInPane(null)}
           onAction={(action) => actOnThread(action, paneThread)}
           onCompose={startCompose}
+          categories={openThreadCategories}
+          onMoveToCategory={(categoryId) => fileUnderCategory([paneThread.id], categoryId)}
+          onEditCategories={editCategories}
+          onBlock={(kind, values) => blockThreads(kind, [paneThread], values)}
+          onMute={(kind, values) => muteThreads(kind, [paneThread], values)}
+          onUnsubscribe={() => void unsubscribeThreads([paneThread])}
+          onSearch={searchFrom}
           shortcutsDisabled={activeComposer || settingsDialog.open}
         />
       ) : (
@@ -1496,7 +2115,7 @@ export function MailApp() {
       />
 
       {/* With a thread open there is no list toolbar, so the panel keeps the full height beside it. */}
-      {activeView === "sender" && !showNoAccounts && (!onDashboard || inDrill) && fullOpen && (
+      {activeView === "sender" && !showNoAccounts && (!onDashboard || inDrill) && fullOpen && !openGroup && (
         <SenderPanel {...senderPanelProps} underToolbar={false} />
       )}
 
@@ -1527,9 +2146,16 @@ export function MailApp() {
             onBack={() => setOpenThreadId(null)}
             onAction={(action) => {
               actOnThread(action, openThread);
-              if (removesFromView(action, listFolder)) setOpenThreadId(null);
+              if (action === "deleteForever") setOpenThreadId(null);
             }}
             onCompose={startCompose}
+            categories={openThreadCategories}
+            onMoveToCategory={(categoryId) => fileUnderCategory([openThread.id], categoryId)}
+            onEditCategories={editCategories}
+            onBlock={(kind, values) => blockThreads(kind, [openThread], values)}
+            onMute={(kind, values) => muteThreads(kind, [openThread], values)}
+            onUnsubscribe={() => void unsubscribeThreads([openThread])}
+            onSearch={searchFrom}
             shortcutsDisabled={activeComposer || settingsDialog.open}
           />
         ) : drill ? (
@@ -1565,9 +2191,9 @@ export function MailApp() {
                 ) : (
                   <>
                     {activeDomain ? (
-                      <SenderHeading domain={activeDomain} count={listThreads.length} />
+                      <SenderHeading domain={activeDomain} count={listThreads.length} priority={isPriorityEntry(priority, "domains", activeDomain)} onTogglePriority={() => togglePriority("domains", activeDomain)} />
                     ) : (
-                      activeSender && <SenderHeading sender={activeSender} />
+                      activeSender && <SenderHeading sender={activeSender} priority={isPriorityEntry(priority, "senders", activeSender.email)} onTogglePriority={() => togglePriority("senders", activeSender.email)} />
                     )}
                     <FocusedList
                       items={items}
@@ -1576,18 +2202,18 @@ export function MailApp() {
                       selectedKey={senderPanelFocused ? null : selectedKey}
                       checked={checked}
                       onSelect={selectRow}
-                      onOpenThread={(thread) => setOpenThreadId(thread.id)}
+                      onOpenThread={openFromList}
                       onOpenGroup={showGroup}
                       onOpenThreadById={setOpenThreadId}
                       onToggleGroupRead={toggleGroupRead}
                       onThreadAction={actOnThread}
+                      onThreadUnsubscribe={askUnsubscribe}
                       onItemMenu={openItemMenu}
                       onToggleSection={toggleSection}
                       minimized={categoryLayout === "vertical" ? dockGroups : undefined}
                     />
                   </>
                 )}
-                {bulkBar}
               </div>
               {splitHandle}
               {readingPane}
@@ -1608,7 +2234,14 @@ export function MailApp() {
                 view={view}
                 showViews={!listOnly}
                 onViewChange={changeView}
-                viewExtra={groupToggle}
+                viewExtra={
+                  <>
+                    {groupToggle}
+                    {folder === "inbox" && (
+                      <PriorityChip count={priorityThreads.length} onOpen={() => showGroup(PRIORITY_GROUP)} />
+                    )}
+                  </>
+                }
                 accounts={accounts}
                 scope={scope}
                 onScopeChange={setScope}
@@ -1620,7 +2253,7 @@ export function MailApp() {
             )}
 
             <div className={listRow}>
-            {activeView === "sender" && !showNoAccounts && <SenderPanel {...senderPanelProps} />}
+            {activeView === "sender" && !showNoAccounts && !openGroup && <SenderPanel {...senderPanelProps} />}
             <div className={cn(listColumn, "min-h-0")} style={listColumnStyle}>
             <AccountErrorToasts
               errors={errors}
@@ -1634,20 +2267,14 @@ export function MailApp() {
               <NoAccounts demo={api.system.demo} onAdd={() => openAccounts(true)} />
             ) : loading && allThreads.length === 0 ? (
               <ListSkeleton />
-            ) : listThreads.length === 0 && folderDrafts.length === 0 && !(folder === "drafts" && scheduledCount) ? (
+            ) : listThreads.length === 0 && !(folder === "drafts" && scheduledCount) ? (
               <EmptyList folder={folder} query={query} unreadOnly={unreadOnly} />
             ) : (
               <>
-                {folderDrafts.length > 0 && (
-                  <LocalDrafts
-                    drafts={folderDrafts}
-                    onOpen={(draft) => startCompose(seedFromDraft(draft))}
-                  />
-                )}
                 {activeDomain ? (
-                  <SenderHeading domain={activeDomain} count={listThreads.length} />
+                  <SenderHeading domain={activeDomain} count={listThreads.length} priority={isPriorityEntry(priority, "domains", activeDomain)} onTogglePriority={() => togglePriority("domains", activeDomain)} />
                 ) : (
-                  activeSender && <SenderHeading sender={activeSender} />
+                  activeSender && <SenderHeading sender={activeSender} priority={isPriorityEntry(priority, "senders", activeSender.email)} onTogglePriority={() => togglePriority("senders", activeSender.email)} />
                 )}
                 <FocusedList
                   items={items}
@@ -1656,11 +2283,12 @@ export function MailApp() {
                   selectedKey={senderPanelFocused ? null : selectedKey}
                   checked={checked}
                   onSelect={selectRow}
-                  onOpenThread={(thread) => setOpenThreadId(thread.id)}
+                  onOpenThread={openFromList}
                   onOpenGroup={showGroup}
                   onOpenThreadById={setOpenThreadId}
                   onToggleGroupRead={toggleGroupRead}
                   onThreadAction={actOnThread}
+                      onThreadUnsubscribe={askUnsubscribe}
                   onItemMenu={openItemMenu}
                   onToggleSection={toggleSection}
                   minimized={categoryLayout === "vertical" ? dockGroups : undefined}
@@ -1668,13 +2296,14 @@ export function MailApp() {
               </>
             )}
 
-            {bulkBar}
             </div>
             {splitHandle}
             {readingPane}
             </div>
           </>
         )}
+        {/* Centered on the whole content area, not on the list column, which shifts with the sender panel and reading pane. */}
+        {bulkBar}
       </main>
 
       {itemMenu && menuEntries.length > 0 && (
@@ -1705,16 +2334,38 @@ export function MailApp() {
         </ConfirmPopover>
       )}
 
-      {compose && (
-        <Composer
-          key={compose.id}
-          seed={compose.seed}
-          accounts={accounts}
-          minimized={composerMinimized}
-          onMinimizedChange={setComposerMinimized}
-          onClose={() => { setComposerMinimized(false); setCompose(null); }}
-        />
+      {unsubscribeAsk && (
+        <ConfirmPopover
+          {...unsubscribeConfirm(planUnsubscribe(unsubscribeAsk.threads, unsubscribedLists).entries.length)}
+          open
+          onOpenChange={(open) => {
+            if (!open) setUnsubscribeAsk(null);
+          }}
+          onConfirm={() => {
+            void unsubscribeThreads(unsubscribeAsk.threads);
+            setChecked(new Set());
+          }}
+          side="bottom"
+          align="start"
+        >
+          <span aria-hidden className="pointer-events-none fixed size-0" style={{ left: unsubscribeAsk.x, top: unsubscribeAsk.y }} />
+        </ConfirmPopover>
       )}
+
+      {/* Minimized composers wait here side by side, as pills. */}
+      <div ref={setComposerTray} className="pointer-events-none fixed bottom-4 right-4 z-40 flex max-w-[calc(100vw-32px)] items-end justify-end gap-2 [&>*]:pointer-events-auto" />
+      {composes.map((item) => (
+        <Composer
+          key={item.id}
+          seed={item.seed}
+          accounts={accounts}
+          minimized={item.minimized}
+          tray={composerTray}
+          trayBusy={composes.some((other) => other.minimized && other.id !== item.id)}
+          onMinimizedChange={(minimized) => setComposeMinimized(item.id, minimized)}
+          onClose={() => closeCompose(item.id)}
+        />
+      ))}
 
       <SettingsDialog
         open={settingsDialog.open}

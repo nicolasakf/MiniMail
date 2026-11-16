@@ -24,7 +24,7 @@ import {
   toSavedDraft,
   type ComposerFields,
 } from "@/lib/composer-state";
-import { deleteDraft, newDraftId, saveDraft, showDraftSavedToast } from "@/lib/drafts";
+import { deleteDraft, newDraftId, removeServerDraft, saveDraft, showDraftSavedToast } from "@/lib/drafts";
 import { plainBody, prepareRichBody } from "@/lib/rich-compose";
 import { withTimeout } from "@/lib/timeout";
 
@@ -130,8 +130,14 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
   const saveFailed = useRef(false);
 
   const record = useCallback(
-    () => toSavedDraft(readFields(), { id: draftId.current, mode: seed.mode, bodyText: readBodyText(), inReplyTo: seed.inReplyTo }),
-    [readBodyText, readFields, seed.inReplyTo, seed.mode],
+    () => toSavedDraft(readFields(), {
+        id: draftId.current,
+        mode: seed.mode,
+        bodyText: readBodyText(),
+        inReplyTo: seed.inReplyTo,
+        serverMessageId: seed.serverMessageId,
+      }),
+    [readBodyText, readFields, seed.inReplyTo, seed.mode, seed.serverMessageId],
   );
 
   /**
@@ -174,6 +180,7 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
         } else {
           // Emptied out on purpose: nothing worth keeping, and an older save of it should go too.
           await deleteDraft(draftId.current);
+          await removeServerDraft(seed.serverMessageId, "discarded");
         }
       } catch (reason) {
         saveFailed.current = true;
@@ -183,15 +190,16 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
       }
     }
     await finish();
-  }, [enter, finish, isChanged, leave, readBodyText, readFields, record]);
+  }, [enter, finish, isChanged, leave, readBodyText, readFields, record, seed.serverMessageId]);
 
   /** Closes and forgets the draft. */
   const discard = useCallback(async () => {
     if (!enter("saving")) return;
     finished.current = true;
     await deleteDraft(draftId.current);
+    await removeServerDraft(seed.serverMessageId, "discarded");
     await finish();
-  }, [enter, finish]);
+  }, [enter, finish, seed.serverMessageId]);
 
   const send = useCallback(async () => {
     if (phaseRef.current !== "idle") return;
@@ -220,12 +228,15 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
     setError(null);
     try {
       if (fields.sendAt) {
-        await withTimeout(api.delivery.schedule(record(), draft, fields.sendAt), SEND_TIMEOUT_MS, SLOW_SEND);
+        // The scheduled copy lives here, so the server's draft goes; cancelling brings back a local draft.
+        await withTimeout(api.delivery.schedule({ ...record(), serverMessageId: undefined }, draft, fields.sendAt), SEND_TIMEOUT_MS, SLOW_SEND);
         toast.success("Message scheduled");
+        await removeServerDraft(seed.serverMessageId, "discarded");
       } else {
         await withTimeout(api.mail.send(draft), SEND_TIMEOUT_MS, SLOW_SEND);
         toast.success("Message sent");
         await deleteDraft(draftId.current);
+        await removeServerDraft(seed.serverMessageId, "sent");
       }
     } catch (reason) {
       setError(messageOf(reason));
@@ -234,7 +245,7 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
     }
     finished.current = true;
     await finish();
-  }, [enter, finish, leave, readBodyText, readFields, record, seed.inReplyTo]);
+  }, [enter, finish, leave, readBodyText, readFields, record, seed.inReplyTo, seed.serverMessageId]);
 
   /** Moves the message into a window of its own; the draft continues there. */
   const detach = useCallback(async () => {

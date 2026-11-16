@@ -230,17 +230,26 @@ function AccountMarks({
   );
 }
 
-/** The account switcher: which account (or all of them) the list shows. */
-function AccountSwitcher({
+/**
+ * The account switcher: which account (or all of them) a page or list is about. Without
+ * `onManageAccounts` the "Manage accounts…" entry is left out.
+ */
+export function AccountSwitcher({
   accounts,
   scope,
   onScopeChange,
   onManageAccounts,
+  detail,
+  menuAlign = "start",
 }: {
   accounts: readonly Account[];
   scope: AccountScope;
   onScopeChange: (scope: AccountScope) => void;
-  onManageAccounts: () => void;
+  onManageAccounts?: () => void;
+  /** A line under an account's name in the menu, in place of its address. */
+  detail?: (account: Account) => string | undefined;
+  /** Which edge of the button the menu lines up with; "end" for a button at the right of a page. */
+  menuAlign?: "start" | "end";
 }) {
   const selected =
     scope === "all"
@@ -264,7 +273,7 @@ function AccountSwitcher({
           <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-72">
+      <DropdownMenuContent align={menuAlign} className="w-72">
         <DropdownMenuItem onSelect={() => onScopeChange("all")}>
           {/* Not boxed to the single-logo column below: the stack is wider and would run into the label. */}
           <span className="mr-2 flex shrink-0">
@@ -284,19 +293,23 @@ function AccountSwitcher({
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate">{accountLabel(account)}</span>
-              {account.alias && (
+              {(detail?.(account) ?? account.alias) && (
                 <span className="block truncate text-xs text-muted-foreground">
-                  {account.email}
+                  {detail?.(account) ?? account.email}
                 </span>
               )}
             </span>
             {scope === account.id && <Check className="size-4" />}
           </DropdownMenuItem>
         ))}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={onManageAccounts}>
-          Manage accounts…
-        </DropdownMenuItem>
+        {onManageAccounts && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onManageAccounts}>
+              Manage accounts…
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -312,6 +325,8 @@ interface HeaderActionsProps {
   onSearchOpenChange: (open: boolean) => void;
   query: string;
   onQueryChange: (query: string) => void;
+  /** Down in the search box: the keyboard moves on to the first item of the list. */
+  onEnterList: () => void;
   onCompose: () => void;
 }
 
@@ -394,6 +409,9 @@ function FilterGroup({
   );
 }
 
+/** Sent on the window to put the cursor back in the open search box; `detail.select` also selects its text. */
+export const FOCUS_SEARCH_EVENT = "minimail:focus-search";
+
 /** The buttons at the right of every list header: filters, select, search and compose. */
 function HeaderActions({
   unreadOnly,
@@ -404,6 +422,7 @@ function HeaderActions({
   onSearchOpenChange,
   query,
   onQueryChange,
+  onEnterList,
   onCompose,
 }: HeaderActionsProps) {
   const searchRef = useRef<HTMLInputElement>(null);
@@ -411,6 +430,23 @@ function HeaderActions({
   useEffect(() => {
     if (searchOpen) searchRef.current?.focus();
   }, [searchOpen]);
+
+  // Back into the open box: ⌘K selects what it holds, Up from the first row leaves the cursor where it was.
+  useEffect(() => {
+    const refocus = (event: Event) => {
+      const input = searchRef.current;
+      if (!input) return;
+      input.focus();
+      if ((event as CustomEvent<{ select: boolean }>).detail?.select) input.select();
+      else {
+        // Focusing from the keyboard can select the text; the cursor goes to the end instead.
+        const end = input.value.length;
+        input.setSelectionRange(end, end);
+      }
+    };
+    window.addEventListener(FOCUS_SEARCH_EVENT, refocus);
+    return () => window.removeEventListener(FOCUS_SEARCH_EVENT, refocus);
+  }, []);
 
   return (
     <div className="flex shrink-0 items-center gap-2">
@@ -435,6 +471,11 @@ function HeaderActions({
                 event.stopPropagation();
                 onQueryChange("");
                 onSearchOpenChange(false);
+              } else if (event.key === "ArrowDown" && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
+                // Leave the box (the search stays open and filtered) for the first row.
+                event.preventDefault();
+                event.currentTarget.blur();
+                onEnterList();
               }
             }}
           />

@@ -24,6 +24,8 @@ export interface ComposeSeed {
   /** The quoted original of a reply, kept apart so it can stay collapsed under the reply. */
   quoted?: string;
   inReplyTo?: Draft["inReplyTo"];
+  /** The message in the server's Drafts folder being continued: removed once this is sent or discarded. */
+  serverMessageId?: string;
 }
 
 /** The text that is sent: what the user wrote, then the quoted original if there is one. */
@@ -154,6 +156,11 @@ function splitOutsideQuotes(input: string): string[] {
 }
 
 const ADDRESS_PATTERN =/^(?:"?([^"<]*?)"?\s*)?<([^<>@\s]+@[^<>@\s]+)>$|^([^<>@\s,;]+@[^<>@\s,;]+)$/;
+
+/** Whether `email` is a plain address ("a@x.com"): something, an @, something, and no spaces or commas. */
+export function isValidAddress(email: string): boolean {
+  return /^[^<>@\s,;]+@[^<>@\s,;]+$/.test(email);
+}
 
 /**
  * Parses what the user typed into a recipient box ("a@x.com, Bob <b@y.com>").

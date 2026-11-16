@@ -1,14 +1,15 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
-import { X } from "lucide-react";
+import { CircleAlert, X } from "lucide-react";
 
 import { currentToken, entryLabel, searchContacts, type ContactEntry } from "@shared/contacts";
 import { logoRequestFor } from "@shared/logos";
 import type { Contact } from "@shared/types";
 
 import { contactLabel } from "@/lib/format";
-import { parseRecipients } from "@/lib/compose";
+import { isValidAddress, parseRecipients } from "@/lib/compose";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { SenderAvatar } from "./sender-avatar";
 
@@ -53,8 +54,8 @@ function hasEmail(list: readonly Contact[], email: string): boolean {
 
 /**
  * A recipient box that turns addresses into chips. Typing suggests people we have exchanged mail
- * with (those we wrote to first); Enter or Tab takes the highlighted one, a comma starts the next
- * address from scratch, and Backspace on an empty box (or on a focused chip) removes a whole chip.
+ * with (those we wrote to first); Enter or Tab takes the highlighted one, a comma or space starts the next
+ * address from scratch (text that is not an address becomes a red chip), and Backspace on an empty box (or on a focused chip) removes a whole chip.
  */
 export function RecipientField({
   label,
@@ -101,14 +102,18 @@ export function RecipientField({
     return next;
   };
 
-  /** Turns complete addresses in `input` into chips; whatever is not an address stays as text. */
+  /**
+   * Turns everything in `input` into chips. Whatever is not an address becomes a chip too, shown in
+   * red, so it can be seen and removed instead of staying stuck in the box.
+   */
   const commitText = (input: string, keepTail = false): string => {
     const cut = keepTail ? Math.max(input.lastIndexOf(","), input.lastIndexOf(";")) : input.length;
     const head = keepTail ? input.slice(0, cut) : input;
     const tail = keepTail ? input.slice(cut + 1).trimStart() : "";
     const { contacts: found, invalid } = parseRecipients(head);
-    if (found.length > 0) add(found);
-    return invalid.length > 0 ? `${invalid.join(", ")}${keepTail ? ", " : ""}${tail}` : tail;
+    const chips = [...found, ...invalid.map((text) => ({ name: "", email: text }))];
+    if (chips.length > 0) add(chips);
+    return tail;
   };
 
   const pick = (entry: ContactEntry) => {
@@ -152,6 +157,14 @@ export function RecipientField({
           }
         }
         return;
+      case " ":
+        // Space ends an address, like a comma. While suggestions are showing it is part of a name
+        // being searched ("john smith"), and inside <...> or quotes it is part of the address.
+        if (!open && text.trim() && !/[<">]/.test(text)) {
+          event.preventDefault();
+          onTextChange(commitText(text));
+        }
+        return;
       case "Escape":
         // Closing the suggestions is all this Esc does; the composer around it must not also close.
         if (open) {
@@ -179,13 +192,23 @@ export function RecipientField({
         }
       }}
     >
-      {value.map((contact, index) => (
+      {value.map((contact, index) => {
+        const valid = isValidAddress(contact.email);
+        const chip = (
         <span
-          key={contact.email.toLowerCase()}
+          key={valid ? contact.email.toLowerCase() : undefined}
           tabIndex={0}
-          title={contact.email}
-          aria-label={`${contactLabel(contact)} <${contact.email}>. Press Backspace to remove.`}
-          className="corner-squircle group/chip inline-flex h-7 max-w-[260px] items-center gap-1.5 rounded-full bg-muted pl-1 pr-1.5 text-[13px] outline-none transition-colors focus-visible:bg-sidebar-primary/25 focus-visible:ring-1 focus-visible:ring-sidebar-ring"
+          title={valid ? contact.email : undefined}
+          aria-invalid={!valid || undefined}
+          aria-label={
+            valid
+              ? `${contactLabel(contact)} <${contact.email}>. Press Backspace to remove.`
+              : `${contact.email}, not a valid email address. Press Backspace to remove.`
+          }
+          className={cn(
+            "corner-squircle group/chip inline-flex h-7 max-w-[260px] items-center gap-1.5 rounded-full bg-muted pl-1 pr-1.5 text-[13px] outline-none transition-colors focus-visible:bg-sidebar-primary/25 focus-visible:ring-1 focus-visible:ring-sidebar-ring",
+            !valid && "bg-destructive/15 text-destructive ring-1 ring-destructive/50 focus-visible:bg-destructive/25",
+          )}
           onKeyDown={(event) => {
             if (event.key === "Backspace" || event.key === "Delete") {
               event.preventDefault();
@@ -197,21 +220,40 @@ export function RecipientField({
             }
           }}
         >
-          <RecipientAvatar contact={contact} entry={entryByEmail.get(contact.email.toLowerCase())} size={20} />
+          {valid ? (
+            <RecipientAvatar contact={contact} entry={entryByEmail.get(contact.email.toLowerCase())} size={20} />
+          ) : (
+            <CircleAlert className="ml-1 size-4 shrink-0" aria-hidden />
+          )}
           <span className="min-w-0 truncate">
-            {contact.name ? contactLabel(contact) : entryLabel(entryByEmail.get(contact.email.toLowerCase()) ?? contact)}
+            {!valid
+              ? contact.email
+              : contact.name
+                ? contactLabel(contact)
+                : entryLabel(entryByEmail.get(contact.email.toLowerCase()) ?? contact)}
           </span>
           <button
             type="button"
             tabIndex={-1}
             aria-label={`Remove ${contact.email}`}
-            className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/15 hover:text-foreground"
+            className={cn(
+              "flex size-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-foreground/15 hover:text-foreground",
+              valid ? "text-muted-foreground" : "text-destructive",
+            )}
             onClick={() => removeAt(index)}
           >
             <X className="size-3" />
           </button>
         </span>
-      ))}
+        );
+        if (valid) return chip;
+        return (
+          <Tooltip key={contact.email.toLowerCase()}>
+            <TooltipTrigger asChild>{chip}</TooltipTrigger>
+            <TooltipContent side="bottom">This is not a valid email address.</TooltipContent>
+          </Tooltip>
+        );
+      })}
 
       <input
         ref={inputRef}

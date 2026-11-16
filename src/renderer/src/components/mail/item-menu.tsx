@@ -28,7 +28,13 @@ export interface MenuEntry {
   separatorBefore?: boolean;
   /** Marks the entry as the current choice (a check at the right edge). */
   current?: boolean;
-  /** A sub-menu that flies out beside the menu while the entry is hovered; `run` is then unused. */
+  /** Runs without closing the menu, so several entries can be ticked in one go. */
+  keepOpen?: boolean;
+  /** Greyed out and not runnable; `note` can say why (shown as a tooltip). */
+  disabled?: boolean;
+  /** A tooltip for the entry, for example the reason it is disabled. */
+  note?: string;
+  /** A sub-menu that flies out beside the menu while the entry is hovered; `run` is then unused. Its entries may have one more level of sub-menu. */
   children?: readonly MenuEntry[];
   run: () => void;
 }
@@ -51,12 +57,21 @@ const FLYOUT_LIFT = 5;
 const LIST_CLASS = "max-h-[340px] space-y-0.5 p-1";
 
 /** Items of a menu: icon, label, then a check, a chevron or the shortcut at the right edge. */
-function MenuItem({ entry, onChoose }: { entry: MenuEntry; onChoose: (entry: MenuEntry) => void }) {
-  const { id, label, icon: Icon, hint, destructive, warning, current, children } = entry;
+function MenuItem({
+  entry,
+  onChoose,
+  byId,
+}: {
+  entry: MenuEntry;
+  onChoose: (entry: MenuEntry) => void;
+  /** Panels have no filter box, so their items are told apart by id (two people can share a name). */
+  byId?: boolean;
+}) {
+  const { id, label, icon: Icon, hint, destructive, warning, current, children, disabled, note } = entry;
   return (
     <CommandItem
       data-entry={id}
-      value={label}
+      value={byId ? id : label}
       className={cn(
         "gap-2.5 whitespace-nowrap px-2 py-1",
         destructive &&
@@ -64,11 +79,15 @@ function MenuItem({ entry, onChoose }: { entry: MenuEntry; onChoose: (entry: Men
         warning &&
           "text-amber-600 data-[selected=true]:bg-amber-500/15 data-[selected=true]:text-amber-600 dark:text-amber-400 dark:data-[selected=true]:text-amber-400",
       )}
+      disabled={disabled}
       onSelect={() => onChoose(entry)}
     >
       <Icon />
-      {label}
-      {current && <Check className="ml-auto size-3.5 text-muted-foreground" />}
+      {/* A long label (an email address) is cut with an ellipsis, so the check at the right edge always shows. A disabled entry keeps its tooltip, so the reason can be read. */}
+      <span className={cn("min-w-0 truncate", disabled && "pointer-events-auto")} title={note ?? label}>
+        {label}
+      </span>
+      {current && <Check className="ml-auto size-3.5 shrink-0 text-muted-foreground" />}
       {children && <ChevronRight className="ml-auto size-3.5 text-muted-foreground" />}
       {hint && <CommandShortcut>{hint}</CommandShortcut>}
     </CommandItem>
@@ -87,6 +106,8 @@ export function ItemMenu({ x, y, entries, onClose }: ItemMenuProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const flyoutRef = useRef<HTMLDivElement>(null);
   const flyoutCommandRef = useRef<HTMLDivElement>(null);
+  const subRef = useRef<HTMLDivElement>(null);
+  const subCommandRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: x, top: y });
   /** The menu's measured width, which its contents decide; the panel is placed beside it. */
   const [menuWidth, setMenuWidth] = useState(MIN_WIDTH);
@@ -97,8 +118,14 @@ export function ItemMenu({ x, y, entries, onClose }: ItemMenuProps) {
   /** The panel has the pointer or the keyboard: only then does it show a highlighted item. */
   const [flyoutActive, setFlyoutActive] = useState(false);
   const [flyoutPosition, setFlyoutPosition] = useState<{ left: number; top: number } | null>(null);
+  /** The panel's own highlighted entry (its id), and whether the second panel it opens has the pointer or keyboard. */
+  const [flyoutHighlighted, setFlyoutHighlighted] = useState("");
+  const [subActive, setSubActive] = useState(false);
+  const [subPosition, setSubPosition] = useState<{ left: number; top: number } | null>(null);
 
   const parent = entries.find((entry) => entry.children && entry.label.toLowerCase() === highlighted.toLowerCase());
+  /** The entry of the panel whose own sub-menu is showing in a second panel (a person's choices). */
+  const subParent = parent?.children?.find((entry) => entry.children && entry.id === flyoutHighlighted);
 
   // Keep the whole menu on screen: flip above / left of the point when it would run off. The size
   // is watched because the list settles after the first paint (filtering changes it too).
@@ -141,20 +168,50 @@ export function ItemMenu({ x, y, entries, onClose }: ItemMenuProps) {
     );
   }, [parent, position, menuWidth, flyoutPosition === null]);
 
-  const choose = (entry: MenuEntry) => {
-    if (entry.children) {
-      // Enter on a parent entry moves into its panel.
-      setFlyoutActive(true);
-      flyoutCommandRef.current?.focus();
+  // The second panel sits beside the first, on the side with room, lined up with its entry.
+  useLayoutEffect(() => {
+    if (!subParent) {
+      setSubPosition(null);
       return;
     }
-    onClose();
+    const panel = flyoutRef.current;
+    const item = panel?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(subParent.id)}"]`);
+    if (!panel || !item || !flyoutPosition) return;
+    const subWidth = subRef.current?.offsetWidth ?? MIN_WIDTH;
+    const panelWidth = panel.offsetWidth;
+    const roomRight = flyoutPosition.left + panelWidth + subWidth + EDGE <= window.innerWidth;
+    const left = roomRight ? flyoutPosition.left + panelWidth + 4 : Math.max(EDGE, flyoutPosition.left - subWidth - 4);
+    const height = subRef.current?.offsetHeight ?? 0;
+    const top = Math.max(EDGE, Math.min(item.getBoundingClientRect().top - FLYOUT_LIFT, window.innerHeight - height - EDGE));
+    setSubPosition((previous) => (previous && previous.left === left && previous.top === top ? previous : { left, top }));
+  }, [subParent, flyoutPosition, subPosition === null]);
+
+  const choose = (entry: MenuEntry, level = 0) => {
+    if (entry.disabled) return;
+    if (entry.children) {
+      // Enter on a parent entry moves into its panel.
+      if (level === 0) {
+        setFlyoutActive(true);
+        flyoutCommandRef.current?.focus();
+      } else {
+        setSubActive(true);
+        subCommandRef.current?.focus();
+      }
+      return;
+    }
+    if (!entry.keepOpen) onClose();
     entry.run();
   };
 
   const backToMenu = () => {
     setFlyoutActive(false);
+    setSubActive(false);
     inputRef.current?.focus();
+  };
+
+  const backToFlyout = () => {
+    setSubActive(false);
+    flyoutCommandRef.current?.focus();
   };
 
   return createPortal(
@@ -188,7 +245,10 @@ export function ItemMenu({ x, y, entries, onClose }: ItemMenuProps) {
             }
           }
         }}
-        onPointerMove={() => setFlyoutActive(false)}
+        onPointerMove={() => {
+          setFlyoutActive(false);
+          setSubActive(false);
+        }}
       >
         <Command
           loop
@@ -233,16 +293,31 @@ export function ItemMenu({ x, y, entries, onClose }: ItemMenuProps) {
           className="corner-squircle absolute w-max overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg animate-in fade-in-0 slide-in-from-left-1"
           onMouseDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}
-          onPointerMove={() => setFlyoutActive(true)}
+          onPointerMove={() => {
+            setFlyoutActive(true);
+            setSubActive(false);
+          }}
           onKeyDown={(event) => {
             if (event.key === "Escape" || event.key === "ArrowLeft") {
               event.preventDefault();
               event.stopPropagation();
               backToMenu();
+            } else if (event.key === "ArrowRight" && subParent) {
+              event.preventDefault();
+              event.stopPropagation();
+              choose(subParent, 1);
             }
           }}
         >
-          <Command ref={flyoutCommandRef} loop tabIndex={-1} className="outline-none">
+          <Command
+            key={parent.id}
+            ref={flyoutCommandRef}
+            loop
+            tabIndex={-1}
+            value={flyoutHighlighted}
+            onValueChange={setFlyoutHighlighted}
+            className="outline-none"
+          >
             <CommandList
               className={cn(
                 LIST_CLASS,
@@ -251,7 +326,50 @@ export function ItemMenu({ x, y, entries, onClose }: ItemMenuProps) {
               )}
             >
               {parent.children.map((entry) => (
-                <MenuItem key={entry.id} entry={entry} onChoose={choose} />
+                <Fragment key={entry.id}>
+                  {entry.separatorBefore && <CommandSeparator className="my-1" />}
+                  <MenuItem entry={entry} byId onChoose={(picked) => choose(picked, 1)} />
+                </Fragment>
+              ))}
+            </CommandList>
+          </Command>
+        </div>
+      )}
+
+      {subParent?.children && (
+        <div
+          ref={subRef}
+          role="menu"
+          aria-label={subParent.label}
+          style={{
+            left: subPosition?.left ?? (flyoutPosition?.left ?? position.left) + MIN_WIDTH + 4,
+            top: subPosition?.top ?? position.top,
+            minWidth: MIN_WIDTH,
+            maxWidth: MAX_WIDTH,
+            visibility: subPosition ? "visible" : "hidden",
+          }}
+          className="corner-squircle absolute w-max overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg animate-in fade-in-0 slide-in-from-left-1"
+          onMouseDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.stopPropagation()}
+          onPointerMove={() => {
+            setFlyoutActive(true);
+            setSubActive(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" || event.key === "ArrowLeft") {
+              event.preventDefault();
+              event.stopPropagation();
+              backToFlyout();
+            }
+          }}
+        >
+          <Command key={subParent.id} ref={subCommandRef} loop tabIndex={-1} className="outline-none">
+            <CommandList className={cn(LIST_CLASS, !subActive && "[&_[cmdk-item][data-selected=true]]:bg-transparent")}>
+              {subParent.children.map((entry) => (
+                <Fragment key={entry.id}>
+                  {entry.separatorBefore && <CommandSeparator className="my-1" />}
+                  <MenuItem entry={entry} byId onChoose={(picked) => choose(picked, 2)} />
+                </Fragment>
               ))}
             </CommandList>
           </Command>

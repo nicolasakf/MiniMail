@@ -167,6 +167,29 @@ export interface Contact {
   email: string;
 }
 
+/** The web address a sender gave for leaving its list. */
+export interface UnsubscribeInfo {
+  /** An http(s) address from the `List-Unsubscribe` header. */
+  url: string;
+  /**
+   * The sender accepts the standard one-click request (RFC 8058: an https address plus
+   * `List-Unsubscribe-Post`), so MiniMail can unsubscribe without opening a page.
+   */
+  oneClick: boolean;
+  /**
+   * The list's own name (`List-Id`, lowercase), which tells apart several lists sent from one
+   * address. Null: the message names none. Undefined: saved before this was recorded.
+   */
+  listId?: string | null;
+}
+
+/** What happened to one message's unsubscribe request. */
+export type UnsubscribeResult =
+  | { id: string; status: "done" }
+  /** The sender only gave a web page: nothing was sent; open `url` to finish there. */
+  | { id: string; status: "manual"; url: string }
+  | { id: string; status: "failed"; error: string };
+
 export interface MessageSummary {
   /** `${accountId}|${folder}|${nativeId}`, see `ids.ts`. */
   id: string;
@@ -191,6 +214,12 @@ export interface MessageSummary {
    * Undefined for mail saved before this was recorded; logos are only shown when true.
    */
   authenticated?: boolean;
+  /**
+   * How the sender lets readers leave the list (the `List-Unsubscribe` headers). Null: the message
+   * has no usable address. Undefined: mail saved before this was recorded; it is filled in on the
+   * next refresh.
+   */
+  unsubscribe?: UnsubscribeInfo | null;
   /** Header-based signal from the provider; see `SmartCategory`. */
   signal: SmartCategory;
   /** The user's category for this conversation, or null when none applies. Set by the main process. */
@@ -329,6 +358,11 @@ export interface SavedDraft {
   attachments?: DraftAttachment[];
   quoted?: string;
   inReplyTo?: Draft["inReplyTo"];
+  /**
+   * The message in the mail server's Drafts folder this was opened from, if any. The server copy
+   * is left alone while this is kept, and removed when the message is sent or discarded.
+   */
+  serverMessageId?: string;
 }
 
 /**
@@ -347,6 +381,11 @@ export interface UiPrefs {
   unreadOnly: boolean;
   /** The toolbar's Inbox / Archive / Trash / Spam toggles: the folders that are checked. */
   shownFolders: ShownFolder[];
+  /**
+   * The drafts the user pinned, by message id (a draft written here has a `local-draft:` id). Pins are
+   * kept on this computer only: they are never sent to a mail server.
+   */
+  pinnedDrafts: string[];
 }
 
 /** Most drafts kept at once; saving another drops the oldest. */

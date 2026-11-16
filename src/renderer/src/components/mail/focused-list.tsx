@@ -41,6 +41,8 @@ interface FocusedListProps {
   onOpenThreadById: (threadId: string) => void;
   onToggleGroupRead: (kind: GroupKind, unread: boolean) => void;
   onThreadAction: (action: MailAction, thread: Thread) => void;
+  /** Asks to unsubscribe from a conversation's list (the hover button); see `ThreadRow`. */
+  onThreadUnsubscribe?: (thread: Thread, point: { x: number; y: number }) => void;
   /** Right-click on a row: selects it and opens its menu at the pointer. */
   onItemMenu: (key: string, x: number, y: number) => void;
   /** Click on a collapsible heading (Pinned): hides or shows what is under it. */
@@ -80,6 +82,7 @@ export function FocusedList({
   onOpenThreadById,
   onToggleGroupRead,
   onThreadAction,
+  onThreadUnsubscribe,
   onItemMenu,
   onToggleSection,
   minimized = [],
@@ -149,7 +152,7 @@ export function FocusedList({
       return (
         <div className="overflow-x-auto">
           <div
-            className="grid justify-start gap-3 px-4 pb-1 pt-2"
+            className="grid justify-start gap-3 px-4 pb-3 pt-2"
             style={{
               gridTemplateColumns: `repeat(${run.length}, minmax(${CARD_MIN}px, ${CARD_MAX}px))`,
             }}
@@ -257,6 +260,7 @@ export function FocusedList({
             onSelect={onSelect}
             onOpen={onOpenThread}
             onAction={onThreadAction}
+            onUnsubscribe={onThreadUnsubscribe}
             onMenu={onItemMenu}
           />
         );

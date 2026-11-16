@@ -6,6 +6,7 @@ import type {
   Category,
   CategoryState,
   Draft,
+  DraftAttachment,
   InvitationResponse,
   ListQuery,
   ListResult,
@@ -18,6 +19,7 @@ import type {
   SortCounts,
   SortFolder,
   SortOptions,
+  UnsubscribeResult,
 } from "./types";
 import type { ContactEntry } from "./contacts";
 import type { LogoRequest, LogoSettings } from "./logos";
@@ -52,6 +54,11 @@ export interface MiniMailApi {
     list(query: ListQuery): Promise<ListResult>;
     get(ids: string[]): Promise<MessageDetail[]>;
     act(action: MailAction, ids: string[]): Promise<MailActionResult[]>;
+    /**
+     * Unsubscribes from the list behind each message (one per sender): a one-click sender is told
+     * right away; one that only has a web page comes back as `manual` with the page to open.
+     */
+    unsubscribe(ids: string[]): Promise<UnsubscribeResult[]>;
     send(draft: Draft): Promise<void>;
     /**
      * One-time codes in verification mail, by message id: the code, or null when there is none.
@@ -62,6 +69,8 @@ export interface MiniMailApi {
     openAttachment(messageId: string, attachmentId: string): Promise<void>;
     /** Downloads one attachment to a place the user chooses; false when they cancel. */
     saveAttachment(messageId: string, attachmentId: string): Promise<boolean>;
+    /** Downloads one attachment into the form a message being written carries (used to continue a server draft). */
+    attachmentContent(messageId: string, attachmentId: string): Promise<DraftAttachment>;
     /** Answers the calendar invitation in a message; the organizer is told. */
     respondToInvitation(messageId: string, response: InvitationResponse): Promise<void>;
     /** Everyone we have sent mail to or received mail from, for recipient suggestions. */

@@ -1,3 +1,4 @@
+import { senderDomain } from "./categories";
 import type { MessageSummary } from "./types";
 
 /**
@@ -19,13 +20,12 @@ export type CategoryFilterMode = "all" | "only" | "except";
 /** What a notification shows of the message. */
 export type NotificationContent = "full" | "sender" | "hidden";
 
-export interface NotificationSettings {
-  /** Master switch. Off means no notification, badge or sound at all. */
+/** The choices an account can set for itself instead of following the defaults for all accounts. */
+export interface AccountNotificationSettings {
+  /** Off means this account never notifies and stays out of the Dock badge. */
   enabled: boolean;
   /** Folders whose arriving mail notifies. Spam and Trash are left out by default. */
   folders: NotifyFolder[];
-  /** Accounts that stay silent. */
-  mutedAccountIds: string[];
   categories: { mode: CategoryFilterMode; ids: string[] };
   /** Addresses (`jo@acme.com`) or whole domains (`@acme.com`) that never notify. */
   mutedSenders: string[];
@@ -33,24 +33,38 @@ export interface NotificationSettings {
   content: NotificationContent;
   /** Play the system sound with each notification. */
   sound: boolean;
-  /** Show the number of unread Inbox messages on the Dock icon. */
-  dockBadge: boolean;
   /** Stay quiet while MiniMail is the window in front. */
   muteWhenFocused: boolean;
+}
+
+/** The keys an account can override, in the order the page lists them. */
+export const ACCOUNT_SETTING_KEYS = [
+  "enabled",
+  "folders",
+  "categories",
+  "mutedSenders",
+  "content",
+  "sound",
+  "muteWhenFocused",
+] as const satisfies readonly (keyof AccountNotificationSettings)[];
+export type AccountSettingKey = (typeof ACCOUNT_SETTING_KEYS)[number];
+
+export interface NotificationSettings extends AccountNotificationSettings {
+  /**
+   * The fields above are what every account does unless it has its own say (`enabled` is the master
+   * switch for accounts that have not overridden it). Here, per account, only the choices that differ.
+   */
+  accounts: Record<string, Partial<AccountNotificationSettings>>;
+  /** Show the number of unread Inbox messages on the Dock icon. */
+  dockBadge: boolean;
   /** Fold several messages that arrive together into one notification. */
   groupBursts: boolean;
-  quietHours: {
-    enabled: boolean;
-    /** "HH:MM", 24-hour. A start later than the end spans midnight. */
-    start: string;
-    end: string;
-  };
 }
 
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   enabled: true,
   folders: ["inbox"],
-  mutedAccountIds: [],
+  accounts: {},
   categories: { mode: "all", ids: [] },
   mutedSenders: [],
   content: "full",
@@ -58,7 +72,6 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   dockBadge: true,
   muteWhenFocused: true,
   groupBursts: true,
-  quietHours: { enabled: false, start: "22:00", end: "07:00" },
 };
 
 /** Most entries in each list, so a settings file cannot grow without bound. */
@@ -70,20 +83,23 @@ export const FRESH_MS = 10 * 60_000;
 /** Notify with one summary instead of one per message from this many at once. */
 export const BURST_SIZE = 4;
 
-/** The time as minutes since midnight, or null when `value` is not "HH:MM". */
-export function parseClock(value: string): number | null {
-  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
-  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
-}
-
-/** True when `now` falls inside the quiet hours (which may run past midnight). */
-export function inQuietHours(quiet: NotificationSettings["quietHours"], now: Date): boolean {
-  if (!quiet.enabled) return false;
-  const start = parseClock(quiet.start);
-  const end = parseClock(quiet.end);
-  if (start === null || end === null || start === end) return false;
-  const minutes = now.getHours() * 60 + now.getMinutes();
-  return start < end ? minutes >= start && minutes < end : minutes >= start || minutes < end;
+/** What applies to one account: its own choices where it has any, the defaults everywhere else. */
+export function settingsForAccount(
+  settings: NotificationSettings,
+  accountId: string,
+): AccountNotificationSettings {
+  const own = Object.hasOwn(settings.accounts, accountId) ? settings.accounts[accountId] : undefined;
+  const pick = <K extends AccountSettingKey>(key: K): AccountNotificationSettings[K] =>
+    own?.[key] ?? settings[key];
+  return {
+    enabled: pick("enabled"),
+    folders: pick("folders"),
+    categories: pick("categories"),
+    mutedSenders: pick("mutedSenders"),
+    content: pick("content"),
+    sound: pick("sound"),
+    muteWhenFocused: pick("muteWhenFocused"),
+  };
 }
 
 /** Normalizes what the user typed into the muted list: lowercase `a@b.c` or `@b.c`, or null. */
@@ -94,10 +110,47 @@ export function normalizeMutedSender(input: string): string | null {
   return null;
 }
 
+/** Whether mail from this address is muted: the address, its exact host (`@mail.acme.com`) or its company domain (`@acme.com`). */
 export function isSenderMuted(email: string, muted: readonly string[]): boolean {
   const address = email.trim().toLowerCase();
-  const domain = address.slice(address.lastIndexOf("@"));
-  return muted.includes(address) || muted.includes(domain);
+  const host = address.slice(address.lastIndexOf("@"));
+  return muted.includes(address) || muted.includes(host) || muted.includes(`@${senderDomain(address)}`);
+}
+
+/** What the muted list stores for a sender address or for a domain (as `senderDomain` names it). */
+export function mutedKey(kind: "senders" | "domains", value: string): string {
+  const key = value.trim().toLowerCase();
+  return kind === "domains" ? `@${key.replace(/^@/, "")}` : key;
+}
+
+/**
+ * The settings with these entries muted (or, with `muted` false, unmuted) for the accounts. An
+ * account that keeps its own muted list changes that list; every other account follows the shared
+ * one, which changes once.
+ */
+export function withMutedSenders(
+  settings: NotificationSettings,
+  accountIds: readonly string[],
+  keys: readonly string[],
+  muted: boolean,
+): NotificationSettings {
+  const edit = (list: readonly string[]): string[] => {
+    const rest = list.filter((entry) => !keys.includes(entry));
+    return muted ? [...rest, ...keys.filter((key, at) => keys.indexOf(key) === at)].slice(-MAX_MUTED_SENDERS) : rest;
+  };
+  const accounts = { ...settings.accounts };
+  let shared = false;
+  for (const id of accountIds) {
+    const own = Object.hasOwn(accounts, id) ? accounts[id] : undefined;
+    if (own?.mutedSenders) accounts[id] = { ...own, mutedSenders: edit(own.mutedSenders) };
+    else shared = true;
+  }
+  return { ...settings, accounts, ...(shared ? { mutedSenders: edit(settings.mutedSenders) } : {}) };
+}
+
+/** Whether the entry is muted for every one of these accounts. */
+export function isMutedForAccounts(settings: NotificationSettings, accountIds: readonly string[], key: string): boolean {
+  return accountIds.length > 0 && accountIds.every((id) => settingsForAccount(settings, id).mutedSenders.includes(key));
 }
 
 /** Whether the category filter lets this message through. */
@@ -111,13 +164,13 @@ export function categoryAllowed(
 }
 
 /**
- * Whether a message that just arrived notifies, by everything except time: the quiet hours and
- * focus checks belong to the moment of delivery, not to the message.
+ * Whether a message that just arrived notifies, by everything except the moment: the focus check
+ * belongs to the delivery, not to the message.
  */
 export function messageNotifies(message: MessageSummary, settings: NotificationSettings): boolean {
-  if (!settings.enabled || !message.unread) return false;
-  if (!(settings.folders as readonly string[]).includes(message.folder)) return false;
-  if (settings.mutedAccountIds.includes(message.accountId)) return false;
-  if (isSenderMuted(message.from.email, settings.mutedSenders)) return false;
-  return categoryAllowed(settings.categories, message.categoryId);
+  const own = settingsForAccount(settings, message.accountId);
+  if (!own.enabled || !message.unread) return false;
+  if (!(own.folders as readonly string[]).includes(message.folder)) return false;
+  if (isSenderMuted(message.from.email, own.mutedSenders)) return false;
+  return categoryAllowed(own.categories, message.categoryId);
 }

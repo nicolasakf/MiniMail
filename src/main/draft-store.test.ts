@@ -129,7 +129,7 @@ describe("UiPrefsStore", () => {
   const path = () => join(dir, "ui-prefs.json");
 
   it("starts with Smart, no unread filter and only the inbox shown", () => {
-    expect(new UiPrefsStore(path()).get()).toEqual({ view: "category", unreadOnly: false, shownFolders: ["inbox"] });
+    expect(new UiPrefsStore(path()).get()).toEqual({ view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [] });
   });
 
   it("remembers the view tab and the filters across launches, each change on its own", () => {
@@ -141,13 +141,22 @@ describe("UiPrefsStore", () => {
       view: "sender",
       unreadOnly: true,
       shownFolders: ["inbox", "trash", "spam"],
+      pinnedDrafts: [],
     });
+  });
+
+  it("remembers which drafts are pinned, and ignores a damaged list", () => {
+    const store = new UiPrefsStore(path());
+    store.set({ pinnedDrafts: ["acc|drafts|7", "local-draft:d1"] });
+    expect(new UiPrefsStore(path()).get().pinnedDrafts).toEqual(["acc|drafts|7", "local-draft:d1"]);
+    writeFileSync(path(), JSON.stringify({ version: 1, view: "list", pinnedDrafts: "nope" }));
+    expect(new UiPrefsStore(path()).get()).toMatchObject({ view: "list", pinnedDrafts: [] });
   });
 
   it("falls back to defaults for a broken file, and for a single bad value only", () => {
     writeFileSync(path(), "{broken");
     expect(new UiPrefsStore(path()).get().view).toBe("category");
     writeFileSync(path(), JSON.stringify({ version: 1, view: "nope", unreadOnly: true, shownFolders: ["spam"] }));
-    expect(new UiPrefsStore(path()).get()).toEqual({ view: "category", unreadOnly: true, shownFolders: ["spam"] });
+    expect(new UiPrefsStore(path()).get()).toEqual({ view: "category", unreadOnly: true, shownFolders: ["spam"], pinnedDrafts: [] });
   });
 });
