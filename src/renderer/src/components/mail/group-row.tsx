@@ -259,7 +259,7 @@ export const GroupCard = memo(function GroupCard({
       aria-selected={selected}
       data-tinted={selected || undefined}
       className={cn(
-        "group corner-squircle relative flex min-w-0 cursor-default flex-col rounded-xl border pb-1.5 text-sm transition-colors",
+        "group corner-squircle relative flex min-w-0 cursor-default flex-col rounded-xl border pb-1.5 text-sm shadow-md shadow-black/10 transition-colors dark:shadow-black/40",
         selected
           ? "border-sidebar-primary/40 bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25"
           : "border-border bg-foreground/[0.04] hover:bg-foreground/[0.09] dark:hover:bg-accent/50",
