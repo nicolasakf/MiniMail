@@ -3,6 +3,8 @@ import { makeMessageId, parseMessageId } from "@shared/ids";
 import { MOVE_DESTINATION, MOVE_FOLDERS } from "@shared/threads";
 import type { MailAction, MailActionResult, MailFolder, MessageSummary } from "@shared/types";
 
+import { recordAction, reportToJournal } from "@/lib/events";
+import { SESSION_TAG } from "@/lib/undo-stack";
 import { FOLDER_TITLES } from "@/lib/format";
 
 const UNDO_MS = 6000;
@@ -15,6 +17,13 @@ interface Intent {
   action: MailAction;
   field: Field;
   ready: boolean;
+  /** Set on a command that takes another back: how its Log event is worded (it is not undoable itself). */
+  undoTitle?: string;
+}
+/** What a batch did, kept so it can be taken back: the rows as they were before, and where they ended up. */
+interface History {
+  action: MailAction;
+  before: MessageSummary[];
 }
 interface Entry {
   row: MessageSummary;
@@ -25,19 +34,84 @@ interface Entry {
   needsLocation: boolean;
 }
 
+/**
+ * A failure the page can retry. The popover lists what the event journal holds; this keeps the
+ * Retry button for the ones raised here, found again by `ref` (or by area and subject for
+ * failures the main process recorded itself, like an unsubscribe).
+ */
 export interface MailEvent {
   id: number;
   at: number;
   title: string;
   detail: string;
   retry?: () => void;
+  ref?: string;
+  area?: string;
+  subject?: string;
 }
+
+/** Where a failure is recorded, and how to find it again. */
+interface ReportOptions {
+  /** False when the main process already recorded this failure and only the Retry is kept here. */
+  journal?: boolean;
+  area?: string;
+  subject?: string;
+}
+
+/** The `ref` of the Log event for a batch, which the undo stack uses to offer an Undo on that row. */
+export const undoRef = (batch: number) => `undo-mail-${SESSION_TAG}-${batch}`;
+
+/** The command that puts a row back as it was, or null when it cannot be (a draft's folder, "delete forever"). */
+export function inverseOf(action: MailAction, before: MessageSummary): MailAction | null {
+  switch (action) {
+    case "archive":
+    case "unarchive":
+    case "trash":
+    case "spam":
+      switch (before.folder) {
+        case "inbox": return "unarchive";
+        case "archive": return "archive";
+        case "trash": return "trash";
+        case "spam": return "spam";
+        default: return null;
+      }
+    case "markRead": return before.unread ? "markUnread" : null;
+    case "markUnread": return before.unread ? null : "markRead";
+    case "pin": return before.pinned ? null : "unpin";
+    case "unpin": return before.pinned ? "pin" : null;
+    default: return null;
+  }
+}
+
+/** "archiving", "moving to Trash"...: the action as a noun, for "Undid archiving of a message". */
+const ACTION_NOUN: Record<MailAction, string> = {
+  markRead: "marking as read", markUnread: "marking as unread", pin: "pinning", unpin: "unpinning",
+  archive: "archiving", unarchive: "moving to Inbox", trash: "moving to Trash", spam: "moving to Spam",
+  deleteForever: "deleting",
+};
+
+export const undidTitle = (action: MailAction) => `Undid ${ACTION_NOUN[action]} of`;
+
+const HISTORY_LIMIT = 100;
 
 export const ACTION_LABEL: Record<MailAction, string> = {
   markRead: "mark as read", markUnread: "mark as unread",
   pin: "pin", unpin: "unpin", archive: "move to Archive", unarchive: "move to Inbox",
   trash: "move to Trash", spam: "move to Spam", deleteForever: "delete permanently",
 };
+
+const ACTION_DONE: Record<MailAction, string> = {
+  markRead: "Marked as read", markUnread: "Marked as unread", pin: "Pinned", unpin: "Unpinned",
+  archive: "Archived", unarchive: "Moved to Inbox", trash: "Moved to Trash", spam: "Moved to Spam",
+  deleteForever: "Deleted permanently",
+};
+
+/** Subjects for the journal's private field: the first few, then a count. */
+function describeSubjects(rows: readonly MessageSummary[]): string {
+  const shown = [...new Set(rows.map((row) => row.subject || "(no subject)"))].slice(0, 3);
+  const more = rows.length - shown.length;
+  return more > 0 ? `${shown.join(" · ")} · and ${more} more` : shown.join(" · ");
+}
 
 function fieldOf(action: MailAction): Field {
   if (MOVE_DESTINATION[action]) return "folder";
@@ -83,6 +157,9 @@ export class MailActions {
   private recent = new Map<string, { row: MessageSummary; at: number; originalId: string; field: Field }>();
   private retryTargets = new WeakMap<() => void, { field: Field; row: MessageSummary }>();
   private watches = new Map<string, { row: MessageSummary; at: number; from: MailFolder }>();
+  private history = new Map<number, History>();
+  /** Per batch, the rows once the server moved them (their ids change with the folder). */
+  private landed = new Map<number, Map<string, MessageSummary>>();
 
   constructor(
     private send: (action: MailAction, ids: string[]) => Promise<MailActionResult[]>,
@@ -101,31 +178,47 @@ export class MailActions {
     this.update();
   }
 
-  private report(title: string, detail: string, retry?: () => void) {
-    this.notices = [{ id: ++this.serial, at: Date.now(), title, detail, retry }, ...this.notices];
+  private report(title: string, detail: string, retry?: () => void, subject?: string, options: ReportOptions = {}) {
+    const id = ++this.serial;
+    const ref = `ma-${id}`;
+    const area = options.area ?? "mail";
+    this.notices = [{ id, at: Date.now(), title, detail, retry, ref, area, subject: options.subject ?? subject }, ...this.notices];
+    if (options.journal === false) return;
+    // The subject is private: it goes in its own field, not in the text that reaches main.log.
+    const text = subject ? detail.split(subject).join("").replace(/^\s*[—-]\s*/, "").trim() : detail;
+    reportToJournal({ level: "error", area, title, detail: text, context: subject, ref });
+  }
+
+  /** The Retry that belongs to a journal event, if one is still available. */
+  retryFor(event: { ref?: string; area: string; context?: string; at: number }): (() => void) | undefined {
+    const exact = event.ref ? this.notices.find((notice) => notice.ref === event.ref) : undefined;
+    if (exact) return exact.retry;
+    return this.notices.find((notice) =>
+      notice.retry && notice.area === event.area && notice.subject === event.context && Math.abs(notice.at - event.at) < 30_000,
+    )?.retry;
   }
 
   /**
-   * Adds an event to the notifications popover for something that went wrong outside the move and
+   * Adds an event to the Log popover for something that went wrong outside the move and
    * flag commands this class sends (an unsubscribe, for example). `retry` shows a Retry button.
    */
-  reportEvent(title: string, detail: string, retry?: () => void) {
-    this.report(title, detail, retry);
+  reportEvent(title: string, detail: string, retry?: () => void, options: ReportOptions = {}) {
+    this.report(title, detail, retry, options.subject, options);
     this.update();
   }
 
-  reportSyncError(account: string, detail: string) {
-    const title = account ? `Could not sync ${account}` : "Could not sync mail";
-    if (this.notices.some((notice) => notice.title === title && notice.detail === detail && Date.now() - notice.at < 60_000)) return;
-    this.report(title, detail);
-    this.update();
-  }
-
-  enqueue(action: MailAction, rows: readonly MessageSummary[], undoable: boolean, dismiss?: (batch: number) => void) {
+  enqueue(
+    action: MailAction,
+    rows: readonly MessageSummary[],
+    undoable: boolean,
+    dismiss?: (batch: number) => void,
+    undoTitle?: string,
+  ) {
     const batch = ++this.serial;
     const field = fieldOf(action);
-    const intent: Intent = { action, field, batch, ready: !undoable };
+    const intent: Intent = { action, field, batch, ready: !undoable, undoTitle };
     let count = 0;
+    const affected: MessageSummary[] = [];
     const seen = new Set<Entry>();
     for (const source of rows) {
       const row = canonical(source);
@@ -158,7 +251,9 @@ export class MailActions {
         entry.queued.push(intent);
       }
       count++;
+      affected.push(row);
     }
+    if (affected.length > 0) this.remember(batch, { action, before: affected });
     if (dismiss) this.dismissed = dismiss;
     if (undoable && [...this.entries.values()].some((entry) => entry.queued.includes(intent))) {
       this.timers.set(batch, setTimeout(() => this.commit(batch), UNDO_MS));
@@ -167,6 +262,50 @@ export class MailActions {
     this.update();
     this.schedule();
     return { batch, count, undoable: this.timers.has(batch) };
+  }
+
+  private remember(batch: number, record: History) {
+    this.history.set(batch, record);
+    for (const old of this.history.keys()) {
+      if (this.history.size <= HISTORY_LIMIT) break;
+      this.history.delete(old);
+      this.landed.delete(old);
+    }
+  }
+
+  /** True when this batch can be taken back (at least one of its messages has an opposite command). */
+  canRevert(batch: number): boolean {
+    const record = this.history.get(batch);
+    return !!record && record.before.some((row) => inverseOf(record.action, row) !== null);
+  }
+
+  /**
+   * Takes a batch back: if it has not been sent yet it is simply cancelled, otherwise the opposite
+   * commands go out for the messages that changed, from where the server put them. Either way it is
+   * recorded in the Log. False when there is nothing to take back.
+   */
+  revert(batch: number): boolean {
+    const record = this.history.get(batch);
+    if (!record) return false;
+    this.history.delete(batch);
+    const groups = new Map<MailAction, MessageSummary[]>();
+    for (const before of record.before) {
+      const inverse = inverseOf(record.action, before);
+      if (!inverse) continue;
+      const live = [...this.entries.values()].find((entry) => entry.originalId === before.id);
+      const now = live?.row ?? this.landed.get(batch)?.get(before.id) ?? before;
+      groups.set(inverse, [...(groups.get(inverse) ?? []), now]);
+    }
+    this.landed.delete(batch);
+    if (this.undo(batch)) {
+      recordAction("mail", `${undidTitle(record.action)} ${record.before.length === 1 ? "a message" : `${record.before.length} messages`}`, "", {
+        context: describeSubjects(record.before),
+        accountId: record.before[0]!.accountId,
+      });
+      return true;
+    }
+    for (const [action, rows] of groups) this.enqueue(action, rows, false, undefined, undidTitle(record.action));
+    return groups.size > 0;
   }
 
   undo(batch = [...this.timers.keys()].at(-1)): boolean {
@@ -246,10 +385,27 @@ export class MailActions {
           try {
             results = await this.send(action, ids);
           } catch (error) {
+            // expected: turned into per-message results; each failure is recorded just below.
             results = ids.map((id) => ({ id, status: "unknown", error: errorText(error) }));
           }
           const byId = new Map(results.map((result) => [result.id, result]));
           const at = performance.now();
+          // One Log event per batch, so each can offer its own Undo (see `undoRef`).
+          const appliedByBatch = new Map<number, MessageSummary[]>();
+          for (const entry of batch) {
+            if (byId.get(entry.row.id)?.status !== "applied") continue;
+            const id = entry.sending!.batch;
+            appliedByBatch.set(id, [...(appliedByBatch.get(id) ?? []), entry.row]);
+          }
+          for (const [id, applied] of appliedByBatch) {
+            const undoTitle = batch.find((entry) => entry.sending?.batch === id)?.sending?.undoTitle;
+            const count = applied.length === 1 ? "a message" : `${applied.length} messages`;
+            recordAction("mail", undoTitle ? `${undoTitle} ${count}` : `${ACTION_DONE[action]} ${count}`, "", {
+              context: describeSubjects(applied),
+              accountId: applied[0]!.accountId,
+              ...(undoTitle ? {} : { ref: undoRef(id) }),
+            });
+          }
           for (const entry of batch) {
             const intent = entry.sending!;
             entry.sending = undefined;
@@ -262,6 +418,11 @@ export class MailActions {
                 if (result.nextId) entry.row = { ...entry.row, id: result.nextId };
                 else entry.needsLocation = true;
               }
+              if (this.history.has(intent.batch)) {
+                const landed = this.landed.get(intent.batch) ?? new Map<string, MessageSummary>();
+                landed.set(entry.originalId, entry.row);
+                this.landed.set(intent.batch, landed);
+              }
             } else {
               const unknown = result?.status !== "failed";
               if (unknown) {
@@ -273,7 +434,7 @@ export class MailActions {
                 ? this.retry(action, before)
                 : undefined;
               this.report(unknown ? `Could not confirm ${ACTION_LABEL[action]}` : `Could not ${ACTION_LABEL[action]}`,
-                `${before.subject} — ${result?.error ?? "The server returned no result for this message."}`, retry);
+                `${before.subject} — ${result?.error ?? "The server returned no result for this message."}`, retry, before.subject);
             }
           }
           this.prune();
@@ -312,7 +473,7 @@ export class MailActions {
         if (started <= at) continue;
         if (field === "delete") {
           if (!folders.has(from)) continue;
-          if (exact) this.report("Message still on server", exact.subject);
+          if (exact) this.report("Message still on server", exact.subject, undefined, exact.subject);
         } else if (field === "folder") {
           // A missing row in a bounded list is not proof that a rule moved it.
           if (!folders.has(from) || !folders.has(MOVE_DESTINATION[intent.action]!)) continue;
@@ -331,7 +492,7 @@ export class MailActions {
           if (unknown && entry.row.folder === from && from !== expected &&
               !entry.queued.some((queued) => queued.field === "folder")) {
             this.report("Move was not confirmed", `${entry.row.subject} is still in ${FOLDER_TITLES[from]}.`,
-              this.retry(intent.action, entry.row));
+              this.retry(intent.action, entry.row), entry.row.subject);
           }
           entry.needsLocation = false;
           if (entry.row.folder === expected) {
@@ -340,16 +501,17 @@ export class MailActions {
             }
           } else if (!unknown) {
             this.report("Server changed the message folder",
-              `${entry.row.subject} is in ${FOLDER_TITLES[entry.row.folder]}. A mail rule or another client may have moved it.`);
+              `${entry.row.subject} is in ${FOLDER_TITLES[entry.row.folder]}. A mail rule or another client may have moved it.`,
+              undefined, entry.row.subject);
             // A later explicit move may proceed from the confirmed location.
           }
         } else {
           if (!exact || (move && entry.confirmed.has("folder"))) continue;
           if (changed(entry.row, intent)[field] !== exact[field] && !entry.queued.some((queued) => queued.field === field)) {
-            if (!unknown) this.report("Server changed a message flag", `${exact.subject} — ${ACTION_LABEL[intent.action]}.`);
+            if (!unknown) this.report("Server changed a message flag", `${exact.subject} — ${ACTION_LABEL[intent.action]}.`, undefined, exact.subject);
             else {
               this.report("Change was not confirmed", `${exact.subject} — ${ACTION_LABEL[intent.action]}.`,
-                this.retry(intent.action, canonical(exact)));
+                this.retry(intent.action, canonical(exact)), exact.subject);
             }
           }
           entry.row = { ...entry.row, [field]: exact[field] };
@@ -369,7 +531,8 @@ export class MailActions {
       this.watches.delete(id);
       this.recent.set(`${id}:folder`, { row: canonical(moved), at: started, originalId: id, field: "folder" });
       this.report("Server changed the message folder",
-        `${moved.subject} is in ${FOLDER_TITLES[moved.folder]}. A mail rule or another client may have moved it.`);
+        `${moved.subject} is in ${FOLDER_TITLES[moved.folder]}. A mail rule or another client may have moved it.`,
+        undefined, moved.subject);
       updated = true;
     }
     if (updated) {
@@ -407,10 +570,10 @@ export class MailActions {
       for (const entry of this.entries.values()) {
         for (const [field, { at, intent }] of entry.confirmed) {
           if (performance.now() - at < CONFIRM_MS) { remaining = true; continue; }
-          if (field === "folder") this.report("Could not verify the message location", entry.row.subject);
+          if (field === "folder") this.report("Could not verify the message location", entry.row.subject, undefined, entry.row.subject);
           if (field === "folder" && entry.needsLocation) {
             for (const queued of entry.queued) {
-              this.report(`Could not ${ACTION_LABEL[queued.action]}`, `${entry.row.subject} — its new location is unknown.`);
+              this.report(`Could not ${ACTION_LABEL[queued.action]}`, `${entry.row.subject} — its new location is unknown.`, undefined, entry.row.subject);
             }
             entry.queued = [];
             entry.needsLocation = false;

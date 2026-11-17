@@ -47,7 +47,7 @@ export function useDashboardMail(accountCount: number, active: boolean, actions:
         // The disk copy answers at once; it is replaced by the live answer below.
         void Promise.all(
           DASHBOARD_FOLDERS.map((folder) =>
-            api.mail.list({ folder, limit: MAIL_WINDOW, cacheOnly: true }).catch(() => null),
+            api.mail.list({ folder, limit: MAIL_WINDOW, cacheOnly: true }).catch(() => null), // expected: recorded by the main process
           ),
         ).then((results) => {
           if (stale()) return;
@@ -69,6 +69,7 @@ export function useDashboardMail(accountCount: number, active: boolean, actions:
             failures.push(...result.errors);
             if (result.errors.length === 0) successful.add(folder);
           } catch (error) {
+            // expected: the failed request was recorded by the main process; this feeds the banner.
             failures.push({ accountId: "", message: errorText(error) });
           }
         }),

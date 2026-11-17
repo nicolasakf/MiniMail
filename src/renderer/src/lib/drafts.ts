@@ -1,12 +1,13 @@
 import { useSyncExternalStore } from "react";
 
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import type { DraftAttachment, MessageDetail, SavedDraft } from "@shared/types";
 
 import { api } from "./api";
 import { isTypingTarget } from "./keyboard";
 import { messageToText, type ComposeSeed } from "./compose";
+import { reportError } from "@/lib/events";
 
 export type { SavedDraft };
 
@@ -31,7 +32,8 @@ function readLegacy(): SavedDraft[] {
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(LEGACY_KEY) ?? "[]");
     return Array.isArray(parsed) ? (parsed as SavedDraft[]) : [];
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not read the old local drafts", error);
     return [];
   }
 }
@@ -45,8 +47,9 @@ async function loadFromDisk(): Promise<void> {
         // Oldest first, so the newest ends up first in the list.
         for (const draft of legacy.reverse()) list = await api.drafts.save(draft);
         window.localStorage.removeItem(LEGACY_KEY);
-      } catch {
+      } catch (error) {
         // Kept where it was and tried again next launch; nothing is lost.
+        reportError("drafts", "Could not move the old local drafts to the new storage", error);
       }
     }
   }
@@ -57,7 +60,7 @@ async function loadFromDisk(): Promise<void> {
 function ready(): Promise<void> {
   loading ??= loadFromDisk().catch((error) => {
     loading = null; // try again next time something asks
-    console.error("[drafts] could not load:", error);
+    reportError("drafts", "Could not load the drafts", error);
   });
   return loading;
 }
@@ -97,7 +100,7 @@ export function useDrafts(): SavedDraft[] {
     listeners.add(listener);
     void ready();
     const stop = api.drafts.onChanged(() => {
-      void api.drafts.list().then(publish).catch((error) => console.error("[drafts] could not refresh:", error));
+      void api.drafts.list().then(publish).catch((error) => reportError("drafts", "Could not refresh the drafts", error));
     });
     return () => { listeners.delete(listener); stop(); };
   }, listDrafts);

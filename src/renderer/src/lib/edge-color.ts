@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { reportError } from "@/lib/events";
 
 /** The shared color of a set of pixels if they are all opaque and nearly equal, else null. */
 function solidColor(pixels: ArrayLike<number>, width: number, points: number[][]): string | null {
@@ -65,7 +66,8 @@ export function useEdgeColor(src: string | null): string | null {
           context.drawImage(image, 0, 0, SAMPLE, SAMPLE);
           result = edgeColorFromPixels(context.getImageData(0, 0, SAMPLE, SAMPLE).data, SAMPLE, SAMPLE);
         }
-      } catch {
+      } catch (error) {
+        reportError("ui", "Could not read the edge color of an image", error);
         result = null;
       }
       known.set(src, result);

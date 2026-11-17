@@ -13,6 +13,7 @@ import { z } from "zod";
 import { DEFAULT_CATEGORIES, LEGACY_DEFAULT_IDS, defaultCategories, iconFor } from "@shared/categories";
 import { categorySchema } from "@shared/schemas";
 import type { Category } from "@shared/types";
+import { reportError } from "./events";
 
 /** The part of Electron's `safeStorage` this module needs, so it can be tested without Electron. */
 export interface Cipher {
@@ -151,7 +152,7 @@ export class CategoryStore {
       if (migrate) this.saveNow();
     } catch (error) {
       // A corrupt file must not stop the app; the defaults come back and mail is re-sorted.
-      console.error("[categories] could not read categories, using defaults:", error);
+      reportError("storage", "Could not read the categories; using the defaults and sorting again", error);
     }
   }
 
@@ -174,7 +175,7 @@ export class CategoryStore {
     try {
       writePrivateFile(this.filePath, JSON.stringify(payload));
     } catch (error) {
-      console.error("[categories] could not save:", error);
+      reportError("storage", "Could not save the categories", error);
     }
   }
 }
@@ -220,7 +221,7 @@ export class GatewayKeyStore {
       if (!parsed.key) return;
       this.value = this.cipher.decryptString(Buffer.from(parsed.key, "base64"));
     } catch (error) {
-      console.error("[categories] could not read the gateway key:", error);
+      reportError("storage", "Could not read the saved AI key", error);
       this.value = undefined;
     }
   }

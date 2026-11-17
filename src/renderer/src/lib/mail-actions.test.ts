@@ -144,3 +144,67 @@ describe("reportEvent", () => {
     expect(actions.events[1]).toMatchObject({ detail: "The sender did not answer in time.", retry });
   });
 });
+
+describe("taking a batch back", () => {
+  it("cancels a move that has not been sent yet", async () => {
+    const row = mail("1");
+    const send = vi.fn();
+    const actions = new MailActions(send, vi.fn(), vi.fn());
+    const { batch } = actions.enqueue("archive", [row], true);
+    expect(actions.canRevert(batch)).toBe(true);
+    expect(actions.revert(batch)).toBe(true);
+    actions.flush();
+    await tick();
+    expect(send).not.toHaveBeenCalled();
+    expect(actions.canRevert(batch)).toBe(false);
+  });
+
+  it("moves a message back from where the server put it once the move went through", async () => {
+    const row = mail("1");
+    const send = vi.fn()
+      .mockResolvedValueOnce([{ id: row.id, status: "applied", nextId: "a|archive|20" }])
+      .mockResolvedValueOnce([{ id: "a|archive|20", status: "applied", nextId: "a|inbox|30" }]);
+    const actions = new MailActions(send, vi.fn(), vi.fn());
+    const { batch } = actions.enqueue("archive", [row], false);
+    await tick();
+    expect(actions.revert(batch)).toBe(true);
+    await tick();
+    expect(send.mock.calls).toEqual([["archive", [row.id]], ["unarchive", ["a|archive|20"]]]);
+  });
+
+  it("puts a message back in the folder it came from, not always the inbox", async () => {
+    const row = mail("1", "trash");
+    const send = vi.fn()
+      .mockResolvedValueOnce([{ id: row.id, status: "applied", nextId: "a|archive|20" }])
+      .mockResolvedValueOnce([{ id: "a|archive|20", status: "applied", nextId: "a|trash|30" }]);
+    const actions = new MailActions(send, vi.fn(), vi.fn());
+    const { batch } = actions.enqueue("archive", [row], false);
+    await tick();
+    actions.revert(batch);
+    await tick();
+    expect(send.mock.calls[1]).toEqual(["trash", ["a|archive|20"]]);
+  });
+
+  it("undoes a read change only for the messages it changed", async () => {
+    const unread = mail("1");
+    const read = { ...mail("2"), unread: false };
+    const send = vi.fn().mockResolvedValue([
+      { id: unread.id, status: "applied" },
+      { id: read.id, status: "applied" },
+    ]);
+    const actions = new MailActions(send, vi.fn(), vi.fn());
+    const { batch } = actions.enqueue("markRead", [unread, read], false);
+    await tick();
+    actions.revert(batch);
+    await tick();
+    expect(send.mock.calls[1]).toEqual(["markUnread", [unread.id]]);
+  });
+
+  it("has nothing to take back for a permanent delete", () => {
+    const row = mail("1");
+    const actions = new MailActions(vi.fn().mockResolvedValue([{ id: row.id, status: "applied" }]), vi.fn(), vi.fn());
+    const { batch } = actions.enqueue("deleteForever", [row], false);
+    expect(actions.canRevert(batch)).toBe(false);
+    expect(actions.revert(batch)).toBe(false);
+  });
+});

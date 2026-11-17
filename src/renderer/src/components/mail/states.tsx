@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { CircleCheck, Inbox, Mail, Search } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { accountLabel } from "@shared/accounts";
 import type { Account, AccountError, MailFolder } from "@shared/types";

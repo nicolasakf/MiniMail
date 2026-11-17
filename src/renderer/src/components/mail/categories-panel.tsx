@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CircleAlert, CircleCheck, ExternalLink, GripVertical, KeyRound, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import {
   categoryProblems,
@@ -30,6 +30,7 @@ import { SettingsPageHeader } from "../settings/fields";
 import { CategoryIcon } from "./category-icon";
 import { IconPicker } from "./icon-picker";
 import { SortAgainMenu } from "./sort-again-menu";
+import { noteShownError } from "@/lib/events";
 
 const SWATCH_HUES = [210, 265, 150, 35, 340, 180, 95, 20];
 /** Presets in the color picker: the hues categories are drawn with, at their usual saturation. */
@@ -175,6 +176,7 @@ function AiSection({
       setConnection({ state: "ok" });
     } catch (error) {
       setConnection({ state: "error", message: errorText(error) });
+      noteShownError("The AI key could not be used", errorText(error));
     }
   };
 
@@ -186,6 +188,7 @@ function AiSection({
       await test();
     } catch (error) {
       setConnection({ state: "error", message: errorText(error) });
+      noteShownError("The AI key could not be used", errorText(error));
     } finally {
       setSaving(false);
     }

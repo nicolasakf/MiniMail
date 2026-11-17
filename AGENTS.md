@@ -23,3 +23,38 @@ can be unsubscribed from; the others are skipped (`unsubscribeCommand` / `planUn
 everywhere with a tooltip saying so, until a message of that list arrives more than a day later (`STILL_RECEIVING_AFTER_MS`);
 the wording comes from `unsubscribeButton` in `lib/unsubscribe-confirm.ts`, so use it in any new place. It also has a button among the hover buttons of a row, first, before Pin. It cannot be undone, so every
 place asks first with the same card (`unsubscribeConfirm` in `lib/unsubscribe-confirm.ts`).
+
+## Undo
+
+Every user action that can be taken back is on the undo stack (`src/renderer/src/lib/undo-stack.ts`):
+⌘Z takes back the newest one, and the Log row of the action shows an Undo button (top right).
+When you add an action, record it with `recordAction(..., { ref })` and push an entry with the same
+`ref` from `newUndoRef(kind)`; `run` does the opposite *without* pushing again (no redo). Mail
+moves and flags go through `MailActions` (`revert`, `inverseOf`), which also cancels a move still in
+its 6-second window. `undoStack.group` folds follow-up actions into one entry (blocking, which also
+moves mail to the Trash). Not undoable, so leave them out: sending, unsubscribing, deleting forever.
+The stack is in memory: after a restart old Log rows have no Undo (refs carry a per-launch tag).
+
+## Nothing fails silently
+
+Every failure, whatever it is, must reach **both** `main.log` and the Log popover. There
+is one way to do it: the event journal (`src/main/event-journal.ts`). Never use `console.error`, a
+bare `catch {}`, or a direct `import { toast } from "sonner"`; `src/failures-recorded.test.ts` fails
+the build on all three.
+
+- **Main process:** `reportError(area, title, cause, { context, accountId })` from `src/main/events.ts`.
+  `recordAction` / `recordInfo` log what the user or the app did. The IPC wrapper in `ipc.ts` already
+  records any handler that throws, so a failure that propagates to the page needs nothing more (code
+  that reports and then rethrows is not recorded twice, see `wasReported`).
+- **Renderer:** `reportError` / `recordAction` from `lib/events.ts`; import `toast` from `@/lib/toast`
+  (an error toast is recorded too); show an inline error with `noteShownError`. Both skip a failure
+  the main process already recorded.
+- **A catch that is not a failure** (a missing logo, a value that is not a URL, a request main already
+  recorded) must say why in a comment starting with `expected:`.
+- **Private text** (sender, subject) goes in `context`, never in `title` or `detail`: `context` is
+  encrypted on disk and kept out of `main.log`.
+- **Cheap and non-blocking:** recording only touches memory; encrypting, writing and telling the page
+  happen later, in batches. Keep it that way: no synchronous file or keychain work on a caller's turn.
+- **New user actions** are recorded too (see the list under "Actions must be consistent everywhere"):
+  one `recordAction` per action, with the subjects as `context`.
+

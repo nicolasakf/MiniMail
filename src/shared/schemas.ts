@@ -1,8 +1,16 @@
 import { z } from "zod";
 
+import { MAX_EVENT_CONTEXT, MAX_EVENT_DETAIL, MAX_EVENT_TITLE } from "./events";
+
 import { MAX_ALIAS_LENGTH, MAX_AVATAR_BYTES, normalizeAlias } from "./accounts";
 import type { LogoRequest, LogoSettings } from "./logos";
-import { MAX_MUTED_SENDERS, MAX_NOTIFICATION_IDS, NOTIFY_FOLDERS, type NotificationSettings } from "./notifications";
+import {
+  MAX_MUTED_SENDERS,
+  MAX_MUTED_THREADS,
+  MAX_NOTIFICATION_IDS,
+  NOTIFY_FOLDERS,
+  type NotificationSettings,
+} from "./notifications";
 import { MAIL_WINDOW } from "./mail-window";
 import { imapSettingsSchema } from "./imap-settings";
 import {
@@ -242,6 +250,7 @@ export const notificationSettingsSchema: z.ZodType<NotificationSettings> = z.obj
     .refine((accounts) => Object.keys(accounts).length <= MAX_NOTIFICATION_IDS, "Too many accounts."),
   dockBadge: z.boolean(),
   groupBursts: z.boolean(),
+  mutedThreads: z.array(z.string().min(3).max(400)).max(MAX_MUTED_THREADS),
 });
 
 /** Vercel AI Gateway API key typed by the user. */
@@ -277,6 +286,8 @@ export const assignCategorySchema = z.object({
   threads: z.array(z.string().min(1).max(600)).min(1).max(500),
   categoryId: z.string().min(1).max(64).nullable(),
   sorting: z.boolean().optional(),
+  /** Lets the Log row of this action offer an Undo. */
+  ref: z.string().min(1).max(100).optional(),
 });
 
 /** One or more message ids; capped so a bad call cannot ask for thousands of fetches. */
@@ -284,3 +295,14 @@ export const idsSchema = z.array(z.string()).min(1).max(500);
 
 /** Messages asked about for a code at once: the visible verification rows. */
 export const codeIdsSchema = z.array(z.string()).min(1).max(30);
+
+/** What the page reports to the event journal. */
+export const eventReportSchema = z.object({
+  level: z.enum(["error", "action", "info"]),
+  area: z.string().min(1).max(40),
+  title: z.string().min(1).max(MAX_EVENT_TITLE * 2),
+  detail: z.string().max(MAX_EVENT_DETAIL * 2).optional(),
+  context: z.string().max(MAX_EVENT_CONTEXT * 2).optional(),
+  accountId: z.string().max(200).optional(),
+  ref: z.string().max(100).optional(),
+});

@@ -7,6 +7,7 @@ import type { MailFolder, MessageSummary } from "@shared/types";
 
 import { writePrivateFile, type Cipher } from "./category-store";
 import type { CachedFolder, SummaryStore } from "./providers/summary-cache";
+import { reportError } from "./events";
 
 /** Bump when MessageSummary changes shape; an older file is then ignored instead of misread. */
 const VERSION = 1;
@@ -111,7 +112,7 @@ export class MailCache {
       writePrivateFile(this.filePath, JSON.stringify({ version: VERSION, data }));
     } catch (error) {
       // The cache is an optimisation; failing to save it must never disturb mail.
-      console.error("[mail-cache] could not save:", error);
+      reportError("storage", "Could not save the mail cache", error);
     }
   }
 
@@ -126,7 +127,7 @@ export class MailCache {
         this.accounts.set(accountId, new Map(Object.entries(folders)));
       }
     } catch (error) {
-      console.error("[mail-cache] ignoring unreadable cache:", error);
+      reportError("storage", "Could not read the mail cache; it will be rebuilt", error);
       this.accounts = new Map();
     }
   }

@@ -22,6 +22,7 @@ import type {
   UnsubscribeResult,
 } from "./types";
 import type { ContactEntry } from "./contacts";
+import type { AppEvent, EventReport } from "./events";
 import type { LogoRequest, LogoSettings } from "./logos";
 import type { NotificationSettings } from "./notifications";
 
@@ -100,7 +101,8 @@ export interface MiniMailApi {
      * Files conversations (`accountId:threadId`) under a category by hand, or under none (null).
      * Sorting again leaves such conversations where the user put them.
      */
-    assign(threads: string[], categoryId: string | null): Promise<void>;
+    /** `ref` goes on the Log event, so the page can offer an Undo on it. */
+    assign(threads: string[], categoryId: string | null, ref?: string): Promise<void>;
   };
   senders: {
     /** Addresses whose remote images load without asking (lowercase). */
@@ -154,6 +156,16 @@ export interface MiniMailApi {
     setSettings(settings: NotificationSettings): Promise<NotificationSettings>;
     /** Shows a sample notification so the user can check that the system lets MiniMail show them. */
     test(): Promise<void>;
+  };
+  events: {
+    /** The journal: every error and the newest other events from the last 30 days, newest first. */
+    list(): Promise<AppEvent[]>;
+    /** Marks every error so far as done: "Errors only" stops showing them; they stay listed until they age out. */
+    markDone(): Promise<void>;
+    /** Tells the journal something happened in the page. Fire and forget: never waits, never throws. */
+    report(report: EventReport): void;
+    /** New or changed events, batched; returns the way to stop listening. */
+    onChanged(listener: (events: AppEvent[]) => void): () => void;
   };
   system: {
     openExternal(url: string): Promise<void>;

@@ -39,7 +39,7 @@ export function setDraftsPinned(ids: readonly string[], pinned: boolean): void {
   if (next.size === pins.size && [...next].every((id) => pins.has(id))) return;
   publish(next);
   // Only the memory of the pin is lost if this fails.
-  void ready().then(() => api.prefs.set({ pinnedDrafts: [...pins] })).catch(() => undefined);
+  void ready().then(() => api.prefs.set({ pinnedDrafts: [...pins] })).catch(() => undefined); // expected: recorded by the main process
 }
 
 /** The ids of the pinned drafts; re-renders when one is pinned or unpinned. */

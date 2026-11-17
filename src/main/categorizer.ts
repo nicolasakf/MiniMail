@@ -4,6 +4,7 @@ import type { Category, CategoryState, MailFolder, MessageSummary, SortFolder, S
 import { DEFAULT_CODE_MODEL } from "@shared/verification-code";
 
 import type { CategoryStore } from "./category-store";
+import { recordInfo, reportError } from "./events";
 import { describeGatewayError, JEV_MODEL, type Classifier } from "./jev";
 
 /** Classification calls running at once; the gateway handles more, but a mailbox sync should stay gentle. */
@@ -55,6 +56,12 @@ interface QueueItem {
 /** The conversation a message belongs to; replies share it, which is how they inherit a category. */
 function threadKey(message: MessageSummary): string {
   return `${message.accountId}:${message.threadId}`;
+}
+
+/** Sender and subject, for the event journal's private (encrypted) field. */
+function describeMessage(message: MessageSummary): string {
+  const sender = message.from.name || message.from.email;
+  return `${message.subject || "(no subject)"} — ${sender}`;
 }
 
 function snapshot(run: SortRun, finished: boolean, error: string | null): SortProgress {
@@ -353,6 +360,14 @@ export class Categorizer {
       });
       this.lastError = null;
       this.failures = 0;
+      // Remembered so a conversation that ended up uncategorized can always be explained.
+      const name = this.deps.store.categories().find((category) => category.id === outcome.categoryId)?.name;
+      recordInfo(
+        "sorting",
+        name ? `Sorted into ${name}` : "Sorted as no category",
+        `Jev was ${Math.round(outcome.probability * 100)}% sure.`,
+        { context: describeMessage(message), accountId: message.accountId },
+      );
       if (run) {
         run.done += 1;
         const account = run.accounts.get(message.accountId);
@@ -362,9 +377,15 @@ export class Categorizer {
     } catch (error) {
       if (generation !== this.generation) return;
       this.lastError = describeGatewayError(error);
+      reportError("sorting", "Could not sort an email", this.lastError, {
+        context: describeMessage(message),
+        accountId: message.accountId,
+      });
       if (run && run === this.run) this.finishRun(this.lastError);
-      this.pausedUntil = this.now() + BACKOFF_MS[Math.min(this.failures, BACKOFF_MS.length - 1)];
+      const pauseMs = BACKOFF_MS[Math.min(this.failures, BACKOFF_MS.length - 1)];
+      this.pausedUntil = this.now() + pauseMs;
       this.failures += 1;
+      recordInfo("sorting", "Sorting paused after a failure", `New mail uses its header-based category until it retries in ${Math.round(pauseMs / 1000)} s.`);
       // Stop spending calls on a key that is failing; the next refresh after the pause tries again.
       this.queue.clear();
       this.scheduleUpdate();

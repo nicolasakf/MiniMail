@@ -4,6 +4,7 @@ import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "@share
 import { notificationSettingsSchema } from "@shared/schemas";
 
 import { writePrivateFile } from "./category-store";
+import { reportError } from "./events";
 
 function defaults(): NotificationSettings {
   return structuredClone(DEFAULT_NOTIFICATION_SETTINGS);
@@ -37,9 +38,9 @@ export class NotificationSettingsStore {
       migrateMutedAccounts(saved);
       const merged = notificationSettingsSchema.safeParse({ ...defaults(), ...saved });
       if (merged.success) this.value = merged.data;
-      else console.error("[notification-settings] using defaults:", merged.error.message);
+      else reportError("storage", "The notification settings were invalid; using defaults", merged.error.message);
     } catch (error) {
-      console.error("[notification-settings] using defaults:", error);
+      reportError("storage", "Could not read the notification settings; using defaults", error);
     }
   }
 

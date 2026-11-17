@@ -1,25 +1,31 @@
-import type { BlockKind } from "@shared/blocklist";
-import { isMutedForAccounts, mutedKey, withMutedSenders, type NotificationSettings } from "@shared/notifications";
+import { isMutedForAccounts, mutedKey, withMutedSenders, withMutedThreads, type NotificationSettings } from "@shared/notifications";
+
+import type { MuteKind } from "./blocklist";
 
 /**
- * Whether a sender (or a domain) is muted for the accounts the conversations belong to. Muting only
+ * Whether a sender (or a domain) is muted for the accounts the conversations belong to, or a conversation (by its id) is muted. Muting only
  * silences notifications: it uses the muted senders of the Notifications page, so the two stay one list.
  * Until the settings have loaded nothing counts as muted.
  */
 export function mutedCheck(
   settings: NotificationSettings | null,
   accountIds: readonly string[],
-): (kind: BlockKind, value: string) => boolean {
-  return (kind, value) => settings !== null && isMutedForAccounts(settings, accountIds, mutedKey(kind, value));
+): (kind: MuteKind, value: string) => boolean {
+  return (kind, value) => {
+    if (settings === null) return false;
+    if (kind === "threads") return settings.mutedThreads.includes(value);
+    return isMutedForAccounts(settings, accountIds, mutedKey(kind, value));
+  };
 }
 
-/** The settings with these senders or domains muted (or unmuted) for the accounts. */
+/** The settings with these senders, domains or conversations muted (or unmuted); senders and domains per account. */
 export function withMute(
   settings: NotificationSettings,
   accountIds: readonly string[],
-  kind: BlockKind,
+  kind: MuteKind,
   values: readonly string[],
   muted: boolean,
 ): NotificationSettings {
+  if (kind === "threads") return withMutedThreads(settings, values, muted);
   return withMutedSenders(settings, accountIds, values.map((value) => mutedKey(kind, value)), muted);
 }

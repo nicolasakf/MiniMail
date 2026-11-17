@@ -37,7 +37,7 @@ export function useConversationMail(active: boolean): MessageSummary[] {
             const result = await api.mail.list({ folder, limit: MAIL_WINDOW, cacheOnly });
             byFolder.set(folder, result.messages);
           } catch {
-            // Keep what is known for this folder.
+            // expected: the failed request was recorded by the main process. Keep what is known for this folder.
           }
         }),
       );

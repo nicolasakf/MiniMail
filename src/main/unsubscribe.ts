@@ -36,6 +36,7 @@ export async function unsubscribeFrom(
     if (response.status >= 200 && response.status < 300) return { id: message.id, status: "done" };
     return { id: message.id, status: "failed", error: statusProblem(response.status) };
   } catch (error) {
+    // expected: returned as a failed result, which the service records with the host and subject.
     return { id: message.id, status: "failed", error: connectionProblem(error) };
   }
 }

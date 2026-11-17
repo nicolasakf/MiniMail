@@ -6,6 +6,7 @@ import { draftSchema, savedDraftSchema } from "@shared/schemas";
 import type { Draft, SavedDraft, ScheduledMessage } from "@shared/types";
 
 import { writePrivateFile, type Cipher } from "./category-store";
+import { reportError } from "./events";
 
 const pendingSchema = z.object({
   record: savedDraftSchema,
@@ -42,7 +43,7 @@ export class ComposeDelivery {
       }
     } catch (error) {
       this.loadError = error;
-      console.error("[compose-delivery] could not read scheduled mail:", error);
+      reportError("send", "Could not read the scheduled messages; none will be sent until this is fixed", error);
     }
   }
 
@@ -73,7 +74,7 @@ export class ComposeDelivery {
       this.removeDraft(record.id);
     } catch (error) {
       // The draft still exists. If we cannot roll back on disk, pause dispatch for this run.
-      try { this.commit(previous); } catch { this.loadError = error; }
+      try { this.commit(previous); } catch (rollbackError) { this.loadError = error; reportError("send", "Could not undo a change to the scheduled messages", rollbackError); }
       throw error;
     }
   }
@@ -113,13 +114,17 @@ export class ComposeDelivery {
         try {
           await this.send(draft);
           this.commit({ pending: this.state.pending.filter((item) => item.record.id !== record.id) });
-        } catch {
+        } catch (error) {
+          reportError("send", "A scheduled message could not be sent", error, {
+            context: draft.subject || "(no subject)",
+            accountId: draft.accountId,
+          });
           this.setStatus(record.id, "needsReview");
           this.notify("Check scheduled message", draft.subject || "(no subject)");
         }
       }
     } catch (error) {
-      console.error("[compose-delivery] could not update the queue:", error);
+      reportError("send", "Could not update the scheduled messages queue", error);
     } finally {
       this.running = false;
     }

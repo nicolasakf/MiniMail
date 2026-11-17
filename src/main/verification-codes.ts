@@ -9,6 +9,7 @@ import type { MessageDetail } from "@shared/types";
 
 import type { CodeFallback } from "./code-fallback";
 import { describeGatewayError } from "./jev";
+import { reportError } from "./events";
 
 /** After the model fails, rules still work; the model is left alone this long. */
 const PAUSE_MS = 60_000;
@@ -58,7 +59,8 @@ export class VerificationCodes {
     let details: MessageDetail[];
     try {
       details = await this.deps.load(wanted);
-    } catch {
+    } catch (error) {
+      reportError("sorting", "Could not load messages to look for verification codes", error);
       return result;
     }
     await Promise.all(
@@ -90,7 +92,7 @@ export class VerificationCodes {
       return { code: confirmedCode(answer, source), settled: true };
     } catch (error) {
       // Only the reason is logged, never the message.
-      console.error("[codes] model fallback failed:", describeGatewayError(error));
+      reportError("sorting", "Reading a verification code with the AI model failed", describeGatewayError(error));
       this.pausedUntil = this.now() + PAUSE_MS;
       return null;
     }

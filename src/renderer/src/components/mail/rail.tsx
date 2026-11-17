@@ -1,14 +1,13 @@
-import { useState } from "react";
-import { Bell, ChartColumn, LoaderCircle, Mail, NotebookPen, Send, Settings, type LucideIcon } from "lucide-react";
+import { ChartColumn, LoaderCircle, Mail, NotebookPen, Send, Settings, type LucideIcon } from "lucide-react";
 
+import type { AppEvent } from "@shared/events";
 import type { Account, MailFolder } from "@shared/types";
 
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { LogPopover } from "@/components/mail/log-popover";
 import { ShortcutHint } from "@/components/ui/keyboard-shortcut-badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsMac } from "@/hooks/use-platform";
 import { useShortcutHints } from "@/hooks/use-shortcut-hints";
-import type { MailEvent } from "@/lib/mail-actions";
 import { FOLDER_TITLES } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -75,8 +74,8 @@ interface RailProps {
   aiOff: boolean;
   /** Conversations the AI is still sorting; a spinner above Settings shows while this is above 0. */
   sorting?: number;
-  events: readonly MailEvent[];
-  onClearEvents: () => void;
+  /** The Retry that belongs to an event raised by this page, if one is still available. */
+  retryFor: (event: AppEvent) => (() => void) | undefined;
 }
 
 /** Slim left navigation: inbox, folder shortcuts, and the settings button. */
@@ -88,12 +87,8 @@ export function Rail({
   onOpenSettings,
   aiOff,
   sorting = 0,
-  events,
-  onClearEvents,
+  retryFor,
 }: RailProps) {
-  const [open, setOpen] = useState(false);
-  const [seen, setSeen] = useState(0);
-  const latest = events[0]?.id ?? 0;
   const isMac = useIsMac();
   const hints = useShortcutHints(isMac);
   const shortcut = (digit: string) => `${isMac ? "⌘" : "Ctrl+"}${digit}`;
@@ -154,60 +149,7 @@ export function Rail({
               </TooltipContent>
             </Tooltip>
           )}
-          <Popover open={open} onOpenChange={(next) => {
-            setOpen(next);
-            if (next || open) setSeen(latest);
-          }}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={!open && latest > seen ? "Notifications, new events" : "Notifications"}
-                    className="electron-no-drag relative flex size-9 items-center justify-center rounded-xl text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <Bell className="size-5" />
-                    {!open && latest > seen && (
-                      <span aria-hidden className="absolute right-0 top-0 size-2 rounded-full bg-amber-400 ring-2 ring-background" />
-                    )}
-                  </button>
-                </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="right">Notifications</TooltipContent>
-            </Tooltip>
-            <PopoverContent side="right" align="end" sideOffset={12} aria-label="Notifications" className="w-80 p-0">
-              <div className="flex items-center justify-between border-b px-4 py-3">
-                <h2 className="text-sm font-semibold">Notifications</h2>
-                {events.length > 0 && (
-                  <button type="button" onClick={onClearEvents} className="text-xs text-muted-foreground hover:text-foreground">
-                    Clear all
-                  </button>
-                )}
-              </div>
-              {events.length === 0 ? (
-                <p className="px-4 py-5 text-sm text-muted-foreground">No notifications yet.</p>
-              ) : (
-                <ul className="max-h-[min(24rem,65vh)] divide-y overflow-y-auto">
-                  {events.map((event) => (
-                    <li key={event.id} className="space-y-1 px-4 py-3">
-                      <p className="text-sm font-medium">{event.title}</p>
-                      <p className="break-words text-xs text-muted-foreground">{event.detail}</p>
-                      <div className="flex items-center justify-between gap-2">
-                        <time dateTime={new Date(event.at).toISOString()} className="text-xs text-muted-foreground">
-                          {new Date(event.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                        </time>
-                        {event.retry && (
-                          <button type="button" onClick={event.retry} className="text-xs font-medium text-primary hover:underline">
-                            Retry
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </PopoverContent>
-          </Popover>
+          <LogPopover retryFor={retryFor} />
           <Tooltip>
             <TooltipTrigger asChild>
               <button

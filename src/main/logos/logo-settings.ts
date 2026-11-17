@@ -4,6 +4,7 @@ import { DEFAULT_LOGO_SETTINGS, type LogoSettings } from "@shared/logos";
 import { logoSettingsSchema } from "@shared/schemas";
 
 import { writePrivateFile } from "../category-store";
+import { reportError } from "../events";
 
 /** The two logo switches, kept in a small plain file (they hold no mail data). */
 export class LogoSettingsStore {
@@ -14,7 +15,7 @@ export class LogoSettingsStore {
     try {
       this.value = logoSettingsSchema.parse(JSON.parse(readFileSync(filePath, "utf8")));
     } catch (error) {
-      console.error("[logo-settings] using defaults:", error);
+      reportError("storage", "Could not read the logo settings; using defaults", error);
     }
   }
 

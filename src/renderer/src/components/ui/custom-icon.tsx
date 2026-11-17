@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
+import { reportError } from "@/lib/events";
 
 type CustomIconProps = {
   /** SVG filename in public/assets/icons (with or without .svg extension). */
@@ -53,7 +54,8 @@ export function CustomIcon({
       .then((content) => {
         if (!cancelled) setSvg(content);
       })
-      .catch(() => {
+      .catch((error) => {
+        reportError("ui", "Could not load a custom icon", error);
         if (!cancelled) setSvg(null);
       });
 

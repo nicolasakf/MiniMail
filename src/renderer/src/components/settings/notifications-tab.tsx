@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { BellRing, Plus, X } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { accountLabel } from "@shared/accounts";
 import { iconFor } from "@shared/categories";

@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { z } from "zod";
 
 import { writePrivateFile, type Cipher } from "../category-store";
+import { reportError } from "../events";
 
 /** 2: entries written by the first version may hold failures from a page-size bug, so they are dropped. */
 const VERSION = 2;
@@ -83,7 +84,7 @@ export class LogoCache {
         .toString("base64");
       writePrivateFile(this.filePath, JSON.stringify({ version: VERSION, data }));
     } catch (error) {
-      console.error("[logo-cache] could not save:", error);
+      reportError("storage", "Could not save the logo cache", error);
     }
   }
 
@@ -96,7 +97,7 @@ export class LogoCache {
       );
       this.entries = new Map(Object.entries(payload));
     } catch (error) {
-      console.error("[logo-cache] ignoring unreadable cache:", error);
+      reportError("storage", "Could not read the logo cache; it will be rebuilt", error);
       this.entries = new Map();
     }
   }

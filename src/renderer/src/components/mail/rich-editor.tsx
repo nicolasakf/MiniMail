@@ -18,6 +18,7 @@ import { MAX_ATTACHMENT_BYTES, MAX_DRAFT_ATTACHMENTS, MAX_INLINE_IMAGE_BYTES } f
 
 import { base64Bytes, cleanEditorHtml, imageData, INLINE_IMAGE_TYPES, plainEditorHtml, webUrl } from "@/lib/rich-compose";
 import { cn } from "@/lib/utils";
+import { reportError } from "@/lib/events";
 
 const Indent = Extension.create({
   name: "mailIndent",
@@ -116,8 +117,9 @@ async function insertImages(editor: Editor, files: File[], onError: (error: stri
         return;
       }
       editor.chain().focus().setImage({ src, alt: file.name }).run();
-    } catch {
+    } catch (error) {
       onError(`Could not read ${file.name}.`);
+      reportError("compose", `Could not read ${file.name}`, error);
     }
   }
 }

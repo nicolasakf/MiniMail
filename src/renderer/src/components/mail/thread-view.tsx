@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, ty
 
 import { ArrowLeft, Ban, BellOff, Check, ChevronDown, Forward, FolderInput, ListX, Loader2, Paperclip, Pencil, Reply, ReplyAll, ShieldBan, User, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { isBlockedAddress, type BlockKind } from "@shared/blocklist";
 import { unsubscribeCommand } from "@shared/unsubscribe";
@@ -35,10 +35,10 @@ import { EMAIL_WIDTH_REM, useAppearance } from "@/lib/appearance";
 import { buildReplySeed, newMessageSeed, type ComposeSeed } from "@/lib/compose";
 import { accountFor, contactLabel, formatFullDate, normalizeSubject } from "@/lib/format";
 import { isTypingTarget } from "@/lib/keyboard";
-import { blockSections, muteSections, useBlockList, type BlockSection } from "@/lib/blocklist";
+import { blockSections, muteMenuLabel, muteSections, useBlockList, type BlockChoice, type BlockSection, type MuteKind } from "@/lib/blocklist";
 import { mutedCheck } from "@/lib/mute";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
-import { BLOCKED_TEXT } from "@/lib/highlight";
+import { BLOCKED_TEXT, MUTED_TEXT } from "@/lib/highlight";
 import { prioritySections, togglePriority, usePriority } from "@/lib/priority";
 import type { MailActions } from "@/lib/mail-actions";
 import { actionsForThread } from "@/lib/row-actions";
@@ -54,6 +54,7 @@ import { MessageBody } from "./message-body";
 import { FolderBadge } from "./folder-badge";
 import { ThreadCard } from "./thread-card";
 import { SenderAvatar } from "./sender-avatar";
+import { noteShownError } from "@/lib/events";
 
 interface ThreadViewProps {
   mailActions: MailActions;
@@ -71,8 +72,8 @@ interface ThreadViewProps {
   onEditCategories?: () => void;
   /** Blocks (or unblocks) the conversation's sender or domain; its mail goes to the Trash. */
   onBlock?: (kind: BlockKind, values: string[]) => void;
-  /** Mutes (or unmutes) the conversation's sender or domain: no notifications for their new mail. */
-  onMute?: (kind: BlockKind, values: string[]) => void;
+  /** Mutes (or unmutes) the conversation, its sender or domain: no notifications for the new mail. */
+  onMute?: (kind: MuteKind, values: string[]) => void;
   /** Unsubscribes from the list the conversation came from; the button shows only when its mail offers a way. */
   onUnsubscribe?: () => void;
   /** Shows every message from a person: leaves the conversation and searches for their address. */
@@ -284,21 +285,27 @@ function PriorityMenuButton({ thread, own }: { thread: Thread; own: readonly str
  * wherever it is shown (the open conversation's toolbar, the selection bar). One conversation with
  * several people lists each of them with their own address and domain.
  */
-function FilterMenuButton({
+function FilterMenuButton<K extends string>({
   label,
   icon: Icon,
   sections,
   onChoose,
   activeClass,
   placement,
+  choiceLabel,
 }: {
   label: string;
   icon: LucideIcon;
-  sections: BlockSection[];
-  onChoose: (kind: BlockKind, values: string[]) => void;
+  sections: BlockSection<K>[];
+  onChoose: (kind: K, values: string[]) => void;
   /** The trigger's color while something is already blocked / muted. */
   activeClass: string;
   placement: "toolbar" | "bar";
+  /**
+   * Words each choice without a verb and shows a check beside the ones that are on, keeping the menu
+   * open after a pick, as the Priority menu does. Without it a choice reads "Block x" / "Unblock x" and closes the menu.
+   */
+  choiceLabel?: (choice: BlockChoice<K>) => string;
 }) {
   const [open, setOpen] = useState(false);
   const inBar = placement === "bar";
@@ -330,9 +337,17 @@ function FilterMenuButton({
       <DropdownMenuContent align={inBar ? "center" : "start"} side={inBar ? "top" : "bottom"} className="min-w-48">
         {sections.map((section) => {
           const items = section.choices.map((choice) => (
-            <DropdownMenuItem key={choice.kind} onSelect={() => onChoose(choice.kind, choice.values)}>
+            <DropdownMenuItem
+              key={choice.kind}
+              onSelect={(event) => {
+                // Stays open, so the conversation and a sender or domain can be ticked in one go.
+                if (choiceLabel) event.preventDefault();
+                onChoose(choice.kind, choice.values);
+              }}
+            >
               <Icon />
-              <span className="truncate">{choice.label}</span>
+              <span className="truncate">{choiceLabel ? choiceLabel(choice) : choice.label}</span>
+              {choiceLabel && choice.on && <Check className="ml-auto text-muted-foreground" />}
             </DropdownMenuItem>
           ));
           // With several people, each opens a menu of their own address and domain.
@@ -384,8 +399,8 @@ export function BlockMenuButton({
 }
 
 /**
- * The "Mute" dropdown: stops notifications for the sender or the sender's domain. The mail still
- * arrives where it always did. Same choices as Block, in the same places.
+ * The "Mute" dropdown: stops notifications for the conversation, the sender or the sender's domain.
+ * The mail still arrives where it always did. Same choices in every place it is shown.
  */
 export function MuteMenuButton({
   threads,
@@ -396,7 +411,7 @@ export function MuteMenuButton({
   threads: readonly Thread[];
   /** The user's own addresses, never offered for muting. */
   own: readonly string[];
-  onMute: (kind: BlockKind, values: string[]) => void;
+  onMute: (kind: MuteKind, values: string[]) => void;
   placement?: "toolbar" | "bar";
 }) {
   const { settings } = useNotificationSettings();
@@ -407,7 +422,8 @@ export function MuteMenuButton({
       icon={BellOff}
       sections={muteSections(isMuted, threads, own)}
       onChoose={onMute}
-      activeClass="text-foreground"
+      activeClass={MUTED_TEXT}
+      choiceLabel={muteMenuLabel}
       placement={placement}
     />
   );
@@ -529,6 +545,7 @@ export function ThreadView({
       .catch((reason: unknown) => {
         if (import.meta.env.DEV) console.log(`[perf] open conversation: failed after ${Math.round(performance.now() - asked)}ms`);
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+        noteShownError("Could not open the conversation", reason);
       });
     return () => {
       cancelled = true;

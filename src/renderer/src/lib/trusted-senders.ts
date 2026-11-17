@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { trustKey } from "@shared/trust";
 
@@ -23,7 +23,7 @@ function publish(list: readonly string[]): void {
 function start(): void {
   if (started) return;
   started = true;
-  api.senders.trusted().then(publish).catch(() => publish([]));
+  api.senders.trusted().then(publish).catch(() => publish([])); // expected: recorded by the main process
 }
 
 function subscribe(listener: () => void): () => void {

@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { accountLabel } from "@shared/accounts";
 import type { Account, SortFolder, SortOptions, SortProgress } from "@shared/types";
@@ -86,7 +86,7 @@ export async function sortMailAgain(since?: Date, folders: SortFolder[] = ["inbo
   toast.loading("Sorting your mail again…", { id: TOAST_ID, duration: Infinity });
   const startedAt = Date.now();
   try {
-    const accounts = await api.accounts.list().catch((): Account[] => []);
+    const accounts = await api.accounts.list().catch((): Account[] => []); // expected: recorded by the main process
     while (Date.now() - startedAt < WATCH_LIMIT_MS) {
       await sleep(POLL_MS);
       const { ai } = await api.categories.get();

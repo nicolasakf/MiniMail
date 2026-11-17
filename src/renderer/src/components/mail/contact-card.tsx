@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 
 import { BellOff, Check, Copy, PenLine, Search, ShieldBan, Zap } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { isPriorityEntry } from "@shared/priority";
 import type { BlockKind } from "@shared/blocklist";

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { isBlockedEntry, type BlockKind } from "@shared/blocklist";
 import { senderDomain } from "@shared/categories";
@@ -18,13 +18,16 @@ import type { Contact } from "@shared/types";
 
 import { threadContacts } from "./format";
 import { getBlockList, setBlocked, subscribeBlockList } from "./blocklist";
+import { countedTargets, recordAction, reportError } from "@/lib/events";
+import { newUndoRef, undoStack } from "@/lib/undo-stack";
 
 const STORAGE_KEY = "minimail.priority";
 
 function read(): PriorityList {
   try {
     return parsePriorityList(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null"));
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not read the priority senders", error);
     return parsePriorityList(null);
   }
 }
@@ -65,7 +68,8 @@ function commit(next: PriorityList): void {
   current = next;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not remember the priority senders", error);
     // Storage can be unavailable; the mark holds until the app closes.
   }
   listeners.forEach((listener) => listener());
@@ -89,7 +93,12 @@ export function togglePriority(kind: PriorityKind, value: string): void {
       toast(`Unblocked ${kind === "domains" ? "@" : ""}${value}`);
     }
   }
+  const target = countedTargets(kind, 1);
+  const title = isPriorityEntry(current, kind, value) ? `Removed the priority mark from ${target}` : `Marked ${target} as priority`;
+  const ref = newUndoRef("priority");
+  recordAction("mail", title, "", { context: value, ref });
   commit(togglePriorityEntry(current, kind, value));
+  undoStack.push({ ref, label: title, context: value, run: () => commit(togglePriorityEntry(current, kind, value)) });
 }
 
 /**

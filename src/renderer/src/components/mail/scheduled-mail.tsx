@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { Clock3 } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import type { ScheduledMessage } from "@shared/types";
 
@@ -18,7 +18,7 @@ export function ScheduledMail({ scope, onVisible }: { scope: string; onVisible: 
     const refresh = () => {
       void api.delivery.list().then((items) => {
         if (active) setEntries(items);
-      }).catch(() => undefined);
+      }).catch(() => undefined); // expected: recorded by the main process
     };
     refresh();
     const stop = api.drafts.onChanged(refresh);

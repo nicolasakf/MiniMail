@@ -6,6 +6,7 @@ import { savedDraftSchema } from "@shared/schemas";
 import { MAX_SAVED_DRAFTS, type SavedDraft } from "@shared/types";
 
 import { writePrivateFile, type Cipher } from "./category-store";
+import { reportError } from "./events";
 
 const fileSchema = z.object({ version: z.literal(1), data: z.string() });
 
@@ -72,13 +73,13 @@ export class DraftStore {
         .sort(newestFirst)
         .slice(0, MAX_SAVED_DRAFTS);
     } catch (error) {
-      console.error("[drafts] could not read the drafts file, starting empty:", error);
+      reportError("storage", "Could not read the drafts file; starting empty", error);
       this.drafts = [];
       try {
         // The next save would replace the file; keep what was there so it can still be recovered.
         copyFileSync(this.filePath, `${this.filePath}.unreadable`);
-      } catch {
-        // Nothing more to do.
+      } catch (copyError) {
+        reportError("storage", "Could not keep a copy of the unreadable drafts file", copyError);
       }
     }
   }

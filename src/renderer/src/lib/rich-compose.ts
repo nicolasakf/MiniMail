@@ -43,6 +43,7 @@ export function webUrl(value: string, allowMail = true): string | null {
     return (url.protocol === "https:" || url.protocol === "http:" || (allowMail && url.protocol === "mailto:"))
       && !url.username && !url.password ? url.href : null;
   } catch {
+    // expected: a pasted or typed link that is not a valid address is simply not a link.
     return null;
   }
 }

@@ -19,6 +19,7 @@ import {
   signInWithGoogle,
   signInWithMicrosoft,
 } from "./oauth";
+import { setLogSink } from "./log";
 import { GraphProvider } from "./providers/graph";
 import { endpointsFor } from "./providers/imap";
 
@@ -55,6 +56,7 @@ function stubFetch(handler: (call: RecordedCall) => Response | Promise<Response>
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  setLogSink(null);
 });
 
 const outlookAccount: Account = {
@@ -492,6 +494,118 @@ describe("GraphProvider", () => {
     });
     await expect(throttled.list("inbox", 10)).resolves.toEqual([]);
     expect(waits).toEqual([2000, 8000]);
+  });
+
+  it("logs which limit Graph hit and how long it asked to wait", async () => {
+    const lines: string[] = [];
+    setLogSink((_level, _scope, message) => void lines.push(message));
+    let attempts = 0;
+    stubFetch(() => {
+      attempts += 1;
+      return attempts === 1
+        ? new Response(
+            JSON.stringify({ error: { code: "ErrorTooManyObjectsOpened", message: "Too many concurrent connections opened." } }),
+            { status: 429, headers: { "retry-after": "30" } },
+          )
+        : json({ value: [] });
+    });
+    const p = new GraphProvider(outlookAccount, async () => "tok", undefined, async () => undefined);
+    await p.list("inbox", 10);
+    expect(lines).toEqual([
+      "GET /me/mailFolders/inbox/messages -> HTTP 429 ErrorTooManyObjectsOpened, retry 1/4 in 8s, server asked for 30s",
+    ]);
+  });
+
+  it("keeps reads and writes together under the mailbox's connection limit", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      inFlight -= 1;
+      return String(input).includes("/messages?") ? json({ value: [] }) : new Response(null, { status: 200 });
+    });
+    const p = provider();
+    await Promise.all([
+      p.list("inbox", 10),
+      p.list("archive", 10),
+      p.list("spam", 10),
+      p.list("trash", 10),
+      p.list("sent", 10),
+      p.act("markRead", "inbox", Array.from({ length: 20 }, (_, i) => `m${i}`)),
+    ]);
+    expect(peak).toBe(3);
+  });
+
+  it("lets a write go ahead of folder refreshes that are still waiting", async () => {
+    const calls = stubFetch(async (call) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return call.method === "GET" ? json({ value: [] }) : new Response(null, { status: 200 });
+    });
+    const p = provider();
+    const lists = (["inbox", "archive", "spam", "trash", "sent", "drafts"] as const).map((folder) => p.list(folder, 10));
+    const write = p.act("markRead", "inbox", ["m1"]);
+    await Promise.all([...lists, write]);
+    // Three refreshes took the free places; the write was next, ahead of the three still waiting.
+    expect(calls[3].method).toBe("PATCH");
+  });
+
+  it("shares one download between identical lists asked for at the same time", async () => {
+    const calls = stubFetch(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return json({ value: [graphMessage] });
+    });
+    const p = provider();
+    const [a, b, c] = await Promise.all([p.list("inbox", 50), p.list("inbox", 50), p.list("inbox", 50)]);
+    expect(calls).toHaveLength(1);
+    expect(b).toEqual(a);
+    expect(c).toEqual(a);
+    // Each caller owns its array: sorting or trimming one must not change the others.
+    expect(b).not.toBe(a);
+    expect(c).not.toBe(b);
+    // Another folder, or another size, is another download.
+    await Promise.all([p.list("inbox", 20), p.list("archive", 50)]);
+    expect(calls).toHaveLength(3);
+  });
+
+  it("downloads again once the shared download has finished", async () => {
+    const calls = stubFetch(() => json({ value: [] }));
+    const p = provider();
+    await p.list("inbox", 10);
+    await p.list("inbox", 10);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("passes a failed download on to everyone who was waiting for it", async () => {
+    const calls = stubFetch(() => json({ error: { code: "ErrorAccessDenied" } }, 403));
+    const p = provider();
+    const results = await Promise.allSettled([p.list("inbox", 10), p.list("inbox", 10)]);
+    expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    expect(calls).toHaveLength(1);
+    // The failure is not kept: the next ask tries again.
+    await expect(p.list("inbox", 10)).rejects.toThrow("ErrorAccessDenied");
+    expect(calls).toHaveLength(2);
+  });
+
+  it("does not hand a download that began before a write to a list asked for after it", async () => {
+    let open!: () => void;
+    const held = new Promise<void>((resolve) => (open = resolve));
+    let firstGet = true;
+    const calls = stubFetch(async (call) => {
+      if (call.method === "GET" && firstGet) {
+        firstGet = false;
+        await held;
+      }
+      return call.method === "GET" ? json({ value: [] }) : new Response(null, { status: 200 });
+    });
+    const p = provider();
+    const before = p.list("inbox", 10);
+    await p.act("markRead", "inbox", ["m1"]);
+    const after = p.list("inbox", 10);
+    open();
+    await Promise.all([before, after]);
+    expect(calls.filter((call) => call.method === "GET")).toHaveLength(2);
   });
 
   it("never has more than a few writes in flight, however many messages are acted on", async () => {

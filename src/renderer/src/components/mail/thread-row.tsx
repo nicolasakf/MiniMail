@@ -1,9 +1,10 @@
 import { memo, useRef, useState, type CSSProperties } from "react";
 
-import { Archive, Inbox, ListX, Paperclip, ShieldAlert, ShieldBan, Zap, Trash2, type LucideIcon } from "lucide-react";
+import { Archive, BellOff, Inbox, ListX, Paperclip, ShieldAlert, ShieldBan, Zap, Trash2, type LucideIcon } from "lucide-react";
 
 import { accountDetail } from "@shared/accounts";
 import { isBlockedThread } from "@shared/blocklist";
+import { isMutedThread } from "@shared/notifications";
 import { isPriorityThread } from "@shared/priority";
 import { unsubscribeCommand } from "@shared/unsubscribe";
 import { logoRequestFor } from "@shared/logos";
@@ -21,7 +22,8 @@ import { isLocalDraftThread } from "@/lib/local-drafts";
 import { rowHoverActions } from "@/lib/row-actions";
 import { unsubscribeButton } from "@/lib/unsubscribe-confirm";
 import { useUnsubscribed } from "@/lib/unsubscribed";
-import { HOVER_ON_TINT } from "@/lib/highlight";
+import { HOVER_ON_TINT, MUTED_ICON } from "@/lib/highlight";
+import { useNotificationSettings } from "@/hooks/use-notification-settings";
 import { cn } from "@/lib/utils";
 
 import { AccountMark } from "./account-mark";
@@ -118,6 +120,9 @@ export const ThreadRow = memo(function ThreadRow({
   const [hovered, setHovered] = useState(false);
   const { showPreviews } = useAppearance();
   const priority = isPriorityThread(usePriority(), thread);
+  // A muted conversation, or one from a muted sender or domain, is marked with a bell-off icon (Sent and Drafts show recipients).
+  const { settings: notifySettings } = useNotificationSettings();
+  const muted = notifySettings !== null && isMutedThread(notifySettings, thread) && folder !== "sent" && folder !== "drafts";
   // Mail from a blocked sender or domain is marked with a block icon beside the sender (Sent and Drafts show recipients).
   const blocked = isBlockedThread(useBlockList(), thread) && folder !== "sent" && folder !== "drafts";
   /**
@@ -198,6 +203,11 @@ export const ThreadRow = memo(function ThreadRow({
       {priority && (
         <span title="Priority" className="flex shrink-0">
           <Zap aria-label="Priority" className="size-3.5 fill-amber-500 text-amber-500" />
+        </span>
+      )}
+      {muted && (
+        <span title="Muted" className="flex shrink-0">
+          <BellOff aria-label="Muted" className={cn("size-3.5", MUTED_ICON)} />
         </span>
       )}
       {blocked && (

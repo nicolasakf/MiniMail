@@ -45,6 +45,7 @@ function flush(): void {
       emit();
     })
     .catch(() => {
+      // expected: recorded by the main process; the ids are asked for again next time.
       for (const id of ids) requested.delete(id);
     });
 }

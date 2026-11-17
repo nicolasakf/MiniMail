@@ -20,6 +20,8 @@ import type {
 } from "@shared/types";
 
 import { logEvent } from "../log";
+import { reportError } from "../events";
+import { RequestGate, type Lane } from "./request-gate";
 import { patchSummaries, type SummaryStore } from "./summary-cache";
 import { describeError, makeSnippet, type AttachmentFile, type MailProvider } from "./types";
 
@@ -155,6 +157,24 @@ function toContact(recipient: z.infer<typeof recipientSchema> | null | undefined
 /** Graph accepts file attachments up to this size in a single request. */
 const GRAPH_INLINE_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 
+type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
+
+const errorBodySchema = z.object({
+  error: z.object({ code: z.string().optional(), message: z.string().optional() }),
+});
+
+/** The code and message of a Graph error body, when it has them. */
+function readError(text: string): { code?: string; reason?: string } {
+  let detail: unknown = null;
+  try {
+    detail = JSON.parse(text);
+  } catch {
+    // expected: the error body is optional detail (a gateway answers with HTML); the failure itself is thrown and recorded.
+  }
+  const parsed = errorBodySchema.safeParse(detail);
+  return parsed.success ? { code: parsed.data.error.code, reason: parsed.data.error.message } : {};
+}
+
 /** A request path for the log: no query string, and message ids replaced. */
 function describePath(path: string): string {
   return path.split("?")[0].replace(/\/(messages|attachments)\/[^/]+/g, "/$1/:id");
@@ -187,10 +207,14 @@ const REQUEST_TIMEOUT_MS = 20_000;
 /** Messages of one conversation downloaded at a time. */
 const GET_CONCURRENCY = 4;
 /**
- * Writes in flight at once. Graph allows 4 concurrent requests per mailbox (beyond that:
- * ApplicationThrottled / MailboxConcurrency), and reads may be running alongside, so stay under it.
+ * Requests in flight at once to one mailbox, reads and writes together. Exchange allows 4
+ * concurrent connections per app and mailbox and answers more with HTTP 429
+ * (ErrorTooManyObjectsOpened / ApplicationThrottled), so stay under it and leave one spare for
+ * the same mailbox being open in another client.
  */
-const ACT_CONCURRENCY = 3;
+const MAX_CONCURRENT_REQUESTS = 3;
+/** Writes in flight at once; they share the places above with the reads. */
+const ACT_CONCURRENCY = MAX_CONCURRENT_REQUESTS;
 
 const REPLY_ENDPOINT = {
   reply: "createReply",
@@ -204,6 +228,14 @@ const draftSchema = z.object({ id: z.string() });
 export class GraphProvider implements MailProvider {
   /** This session's lists; the copy from an earlier launch lives in `persist`. */
   private readonly cache = new Map<MailFolder, MessageSummary[]>();
+  /** Every call to this mailbox goes through here, so it never has more than Exchange allows open. */
+  private readonly gate = new RequestGate(MAX_CONCURRENT_REQUESTS);
+  /**
+   * Lists being downloaded right now, by folder and size. Several parts of the app ask for the
+   * same window at the same moment (the mailbox, an open conversation, the Dashboard, the address
+   * book); they share one download instead of each making their own.
+   */
+  private readonly listing = new Map<string, Promise<MessageSummary[]>>();
 
   constructor(
     private readonly account: Account,
@@ -218,6 +250,22 @@ export class GraphProvider implements MailProvider {
   }
 
   async list(folder: MailFolder, limit: number): Promise<MessageSummary[]> {
+    const key = `${folder}|${limit}`;
+    const running = this.listing.get(key);
+    // Each caller gets its own array, so one sorting or trimming its copy cannot change another's.
+    if (running) return [...(await running)];
+
+    const download = this.download(folder, limit);
+    this.listing.set(key, download);
+    try {
+      return [...(await download)];
+    } finally {
+      // A write clears the table, and a newer download may have taken this key since.
+      if (this.listing.get(key) === download) this.listing.delete(key);
+    }
+  }
+
+  private async download(folder: MailFolder, limit: number): Promise<MessageSummary[]> {
     const wellKnown = WELL_KNOWN[folder === "pinned" ? "inbox" : folder];
     const top = Math.min(limit, PAGE_MAX);
     // Graph rejects $orderby combined with a $filter on a different property.
@@ -231,7 +279,8 @@ export class GraphProvider implements MailProvider {
     const value: GraphMessage[] = [];
     let next: string | null = path;
     while (next !== null && value.length < limit) {
-      const page = listSchema.parse(await this.request("GET", next));
+      // A refresh nobody is waiting on lets what the person is looking at go first.
+      const page = listSchema.parse(await this.request("GET", next, undefined, {}, "background"));
       value.push(...page.value);
       next = this.relativeLink(page["@odata.nextLink"]);
     }
@@ -286,7 +335,7 @@ export class GraphProvider implements MailProvider {
           bytes += file.size ?? 0;
           if (bytes > MAX_ATTACHMENT_BYTES) break;
           const path = `/me/messages/${encodeURIComponent(nativeId)}/attachments/${encodeURIComponent(file.id)}`;
-          const parsed = attachmentFileSchema.safeParse(await this.request("GET", path).catch(() => null));
+          const parsed = attachmentFileSchema.safeParse(await this.request("GET", path).catch((error) => { reportError("sync", "Could not load an inline image of a message", error); return null; }));
           if (!parsed.success) continue;
           const { contentBytes, contentType, contentId } = parsed.data;
           if (!contentBytes || !contentId || !contentType || !/^image\/(?:png|jpeg|gif|webp|bmp)$/i.test(contentType)
@@ -347,7 +396,7 @@ export class GraphProvider implements MailProvider {
       if (error instanceof GraphError && (error.status === 401 || error.status === 403)) {
         return { uid: nativeId, method: "REQUEST", title: subject, start: null, end: null, allDay: false, location: null, organizer: null, response: null };
       }
-      logEvent("graph", `could not read the event of an invitation: ${error instanceof Error ? error.message : String(error)}`);
+      reportError("sync", "Could not read the calendar event of an invitation", error);
       return null;
     }
     const method =
@@ -414,7 +463,7 @@ export class GraphProvider implements MailProvider {
 
   private runWrites<T>(run: () => Promise<T>): Promise<T> {
     const result = this.writes.then(run);
-    this.writes = result.catch(() => undefined);
+    this.writes = result.catch(() => undefined); // expected: the caller of the write receives (and reports) this error
     return result;
   }
 
@@ -456,6 +505,7 @@ export class GraphProvider implements MailProvider {
             const moved = z.object({ id: z.string() }).safeParse(response);
             results[index] = { id, status: "applied", nextId: moved.success ? moved.data.id : undefined };
           } catch (error) {
+            // expected: returned as a per-message result, which the page records with the subject.
             const rejected = error instanceof GraphError && error.status < 500 && error.status !== 408;
             results[index] = { id, status: rejected ? "failed" : "unknown", error: describeError(error) };
           }
@@ -541,7 +591,7 @@ export class GraphProvider implements MailProvider {
       await this.request("POST", `${draftPath}/send`);
     } catch (error) {
       // Do not leave a half-written reply behind in Drafts.
-      await this.request("DELETE", draftPath).catch(() => undefined);
+      await this.request("DELETE", draftPath).catch((cleanup) => reportError("send", "Could not remove a half-written reply from Drafts", cleanup));
       throw error;
     }
 
@@ -626,63 +676,92 @@ export class GraphProvider implements MailProvider {
   }
 
   private async request(
-    method: "GET" | "POST" | "PATCH" | "DELETE",
+    method: HttpMethod,
     path: string,
     body?: unknown,
     extraHeaders: Record<string, string> = {},
+    lane: Lane = "foreground",
   ): Promise<unknown> {
-    let response: Response;
     const started = Date.now();
-    for (let attempt = 0; ; attempt += 1) {
-      response = await fetch(`${GRAPH}${path}`, {
-        method,
-        headers: {
-          authorization: `Bearer ${await this.getAccessToken()}`,
-          ...(body === undefined ? {} : { "content-type": "application/json" }),
-          ...extraHeaders,
-        },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
-      // A throttled call was not carried out, so any method can go again; a failing server may
-      // have carried it out, so only reads are repeated. Graph answers a transient backend fault
-      // with a bare 500 `UnknownError`, so that is retried like a 502/503/504.
-      const throttled = response.status === 429;
-      const serverFault = method === "GET" && [500, 502, 503, 504].includes(response.status);
-      const retryable =
-        (throttled && attempt < MAX_RETRIES) ||
-        (serverFault &&
-          attempt < MAX_SERVER_FAULT_RETRIES &&
-          Date.now() - started < SERVER_FAULT_BUDGET_MS);
-      if (!retryable) break;
-      const seconds = Number(response.headers.get("retry-after"));
-      const delay = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 1000 * (attempt + 1);
-      logEvent(
-        "graph",
-        `${method} ${describePath(path)} -> HTTP ${response.status}, retry ${attempt + 1}/${MAX_RETRIES}`,
-      );
-      await this.wait(Math.min(delay, MAX_RETRY_WAIT_MS));
-    }
+    try {
+      for (let attempt = 0; ; attempt += 1) {
+        const token = await this.getAccessToken();
+        // Only the call itself holds a place at the gate, not the wait before it is tried again.
+        const { response, text } = await this.gate.run(lane, () =>
+          this.exchange(method, path, body, extraHeaders, token),
+        );
+        // A throttled call was not carried out, so any method can go again; a failing server may
+        // have carried it out, so only reads are repeated. Graph answers a transient backend fault
+        // with a bare 500 `UnknownError`, so that is retried like a 502/503/504.
+        const throttled = response.status === 429;
+        const serverFault = method === "GET" && [500, 502, 503, 504].includes(response.status);
+        const retryable =
+          (throttled && attempt < MAX_RETRIES) ||
+          (serverFault &&
+            attempt < MAX_SERVER_FAULT_RETRIES &&
+            Date.now() - started < SERVER_FAULT_BUDGET_MS);
+        if (!retryable) return this.settle(method, path, response, text);
 
+        const asked = Number(response.headers.get("retry-after"));
+        const delay = Number.isFinite(asked) && asked > 0 ? asked * 1000 : 1000 * (attempt + 1);
+        const waitMs = Math.min(delay, MAX_RETRY_WAIT_MS);
+        const { code } = readError(text);
+        // Not a failure yet: the request is tried again and usually goes through. The code tells
+        // a limit on simultaneous connections from a limit on volume, and what the server asked
+        // for shows whether the wait below is long enough.
+        logEvent(
+          "graph",
+          `${method} ${describePath(path)} -> HTTP ${response.status}${code ? ` ${code}` : ""}, ` +
+            `retry ${attempt + 1}/${throttled ? MAX_RETRIES : MAX_SERVER_FAULT_RETRIES} in ${waitMs / 1000}s` +
+            (asked > 0 ? `, server asked for ${asked}s` : ""),
+          "info",
+        );
+        await this.wait(waitMs);
+      }
+    } finally {
+      // A write changes what a folder holds, so a list begun before it must not be handed to one
+      // asked for after it.
+      if (method !== "GET") this.listing.clear();
+    }
+  }
+
+  /** One call to Graph, read to the end: the connection counts against the mailbox's limit until then. */
+  private async exchange(
+    method: HttpMethod,
+    path: string,
+    body: unknown,
+    extraHeaders: Record<string, string>,
+    token: string,
+  ): Promise<{ response: Response; text: string }> {
+    const response = await fetch(`${GRAPH}${path}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+        ...extraHeaders,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    return { response, text: await response.text() };
+  }
+
+  /** The answer that is final: its content, or the error it carries, which is recorded and thrown. */
+  private settle(method: HttpMethod, path: string, response: Response, text: string): unknown {
     if (!response.ok) {
-      const detail: unknown = await response.json().catch(() => null);
-      const message = z
-        .object({ error: z.object({ code: z.string().optional(), message: z.string().optional() }) })
-        .safeParse(detail);
-      const code = message.success ? message.data.error.code : undefined;
-      const reason = message.success ? message.data.error.message : undefined;
+      const { code, reason } = readError(text);
       // Graph's 500 UnknownError arrives with an empty message; keep the status so it can be told apart.
-      const text = reason
+      const message = reason
         ? [code, reason].filter(Boolean).join(": ")
         : `${code ?? "Error"} (HTTP ${response.status})`;
-      logEvent(
-        "graph",
-        `${method} ${describePath(path)} failed: HTTP ${response.status} ${code ?? "no code"}${reason ? `: ${reason}` : ""}`,
+      reportError(
+        "sync",
+        `Outlook request failed: ${method} ${describePath(path)}`,
+        `HTTP ${response.status} ${code ?? "no code"}${reason ? `: ${reason}` : ""}`,
       );
-      throw new GraphError(this.explain(response.status, text), response.status);
+      throw new GraphError(this.explain(response.status, message), response.status);
     }
     if (response.status === 204 || response.status === 202) return undefined;
-    const text = await response.text();
     return text ? (JSON.parse(text) as unknown) : undefined;
   }
 

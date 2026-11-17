@@ -21,6 +21,7 @@ import { cleanEditorHtml } from "@/lib/rich-compose";
 
 import { ToolButton } from "./composer-ui";
 import { RichEditor } from "./rich-editor";
+import { noteShownError } from "@/lib/events";
 
 export type Signature = ComposeLibrary["signatures"][number];
 
@@ -69,6 +70,7 @@ export function useSignatureLibrary(accountId: string, onError: (message: string
       return true;
     } catch (reason) {
       report.current(reason instanceof Error ? reason.message : String(reason));
+      noteShownError("Could not save signatures and templates", reason);
       return false;
     } finally {
       setBusy(false);

@@ -57,4 +57,9 @@ export const IPC = {
   notificationsSet: "notifications:set",
   notificationsTest: "notifications:test",
   openExternal: "system:open-external",
+  eventsList: "events:list",
+  eventsMarkDone: "events:markDone",
+  /** One-way (`send`): the page reports and never waits. */
+  eventsReport: "events:report",
+  eventsChanged: "events:changed",
 } as const;

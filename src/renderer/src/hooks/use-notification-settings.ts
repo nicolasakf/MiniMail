@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
 
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import type { NotificationSettings } from "@shared/notifications";
 
@@ -28,7 +28,7 @@ function load(): void {
     .then((loaded) => {
       if (!current) publish(loaded);
     })
-    .catch(() => undefined)
+    .catch(() => undefined) // expected: recorded by the main process
     .finally(() => {
       loading = false;
     });

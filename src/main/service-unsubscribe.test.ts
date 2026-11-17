@@ -15,7 +15,7 @@ vi.mock("electron", () => ({
   },
 }));
 vi.mock("./logos/net-guard", () => ({ safeFetch: vi.fn() }));
-vi.mock("./log", () => ({ logEvent: vi.fn(), initLog: vi.fn(), logPath: () => null }));
+vi.mock("./log", () => ({ logEvent: vi.fn(), writeLogLine: vi.fn(), setLogSink: vi.fn(), initLog: vi.fn(), logPath: () => null }));
 
 import type { Categorizer } from "./categorizer";
 import { safeFetch } from "./logos/net-guard";

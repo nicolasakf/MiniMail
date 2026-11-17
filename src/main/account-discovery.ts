@@ -17,6 +17,7 @@ export async function discoverAccountProvider(email: string): Promise<Provider |
   if (preset) return preset;
 
   const domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase();
+  // expected: a domain without an MX record is the usual answer, not a failure.
   const records = await resolver.resolveMx(domain).catch(() => []);
   const providers = new Set<Provider>();
   for (const { exchange } of records) {
@@ -64,6 +65,7 @@ export function parseAutoconfig(xml: string, email: string): ImapSettings | null
   try {
     parser.write(xml).close();
   } catch {
+    // expected: a configuration file that is not valid XML just means no settings were found there.
     return null;
   }
 
@@ -112,6 +114,7 @@ export async function discoverImapSettings(email: string): Promise<ImapSettings 
       const response = await safeFetch(url, { timeoutMs: 2400, maxRedirects: 0 });
       return response.status === 200 ? parseAutoconfig(response.body.toString("utf8"), email) : null;
     } catch {
+      // expected: most domains publish no autoconfig file; the answer is simply "none found".
       return null;
     }
   };
@@ -121,6 +124,7 @@ export async function discoverImapSettings(email: string): Promise<ImapSettings 
     `https://${domain}/.well-known/autoconfig/mail/config-v1.1.xml`,
   ];
   const [mx, ...configs] = await Promise.all([
+    // expected: a domain without an MX record is the usual answer, not a failure.
     resolver.resolveMx(domain).catch(() => []),
     ...urls.map(readConfig),
   ]);

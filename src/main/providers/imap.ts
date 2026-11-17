@@ -34,6 +34,7 @@ import type {
 import { perfLog } from "../perf";
 import { nativeIdOf, patchSummaries, type SummaryStore } from "./summary-cache";
 import { describeError, makeSnippet, type AttachmentFile, type MailAuth, type MailProvider } from "./types";
+import { reportError } from "../events";
 
 /** Bytes of each message fetched for the list view (enough for headers + a preview). */
 const PREVIEW_BYTES = 24 * 1024;
@@ -245,7 +246,7 @@ class ImapConnection {
   async close(): Promise<void> {
     const client = this.client;
     this.client = null;
-    if (client?.usable) await client.logout().catch(() => undefined);
+    if (client?.usable) await client.logout().catch(() => undefined); // expected: closing a connection that already dropped can fail harmlessly
   }
 }
 
@@ -314,7 +315,7 @@ export class ImapWatcher {
     this.notify = null;
     const client = this.client;
     this.client = null;
-    if (client?.usable) await client.logout().catch(() => undefined);
+    if (client?.usable) await client.logout().catch(() => undefined); // expected: closing a connection that already dropped can fail harmlessly
   }
 
   private async connect(): Promise<void> {
@@ -338,14 +339,15 @@ export class ImapWatcher {
       // Read-only: watching must never mark anything as seen. imapflow idles once nothing is running.
       await opened.mailboxOpen("INBOX", { readOnly: true });
       if (this.stopped) {
-        await opened.logout().catch(() => undefined);
+        await opened.logout().catch(() => undefined); // expected: closing a connection that already dropped can fail harmlessly
         return;
       }
       this.live = true;
       this.failures = 0;
       if (this.everConnected) this.changed();
       this.everConnected = true;
-    } catch {
+    } catch (error) {
+      reportError("sync", "Could not keep a live connection to the mail server", `${this.server.host}: ${describeError(error)}`);
       if (client) this.dropped(client);
     }
   }
@@ -860,6 +862,7 @@ export class ImapProvider implements MailProvider {
             }
           }
         } catch (error) {
+          // expected: returned as a per-message result, which the page records with the subject.
           for (const id of found) results.push({ id, status: "unknown", error: describeError(error) });
         }
       } finally {
@@ -955,7 +958,7 @@ export class ImapProvider implements MailProvider {
         if (!await client.append(paths.sent, copy, ["\\Seen"])) {
           throw new Error("IMAP did not accept the sent copy.");
         }
-      }, false).catch((error) => console.error("[imap] could not file a sent message:", describeError(error)));
+      }, false).catch((error) => reportError("send", "Sent, but could not file a copy in the Sent folder", describeError(error)));
     }
     this.cache.delete("sent");
   }
@@ -1011,7 +1014,7 @@ export class ImapProvider implements MailProvider {
       });
       this.cache.delete("inbox");
     } catch (error) {
-      console.error("[imap] could not mark the original as answered:", describeError(error));
+      reportError("send", "Sent, but could not mark the original message as answered", describeError(error));
     }
   }
 
@@ -1086,7 +1089,10 @@ export class ImapProvider implements MailProvider {
     let parsed: ParsedMail | null = null;
     if (message.source) {
       // Truncated previews can end mid-MIME; the parser copes, but never let it break the list.
-      parsed = await simpleParser(message.source).catch(() => null);
+      parsed = await simpleParser(message.source).catch((error) => {
+        reportError("sync", "Could not read the text of a message", describeError(error), { accountId: this.account.id });
+        return null;
+      });
     }
 
     const from: Contact = {

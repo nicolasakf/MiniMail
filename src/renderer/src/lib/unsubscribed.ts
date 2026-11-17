@@ -5,13 +5,15 @@ import {
   withUnsubscribed,
   type UnsubscribedLists,
 } from "@shared/unsubscribe";
+import { reportError } from "@/lib/events";
 
 const STORAGE_KEY = "minimail.unsubscribed";
 
 function read(): UnsubscribedLists {
   try {
     return parseUnsubscribedLists(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null"));
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not read the unsubscribed lists", error);
     return {};
   }
 }
@@ -39,7 +41,8 @@ export function recordUnsubscribed(keys: readonly string[]): void {
   current = withUnsubscribed(current, keys, Date.now());
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not remember the unsubscribed lists", error);
     // Storage can be unavailable; the memory holds until the app closes.
   }
   listeners.forEach((listener) => listener());

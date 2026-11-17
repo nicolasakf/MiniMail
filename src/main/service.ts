@@ -39,7 +39,7 @@ import { GraphProvider } from "./providers/graph";
 import { ImapProvider } from "./providers/imap";
 import type { SummaryStore } from "./providers/summary-cache";
 import { describeError, type AttachmentFile, type MailAuth, type MailProvider } from "./providers/types";
-import { logEvent } from "./log";
+import { recordAction, recordInfo, reportError } from "./events";
 import { perfLog, perfTime } from "./perf";
 import { unsubscribeFrom } from "./unsubscribe";
 import type { AccountSecret, AccountStore } from "./store";
@@ -140,7 +140,7 @@ export class MailService {
       const provider = this.providers.get(accountId);
       this.providers.delete(accountId);
       await provider?.close().catch((error: unknown) => {
-        logEvent("sync", `Closing reconnected ${account.provider} account failed: ${describeError(error)}`);
+        reportError("sync", "Could not close the old connection after reconnecting", `${account.provider}: ${describeError(error)}`, { accountId: account.id });
       });
       if (this.store.get(accountId)) this.startWatching(account);
     } finally {
@@ -247,7 +247,7 @@ export class MailService {
       if (outcome.status === "fulfilled") messages.push(...outcome.value);
       else {
         const message = describeError(outcome.reason);
-        logEvent("sync", `list ${query.folder} failed for ${accounts[index].provider}: ${message}`);
+        reportError("sync", `Could not sync ${accounts[index].provider} (${query.folder})`, message, { accountId: accounts[index].id });
         errors.push({ accountId: accounts[index].id, message });
       }
     });
@@ -349,6 +349,7 @@ export class MailService {
           return { id, status: "applied", nextId };
         });
       } catch (error) {
+        // expected: returned as a per-message result, which the page records with the subject.
         return nativeIds.map((nativeId): MailActionResult => ({
           id: makeMessageId({ accountId, folder, nativeId }),
           status: "unknown",
@@ -374,6 +375,7 @@ export class MailService {
         try {
           for (const detail of await this.providerForId(accountId).get(folder, nativeIds)) found.set(detail.id, detail);
         } catch (error) {
+          // expected: reported below, per message, with the reason (see `unreadable`).
           const reason = describeError(error);
           for (const nativeId of nativeIds) unreadable.set(makeMessageId({ accountId, folder, nativeId }), reason);
         }
@@ -384,7 +386,7 @@ export class MailService {
         const detail = found.get(id);
         if (!detail) {
           const reason = unreadable.get(id);
-          logEvent("unsubscribe", `could not read the message: ${reason ?? "the server did not return it"}`);
+          reportError("unsubscribe", "Could not unsubscribe: the message could not be read", reason ?? "the server did not return it");
           return {
             id,
             status: "failed",
@@ -399,9 +401,16 @@ export class MailService {
           try {
             host = new URL(detail.unsubscribe?.url ?? "").host || host;
           } catch {
-            // No usable address; the reason says why.
+            // expected: no usable address; the reason in the error below says why.
           }
-          logEvent("unsubscribe", `${host}: ${result.error}`);
+          reportError("unsubscribe", "Could not unsubscribe", `${host}: ${result.error}`, {
+            context: detail.subject,
+            accountId: detail.accountId,
+          });
+        } else if (result.status === "done") {
+          recordAction("unsubscribe", "Unsubscribed from a mailing list", "", { context: detail.subject, accountId: detail.accountId });
+        } else {
+          recordInfo("unsubscribe", "The sender needs the unsubscribe finished on its web page", "", { context: detail.subject, accountId: detail.accountId });
         }
         return result;
       }),
@@ -409,7 +418,14 @@ export class MailService {
   }
 
   async send(draft: Draft): Promise<void> {
-    await this.providerForId(draft.accountId).send(draft);
+    const context = draft.subject || "(no subject)";
+    try {
+      await this.providerForId(draft.accountId).send(draft);
+    } catch (error) {
+      reportError("send", "Could not send the message", error, { context, accountId: draft.accountId });
+      throw error;
+    }
+    recordAction("send", "Sent a message", "", { context, accountId: draft.accountId });
   }
 
   /**
@@ -426,7 +442,8 @@ export class MailService {
           const provider = this.providerFor(account);
           try {
             return await provider.list(folder, CONTACT_SCAN_LIMIT);
-          } catch {
+          } catch (error) {
+            reportError("sync", `Could not read ${folder} to build the address book`, `${account.provider}: ${describeError(error)}`, { accountId: account.id });
             return provider.cached?.(folder) ?? [];
           }
         }),

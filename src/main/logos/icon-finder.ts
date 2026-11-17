@@ -70,6 +70,7 @@ export function pickIconLinks(html: string, baseUrl: string): IconLink[] {
     try {
       url = new URL(href, baseUrl);
     } catch {
+      // expected: a link in a page that is not a valid address is skipped.
       continue;
     }
     if (url.protocol !== "https:") continue;
@@ -118,6 +119,7 @@ async function tryIcon(
     if (response.status < 200 || response.status >= 300) return null;
     return sniffImage(response.body);
   } catch (error) {
+    // expected: a site without a usable icon is the normal case; `report.failed` lets the caller retry sooner.
     if (!/too large/i.test(String(error))) report.failed = true;
     return null;
   }
@@ -136,7 +138,7 @@ export async function findSiteIcon(domain: string, deps: FinderDeps): Promise<Fi
       if (icon) return { icon, definitive: true };
     }
   } catch {
-    // No record (the usual case) or DNS trouble: carry on with the site's own icon.
+    // expected: no record (the usual case) or DNS trouble: carry on with the site's own icon.
   }
 
   // 2. The icon the homepage declares. Try the bare domain, then www.
@@ -146,6 +148,7 @@ export async function findSiteIcon(domain: string, deps: FinderDeps): Promise<Fi
     try {
       html = await deps.fetch(home, { maxBytes: MAX_HTML_BYTES, truncate: true, accept: "text/html" });
     } catch {
+      // expected: a page or icon that cannot be fetched means no logo, which is the normal case.
       report.failed = true;
       continue;
     }

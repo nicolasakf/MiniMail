@@ -26,15 +26,20 @@ import {
   logoSettingsSchema,
   notificationSettingsSchema,
   savedDraftSchema,
+  eventReportSchema,
   uiPrefsPatchSchema,
 } from "@shared/schemas";
 import { MOVE_DESTINATION } from "@shared/threads";
+import type { AppEvent } from "@shared/events";
 import type { MailAction } from "@shared/types";
 
 import type { AiSettingsStore } from "./ai-settings";
 import { discoverAccountProvider, discoverImapSettings } from "./account-discovery";
 import type { AttachmentFiles } from "./attachment-files";
 import type { Categorizer } from "./categorizer";
+import type { EventJournal } from "./event-journal";
+import { recordAction, reportError } from "./events";
+import { doneTitle, ipcArea, reportIpcFailure } from "./ipc-events";
 import type { ComposeDelivery } from "./compose-delivery";
 import type { ComposeLibraryStore } from "./compose-library";
 import type { DraftStore } from "./draft-store";
@@ -73,19 +78,33 @@ export function registerIpc(options: {
   composeLibrary: ComposeLibraryStore;
   drafts: DraftStore;
   prefs: UiPrefsStore;
+  journal: EventJournal;
   oauthConfig: OAuthConfig;
   rendererUrl: string | undefined;
   openExternal: (url: string) => Promise<void>;
 }): void {
-  const { service, attachmentFiles, notifier, notificationSettings, categorizer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, oauthConfig, rendererUrl, openExternal } = options;
+  const { service, attachmentFiles, notifier, notificationSettings, categorizer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, journal, oauthConfig, rendererUrl, openExternal } = options;
 
+  /**
+   * Registers a handler. Whatever it throws is recorded (so no failure goes unseen, even one nobody
+   * wrote a catch for) and then rethrown unchanged; what the user changed is recorded too. Both
+   * only append to memory, after the work is done, so they never slow an answer down.
+   */
   const handle = <Args extends unknown[], Result>(
     channel: string,
     run: (...args: Args) => Promise<Result> | Result,
   ) => {
     ipcMain.handle(channel, async (event, ...args) => {
-      assertTrustedSender(event, rendererUrl);
-      return run(...(args as Args));
+      try {
+        assertTrustedSender(event, rendererUrl);
+        const result = await run(...(args as Args));
+        const done = doneTitle(channel);
+        if (done) recordAction(ipcArea(channel), done);
+        return result;
+      } catch (error) {
+        reportIpcFailure(channel, error);
+        throw error;
+      }
     });
   };
 
@@ -165,8 +184,11 @@ export function registerIpc(options: {
     return service.sortCounts(since === undefined ? null : Date.parse(since));
   });
   handle(IPC.categoriesAssign, (request: unknown) => {
-    const { threads, categoryId } = assignCategorySchema.parse(request);
+    const { threads, categoryId, ref } = assignCategorySchema.parse(request);
     categorizer.assign(threads, categoryId);
+    const name = categorizer.state().categories.find((category) => category.id === categoryId)?.name;
+    const count = threads.length === 1 ? "a conversation" : `${threads.length} conversations`;
+    recordAction("categories", name ? `Moved ${count} to ${name}` : `Took ${count} out of any category`, "", { ref });
   });
   handle(IPC.sendersTrusted, () => trusted.list());
   handle(IPC.sendersTrust, (email: unknown) => trusted.add(senderEmail.parse(email)));
@@ -200,4 +222,21 @@ export function registerIpc(options: {
   });
   handle(IPC.notificationsTest, () => notifier.test());
   handle(IPC.openExternal, (url: unknown) => openExternal(z.string().parse(url)));
+
+  handle(IPC.eventsList, () => journal.list());
+  handle(IPC.eventsMarkDone, () => journal.markErrorsDone());
+  // One-way: the page reports and moves on. A malformed report is itself worth knowing about.
+  ipcMain.on(IPC.eventsReport, (event, report: unknown) => {
+    try {
+      assertTrustedSender(event as unknown as IpcMainInvokeEvent, rendererUrl);
+      journal.record(eventReportSchema.parse(report));
+    } catch (error) {
+      reportError("events", "Could not record an event from the page", error);
+    }
+  });
+}
+
+/** Sends changed events to every window; used as the journal's `onChange`. */
+export function publishEvents(changed: AppEvent[]): void {
+  for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.eventsChanged, changed);
 }

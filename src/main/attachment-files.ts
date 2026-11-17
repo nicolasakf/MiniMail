@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 
 import type { AttachmentFile } from "./providers/types";
+import { reportError } from "./events";
 
 /** The largest attachment MiniMail writes to disk. */
 export const MAX_OPEN_BYTES = 100 * 1024 * 1024;
@@ -60,7 +61,7 @@ export class AttachmentFiles {
     const folder = await mkdtemp(join(this.deps.tempRoot, "a-"));
     const path = join(folder, safeFileName(file.filename));
     await writeFile(path, file.data, { mode: 0o600 });
-    await this.deps.quarantine?.(path).catch(() => undefined);
+    await this.deps.quarantine?.(path).catch((error) => reportError("attachments", "Could not mark the attachment as downloaded", error));
     if (!canOpenDirectly(path)) {
       this.deps.showInFolder(path);
       return;
@@ -75,7 +76,7 @@ export class AttachmentFiles {
     const path = await this.deps.chooseSavePath(safeFileName(file.filename));
     if (!path) return false;
     await writeFile(path, file.data);
-    await this.deps.quarantine?.(path).catch(() => undefined);
+    await this.deps.quarantine?.(path).catch((error) => reportError("attachments", "Could not mark the attachment as downloaded", error));
     return true;
   }
 

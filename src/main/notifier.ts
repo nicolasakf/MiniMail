@@ -9,6 +9,7 @@ import {
   type NotifyFolder,
 } from "@shared/notifications";
 import type { ListResult, MessageSummary } from "@shared/types";
+import { reportError } from "./events";
 
 export interface ShownNotification {
   title: string;
@@ -98,7 +99,7 @@ export class Notifier {
         await this.run();
       } while (this.rerun);
     } catch (error) {
-      console.error("[notifier] check failed:", error);
+      reportError("notifications", "Checking for new mail to notify about failed", error);
     } finally {
       this.running = false;
     }

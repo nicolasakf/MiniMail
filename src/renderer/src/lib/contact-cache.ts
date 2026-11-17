@@ -22,7 +22,7 @@ export function refreshContacts(): Promise<ContactEntry[]> {
       known = found;
       return found;
     })
-    .catch(() => known) // Suggestions are a convenience; typing addresses still works.
+    .catch(() => known) // expected: recorded by the main process; suggestions are a convenience.
     .finally(() => {
       running = null;
     });

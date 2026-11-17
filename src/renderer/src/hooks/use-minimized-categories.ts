@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { reportError } from "@/lib/events";
 
 const STORAGE_KEY = "minimail.minimizedCategories";
 
@@ -6,7 +7,8 @@ function load(): ReadonlySet<string> {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
     return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : []);
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not read the minimized categories", error);
     return new Set();
   }
 }
@@ -23,7 +25,8 @@ export function useMinimizedCategories() {
       else next.delete(id);
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify([...next]));
-      } catch {
+      } catch (error) {
+        reportError("storage", "Could not remember the minimized categories", error);
         // Storage can be unavailable; the category stays minimized until the app closes.
       }
       return next;

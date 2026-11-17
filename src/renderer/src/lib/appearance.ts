@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 
 import { hexToHslTriple, normalizeHexColor, readableTextOn } from "./color";
 import { EMAIL_BACKGROUNDS, type EmailBackground } from "./email-html";
+import { reportError } from "@/lib/events";
 
 /**
  * Display choices that belong to this computer and need no round trip to the main process: how
@@ -94,7 +95,8 @@ function read(): Appearance {
         ? (saved.emailBackground as EmailBackground)
         : DEFAULT_APPEARANCE.emailBackground,
     };
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not read the appearance settings", error);
     return { ...DEFAULT_APPEARANCE }; // Storage can be blocked; the defaults are fine.
   }
 }
@@ -133,7 +135,8 @@ export function setAppearance(patch: Partial<Appearance>): void {
   current = { ...current, ...patch };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not remember the appearance settings", error);
     // The choice still holds until the window closes.
   }
   applyToPage(current);

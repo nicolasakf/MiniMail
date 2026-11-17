@@ -7,6 +7,7 @@ import type { SortFolder } from "@shared/types";
 import { DEFAULT_CODE_MODEL } from "@shared/verification-code";
 
 import { writePrivateFile } from "./category-store";
+import { reportError } from "./events";
 
 const DEFAULT_SORT_FOLDERS: SortFolder[] = ["inbox"];
 
@@ -34,7 +35,7 @@ export class AiSettingsStore {
       this.model = saved.codeModel;
       this.folders = saved.sortFolders;
     } catch (error) {
-      console.error("[ai-settings] using defaults:", error);
+      reportError("storage", "Could not read the AI settings; using defaults", error);
     }
   }
 

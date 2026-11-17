@@ -32,6 +32,7 @@ export function parseUnsubscribe(
       const url = new URL(raw);
       return url.protocol === "https:" || url.protocol === "http:" ? [url] : [];
     } catch {
+      // expected: a List-Unsubscribe entry that is not a valid address is skipped.
       return [];
     }
   });

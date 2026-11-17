@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 
-import { ChevronRight, Pin, ShieldBan, Zap } from "lucide-react";
+import { BellOff, ChevronRight, Pin, ShieldBan, Zap, type LucideIcon } from "lucide-react";
 
 import { isBlockedAddress } from "@shared/blocklist";
 import {
@@ -14,10 +14,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePinnedDomains } from "@/hooks/use-pinned-domains";
 import { useBlockList } from "@/lib/blocklist";
-import { HOVER_ON_TINT } from "@/lib/highlight";
+import { BLOCKED_TEXT, HOVER_ON_TINT, MUTED_TEXT } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
 
 import { SenderAvatar } from "./sender-avatar";
+import { reportError } from "@/lib/events";
 
 const ROW =
   "flex w-full cursor-default items-center gap-2.5 rounded-lg px-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -34,7 +35,8 @@ function loadWidth(): number {
   try {
     const saved = Number(window.localStorage.getItem(WIDTH_KEY));
     return saved > 0 ? clampWidth(saved) : DEFAULT_WIDTH;
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not read the panel width", error);
     return DEFAULT_WIDTH;
   }
 }
@@ -42,10 +44,20 @@ function loadWidth(): number {
 function saveWidth(width: number): void {
   try {
     window.localStorage.setItem(WIDTH_KEY, String(width));
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not remember the panel width", error);
     // The width just won't be remembered.
   }
 }
+
+/** What a right-click on a row of the panel acts on: a sender's address or a whole domain. */
+export interface SenderTarget {
+  kind: "senders" | "domains";
+  value: string;
+}
+
+/** Opens the context menu of a sender or domain row at the pointer. */
+export type SenderMenuHandler = (target: SenderTarget, x: number, y: number) => void;
 
 /** One row of the panel as the keyboard walks it: a domain (grouped panel only) or a sender. */
 export type SenderNavRow =
@@ -75,6 +87,7 @@ function SenderRow({
   focused,
   nested = false,
   onSelect,
+  onMenu,
 }: {
   sender: SenderEntry;
   selected: boolean;
@@ -83,6 +96,7 @@ function SenderRow({
   /** Listed under its domain. */
   nested?: boolean;
   onSelect: (key: string) => void;
+  onMenu?: SenderMenuHandler;
 }) {
   const ref = useScrollIntoView(selected);
   const blocked = isBlockedAddress(useBlockList(), sender.email);
@@ -101,6 +115,11 @@ function SenderRow({
         selected && focused && "ring-1 ring-sidebar-primary/60",
       )}
       onClick={() => onSelect(sender.key)}
+      onContextMenu={(event) => {
+        if (!onMenu) return;
+        event.preventDefault();
+        onMenu({ kind: "senders", value: sender.email }, event.clientX, event.clientY);
+      }}
     >
       <UnreadDot unread={sender.unread} />
       <SenderAvatar contact={sender} size={28} logo={sender.logo} />
@@ -127,6 +146,7 @@ function DomainRow({
   onSelect,
   onToggle,
   onTogglePin,
+  onMenu,
 }: {
   group: SenderDomainGroup;
   open: boolean;
@@ -140,10 +160,19 @@ function DomainRow({
   /** Expands or collapses the domain (the chevron, or a double-click on the row). */
   onToggle: (domain: string) => void;
   onTogglePin: (domain: string) => void;
+  onMenu?: SenderMenuHandler;
 }) {
   const ref = useScrollIntoView(selected);
   return (
-    <div className="group relative" data-tinted={selected || undefined}>
+    <div
+      className="group relative"
+      data-tinted={selected || undefined}
+      onContextMenu={(event) => {
+        if (!onMenu) return;
+        event.preventDefault();
+        onMenu({ kind: "domains", value: group.domain }, event.clientX, event.clientY);
+      }}
+    >
       <button
         type="button"
         aria-label={`${open ? "Collapse" : "Expand"} ${group.domain}`}
@@ -270,6 +299,8 @@ interface SenderPanelProps {
   focused?: boolean;
   /** Filled with the rows on screen, in order, so the arrow keys can walk them. */
   navRows?: MutableRefObject<readonly SenderNavRow[]>;
+  /** A right-click on a sender or domain row. */
+  onMenu?: SenderMenuHandler;
 }
 
 /**
@@ -288,6 +319,7 @@ export function SenderPanel({
   underToolbar = true,
   focused = false,
   navRows,
+  onMenu,
 }: SenderPanelProps) {
   const { pinned, toggle: togglePin } = usePinnedDomains();
   const [width, setWidth] = useState(loadWidth);
@@ -411,6 +443,7 @@ export function SenderPanel({
                     onSelect={onSelectDomain}
                     onToggle={toggleDomain}
                     onTogglePin={togglePin}
+                    onMenu={onMenu}
                   />
                   {open &&
                     group.senders.map((sender) => (
@@ -421,6 +454,7 @@ export function SenderPanel({
                         focused={focused}
                         nested
                         onSelect={onSelect}
+                        onMenu={onMenu}
                       />
                     ))}
                 </div>
@@ -433,6 +467,7 @@ export function SenderPanel({
                 selected={sender.key === selectedKey}
                 focused={focused}
                 onSelect={onSelect}
+                onMenu={onMenu}
               />
             ))}
       </div>
@@ -470,43 +505,96 @@ export function GroupByDomainButton({ state }: { state: SenderPanelState }) {
   );
 }
 
-/** Names the sender whose mail the list under it shows. */
-/** The star that marks a sender or domain as priority (or clears it). */
-function PriorityToggle({ on, label, onToggle }: { on: boolean; label: string; onToggle: () => void }) {
+/** One round icon button of the heading: priority, mute or block, lit in the command's own color while it is on. */
+function HeadingToggle({
+  on,
+  icon: Icon,
+  label,
+  tooltip,
+  onToggle,
+  activeClass,
+  fillWhenOn = false,
+}: {
+  on: boolean;
+  icon: LucideIcon;
+  label: string;
+  tooltip: string;
+  onToggle: () => void;
+  activeClass: string;
+  fillWhenOn?: boolean;
+}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label={on ? `Remove priority from ${label}` : `Mark ${label} as priority`}
+          aria-label={label}
           aria-pressed={on}
           onClick={onToggle}
           className={cn(
             "corner-squircle flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent",
-            on ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground hover:text-foreground",
+            on ? activeClass : "text-muted-foreground hover:text-foreground",
           )}
         >
-          <Zap className={cn("size-4", on && "fill-current")} />
+          <Icon className={cn("size-4", on && fillWhenOn && "fill-current")} />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">{on ? "Priority: you are told about new mail" : "Mark as priority"}</TooltipContent>
+      <TooltipContent side="bottom">{tooltip}</TooltipContent>
     </Tooltip>
   );
 }
 
-export function SenderHeading(
-  props: ({ sender: SenderEntry } | { domain: string; count: number }) & {
-    /** Whether the sender or domain is marked as priority, and the star that changes it. */
-    priority?: boolean;
-    onTogglePriority?: () => void;
-  },
-) {
-  const toggle = props.onTogglePriority && (
-    <PriorityToggle
-      on={props.priority === true}
-      label={"domain" in props ? props.domain : props.sender.email}
-      onToggle={props.onTogglePriority}
-    />
+/** The state and switches of the heading's buttons; one with no handler is left out. */
+export interface SenderHeadingActions {
+  /** Whether the sender or domain is marked as priority, and the star that changes it. */
+  priority?: boolean;
+  onTogglePriority?: () => void;
+  /** Whether it is muted, and the button that mutes or unmutes it. */
+  muted?: boolean;
+  onToggleMute?: () => void;
+  /** Whether it is blocked, and the button that blocks or unblocks it. */
+  blocked?: boolean;
+  onToggleBlock?: () => void;
+}
+
+/** Names the sender (or domain) whose mail the list under it shows, with its Priority, Mute and Block buttons. */
+export function SenderHeading(props: ({ sender: SenderEntry } | { domain: string; count: number }) & SenderHeadingActions) {
+  const name = "domain" in props ? props.domain : props.sender.email;
+  // Same order as everywhere else: Priority, Mute, Block.
+  const toggle = (
+    <>
+      {props.onTogglePriority && (
+        <HeadingToggle
+          on={props.priority === true}
+          icon={Zap}
+          label={props.priority ? `Remove priority from ${name}` : `Mark ${name} as priority`}
+          tooltip={props.priority ? "Priority: you are told about new mail" : "Mark as priority"}
+          onToggle={props.onTogglePriority}
+          activeClass="text-amber-600 dark:text-amber-400"
+          fillWhenOn
+        />
+      )}
+      {props.onToggleMute && (
+        <HeadingToggle
+          on={props.muted === true}
+          icon={BellOff}
+          label={props.muted ? `Unmute ${name}` : `Mute ${name}`}
+          tooltip={props.muted ? "Muted: you are not notified. Click to unmute" : "Mute"}
+          onToggle={props.onToggleMute}
+          activeClass={MUTED_TEXT}
+        />
+      )}
+      {props.onToggleBlock && (
+        <HeadingToggle
+          on={props.blocked === true}
+          icon={ShieldBan}
+          label={props.blocked ? `Unblock ${name}` : `Block ${name}`}
+          tooltip={props.blocked ? "Blocked: its mail goes to the Trash. Click to unblock" : "Block"}
+          onToggle={props.onToggleBlock}
+          activeClass={BLOCKED_TEXT}
+        />
+      )}
+    </>
   );
   if ("domain" in props) {
     return (

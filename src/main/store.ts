@@ -13,6 +13,7 @@ import { z } from "zod";
 
 import type { Account } from "@shared/types";
 import { imapSettingsSchema } from "@shared/imap-settings";
+import { reportError } from "./events";
 
 const accountSchema = z.object({
   id: z.string(),
@@ -152,7 +153,7 @@ export class AccountStore {
       }));
     } catch (error) {
       // A corrupt or undecryptable file must not crash startup; the user re-adds accounts.
-      console.error("[store] could not read accounts, starting empty:", error);
+      reportError("accounts", "Could not read the saved accounts; starting with none", error);
       this.entries = [];
     }
   }

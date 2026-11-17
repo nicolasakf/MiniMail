@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import type { LogoSettings } from "@shared/logos";
 
@@ -12,7 +12,7 @@ export function useLogoSettings() {
   const [settings, setSettings] = useState<LogoSettings | null>(null);
 
   useEffect(() => {
-    api.logos.settings().then(setSettings).catch(() => undefined);
+    api.logos.settings().then(setSettings).catch(() => undefined); // expected: recorded by the main process
   }, []);
 
   const update = useCallback(

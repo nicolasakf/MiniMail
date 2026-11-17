@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Archive, ArrowUpRight, Ban, BellOff, FolderInput, Inbox, ListX, Mail, MailOpen, PanelRightClose, PanelRightOpen, Pencil, Pin, PinOff, ShieldAlert, ShieldBan, Trash2, User, Zap, type LucideIcon } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
-import { iconFor } from "@shared/categories";
+import { iconFor, senderDomain as domainOf } from "@shared/categories";
+import type { AppEvent } from "@shared/events";
 import {
   buildFlatList,
   buildFocusedList,
@@ -39,8 +40,10 @@ import {
   GroupByDomainButton,
   SenderPanel,
   useSenderPanelState,
+  type SenderHeadingActions,
   type SenderNavRow,
   type SenderPanelState,
+  type SenderTarget,
 } from "@/components/mail/sender-panel";
 import { AccountErrorToasts, EmptyList, ListSkeleton, NoAccounts } from "@/components/mail/states";
 import { BlockMenuButton, CategoryMenuButton, MuteMenuButton, ThreadView } from "@/components/mail/thread-view";
@@ -66,12 +69,14 @@ import { isTypingTarget } from "@/lib/keyboard";
 import { DELETE_FOREVER_CONFIRM } from "@/lib/delete-confirm";
 import { unsubscribeButton, unsubscribeConfirm } from "@/lib/unsubscribe-confirm";
 import { recordUnsubscribed, useUnsubscribed } from "@/lib/unsubscribed";
-import { blockSections, blockTargets, muteSections, useBlockList } from "@/lib/blocklist";
+import { blockSections, blockTargets, emailTargets, muteMenuLabel, muteSections, useBlockList, type MuteKind } from "@/lib/blocklist";
 import { mutedCheck, withMute } from "@/lib/mute";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
 import { prioritySections, setBlockedClearingPriority, togglePriority, usePriority } from "@/lib/priority";
 import { actionsForThread, DELETE_DRAFT } from "@/lib/row-actions";
 import { cn } from "@/lib/utils";
+import { countedTargets, recordAction, reportError } from "@/lib/events";
+import { newUndoRef, undoStack } from "@/lib/undo-stack";
 
 /** The folders behind ⌘2–⌘4, in rail order (⌘1 is the Dashboard). */
 const RAIL_FOLDERS: readonly MailFolder[] = ["inbox", "drafts", "sent"];
@@ -114,7 +119,8 @@ const MINIMIZED_EXPANDED_KEY = "minimail.minimizedExpanded";
 function readMinimizedExpanded(): boolean {
   try {
     return window.localStorage.getItem(MINIMIZED_EXPANDED_KEY) === "1";
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not read the folded sections", error);
     return false;
   }
 }
@@ -123,7 +129,8 @@ function readMinimizedExpanded(): boolean {
 function readPinnedCollapsed(): boolean {
   try {
     return window.localStorage.getItem(PINNED_COLLAPSED_KEY) === "1";
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not read the folded sections", error);
     return false;
   }
 }
@@ -168,7 +175,7 @@ export function MailApp() {
   /** Remembers a choice on disk so the app reopens the same way. */
   const savePrefs = useCallback((patch: Partial<UiPrefs>) => {
     for (const key of Object.keys(patch)) touchedPrefs.current.add(key as keyof UiPrefs);
-    api.prefs.set(patch).catch(() => undefined); // Only the memory of the choice is lost.
+    api.prefs.set(patch).catch(() => undefined); // expected: recorded by the main process; only the memory of the choice is lost.
   }, []);
   const shownFoldersRef = useRef(shownFolders);
   shownFoldersRef.current = shownFolders;
@@ -366,13 +373,13 @@ export function MailApp() {
         void deleteDraft(draft.id);
         void removeServerDraft(draft.serverMessageId, "discarded");
       }
+      const ref = newUndoRef("draft");
+      // The server copy is in its Trash by now, so the restored draft stands on its own.
+      const restore = () => removed.forEach((draft) => void saveDraft({ ...draft, serverMessageId: undefined }).catch((error) => reportError("drafts", "Could not restore a draft", error)));
+      undoStack.push({ ref, label: removed.length === 1 ? "Deleted a draft" : `Deleted ${removed.length} drafts`, run: restore });
       toast(removed.length === 1 ? "Draft deleted" : `${removed.length} drafts deleted`, {
         duration: 6000,
-        action: {
-          label: "Undo",
-          // The server copy is in its Trash by now, so the restored draft stands on its own.
-          onClick: () => removed.forEach((draft) => void saveDraft({ ...draft, serverMessageId: undefined }).catch(() => undefined)),
-        },
+        action: { label: "Undo", onClick: () => undoStack.undo(ref) },
       });
     },
     [folder, inDrill, mailboxAct, savedDrafts],
@@ -404,7 +411,7 @@ export function MailApp() {
         if (!touched.has("unreadOnly")) setUnreadOnlyState(saved.unreadOnly);
         if (!touched.has("shownFolders")) setShownFolders(saved.shownFolders);
       })
-      .catch(() => undefined); // The defaults are fine if the saved choices cannot be read.
+      .catch(() => undefined); // expected: recorded by the main process; the defaults are fine if the saved choices cannot be read.
   }, []);
 
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
@@ -440,6 +447,8 @@ export function MailApp() {
   }, []);
   const [scheduledCount, setScheduledCount] = useState(0);
   const [itemMenu, setItemMenu] = useState<ItemMenuState | null>(null);
+  /** The menu of a sender or domain in the Sender view's panel, opened by a right-click on its row. */
+  const [senderMenu, setSenderMenu] = useState<{ x: number; y: number; target: SenderTarget } | null>(null);
   // The card that asks before a conversation chosen in the menu is deleted for good.
   const [deleteConfirm, setDeleteConfirm] = useState<{ x: number; y: number; thread: Thread } | null>(null);
   /** The card asking before an unsubscribe started from a row or its menu, anchored at the point it was asked from. */
@@ -746,8 +755,13 @@ export function MailApp() {
       const unblock = values.every((value) => isBlockedEntry(blocklist, kind, value));
       setBlockedClearingPriority(kind, values, !unblock);
       const what = values.length === 1 ? (kind === "domains" ? `@${values[0]}` : values[0]) : `${values.length} ${kind}`;
+      const title = `${unblock ? "Unblocked" : "Blocked"} ${countedTargets(kind, values.length)}`;
+      const ref = newUndoRef("block");
+      recordAction("mail", title, "", { context: values.join(", "), ref });
+      const entry = { ref, label: title, context: values.join(", "), run: () => setBlockedClearingPriority(kind, values, unblock) };
       if (unblock) {
         toast(`Unblocked ${what}`);
+        undoStack.push(entry);
         return;
       }
       toast(`Blocked ${what}`, {
@@ -755,11 +769,14 @@ export function MailApp() {
         action: { label: "Unblock", onClick: () => setBlockedClearingPriority(kind, values, false) },
       });
       const moving = targets.filter((thread) => threadFolder(thread) !== "trash");
-      if (moving.length === 1) actOnThread("trash", moving[0]!);
-      else if (moving.length > 1) {
-        act("trash", moving.flatMap((thread) => thread.messages.map((message) => message.id)), moving.flatMap((thread) => thread.messages));
-        setChecked(new Set());
-      }
+      // One ⌘Z takes back the block and the move to the Trash it caused (unblocking first, or the sweep would undo the restore).
+      undoStack.group(entry, () => {
+        if (moving.length === 1) actOnThread("trash", moving[0]!);
+        else if (moving.length > 1) {
+          act("trash", moving.flatMap((thread) => thread.messages.map((message) => message.id)), moving.flatMap((thread) => thread.messages));
+          setChecked(new Set());
+        }
+      });
     },
     [act, actOnThread, blocklist, ownAddresses, threadFolder],
   );
@@ -767,26 +784,38 @@ export function MailApp() {
   const { settings: notifySettings, update: updateNotify } = useNotificationSettings();
 
   /**
-   * Mutes (or, when all of them already are, unmutes) the sender or domain of these conversations.
+   * Mutes (or, when all of them already are, unmutes) these conversations, or their sender or domain.
    * Only notifications stop: the mail is filed where it always was.
    */
   const muteThreads = useCallback(
-    (kind: BlockKind, targets: readonly Thread[], only?: readonly string[]) => {
+    (kind: MuteKind, targets: readonly Thread[], only?: readonly string[]) => {
       if (!notifySettings) return;
       const { senders, domains } = blockTargets(targets, ownAddresses);
-      const values = only ?? (kind === "senders" ? senders : domains);
+      const values = only ?? (kind === "threads" ? targets.map((thread) => thread.id) : kind === "senders" ? senders : domains);
       if (values.length === 0) return;
       const accountIds = [...new Set(targets.map((thread) => thread.accountId))];
       const isMuted = mutedCheck(notifySettings, accountIds);
       const unmute = values.every((value) => isMuted(kind, value));
       void updateNotify((current) => withMute(current, accountIds, kind, values, !unmute));
-      const what = values.length === 1 ? (kind === "domains" ? `@${values[0]}` : values[0]) : `${values.length} ${kind}`;
+      const what =
+        kind === "threads"
+          ? values.length === 1 ? "this conversation" : `${values.length} conversations`
+          : values.length === 1 ? (kind === "domains" ? `@${values[0]}` : values[0]) : `${values.length} ${kind}`;
+      const title = `${unmute ? "Unmuted" : "Muted"} ${countedTargets(kind, values.length)}`;
+      const ref = newUndoRef("mute");
+      recordAction("notifications", title, "", { context: values.join(", "), ref });
+      undoStack.push({
+        ref,
+        label: title,
+        context: values.join(", "),
+        run: () => void updateNotify((current) => withMute(current, accountIds, kind, values, unmute)),
+      });
       if (unmute) {
         toast(`Unmuted ${what}`);
         return;
       }
       toast(`Muted ${what}`, {
-        description: "You won't be notified about their new mail.",
+        description: kind === "threads" ? "You won't be notified about its new messages." : "You won't be notified about their new mail.",
         action: { label: "Unmute", onClick: () => void updateNotify((current) => withMute(current, accountIds, kind, values, false)) },
       });
     },
@@ -797,6 +826,8 @@ export function MailApp() {
    * Unsubscribes from the lists behind these conversations: one request per sender. Conversations
    * whose mail offers no way to unsubscribe are left alone and counted in the answer.
    */
+  /** The Retry button of an event in the Log, while the page can still retry it. */
+  const retryEvent = useCallback((event: AppEvent) => actions.retryFor(event), [actions]);
   const unsubscribedLists = useUnsubscribed();
   const unsubscribeThreads = useCallback(
     async (targets: readonly Thread[]) => {
@@ -814,7 +845,8 @@ export function MailApp() {
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         toast.error("Couldn't unsubscribe", { id: toastId, description: reason });
-        actions.reportEvent("Could not unsubscribe", reason, () => void unsubscribeThreads(targets));
+        // The request failed as a whole, which the main process recorded; only the Retry is kept here.
+        actions.reportEvent("Could not unsubscribe", reason, () => void unsubscribeThreads(targets), { journal: false, area: "mail" });
         return;
       }
       const outcomes = plan.entries.map((entry) => ({
@@ -827,12 +859,18 @@ export function MailApp() {
       const failed = outcomes.filter(({ result }) => !result || result.status === "failed");
       // A request the sender accepted is remembered, so the buttons for that list grey out.
       recordUnsubscribed(done.map(({ entry }) => entry.key));
-      // Every failure is also kept in the notifications popover, with the reason and a way to try again.
+      // Every failure is also kept in the Log, with the reason and a way to try again.
       for (const { entry, name, result } of failed) {
         actions.reportEvent(
           `Could not unsubscribe from ${name}`,
           result?.status === "failed" ? result.error : "The mail server did not answer.",
           () => void unsubscribeThreads(entry.threads),
+          {
+            // The main process recorded this failure (with the host and the reason); this keeps its Retry.
+            journal: false,
+            area: "unsubscribe",
+            subject: entry.threads.flatMap((thread) => thread.messages).find((message) => message.id === entry.messageId)?.subject,
+          },
         );
       }
 
@@ -840,7 +878,7 @@ export function MailApp() {
         const [only] = outcomes;
         if (pages.length === 1) {
           // A sender that only has a web page: the user finishes there.
-          void api.system.openExternal(pages[0]!).catch(() => undefined);
+          void api.system.openExternal(pages[0]!).catch(() => undefined); // expected: recorded by the main process
           toast.success(`Opened the unsubscribe page of ${only!.name}`, {
             id: toastId,
             description: `Finish unsubscribing there.${plan.skipped + plan.alreadyDone > 0 ? ` ${plan.skipped + plan.alreadyDone} skipped.` : ""}`,
@@ -863,7 +901,7 @@ export function MailApp() {
       };
       const notes = [
         pages.length > 0 ? `${pages.length} only offer${pages.length === 1 ? "s" : ""} a web page` : "",
-        failed.length > 0 ? `${failed.length} failed (see Notifications)` : "",
+        failed.length > 0 ? `${failed.length} failed (see the Log)` : "",
         plan.alreadyDone > 0 ? `${plan.alreadyDone} already unsubscribed` : "",
         plan.skipped > 0 ? `${plan.skipped} had no unsubscribe option` : "",
       ].filter(Boolean);
@@ -881,7 +919,7 @@ export function MailApp() {
             ? {
                 label: pages.length === 1 ? "Open page" : `Open ${Math.min(pages.length, 5)} pages`,
                 // A handful at most: each page is a browser tab the user has to finish.
-                onClick: () => pages.slice(0, 5).forEach((url) => void api.system.openExternal(url).catch(() => undefined)),
+                onClick: () => pages.slice(0, 5).forEach((url) => void api.system.openExternal(url).catch(() => undefined /* expected: recorded by the main process */)),
               }
             : done.length > 0
               ? { label: "Archive", onClick: archive }
@@ -914,12 +952,15 @@ export function MailApp() {
 
   const toggleGroupRead = useCallback(
     (kind: GroupKind, unread: boolean) => {
-      const members = threadsInGroup(threads, kind);
-      if (members.length === 0) return;
+      // Only the messages that would change: a category holds hundreds of read ones that need no round trip.
+      const changing = threadsInGroup(threads, kind)
+        .flatMap((thread) => thread.messages)
+        .filter((message) => message.unread === unread);
+      if (changing.length === 0) return;
       void act(
         unread ? "markRead" : "markUnread",
-        members.flatMap((thread) => thread.messages.map((message) => message.id)),
-        members.flatMap((thread) => thread.messages),
+        changing.map((message) => message.id),
+        changing,
       );
     },
     [act, threads],
@@ -931,7 +972,8 @@ export function MailApp() {
         const next = !previous;
         try {
           window.localStorage.setItem(MINIMIZED_EXPANDED_KEY, next ? "1" : "0");
-        } catch {
+        } catch (error) {
+          reportError("storage", "Could not remember the folded sections", error);
           // Storage is a convenience; the fold still works for this session.
         }
         return next;
@@ -943,7 +985,8 @@ export function MailApp() {
       const next = !previous;
       try {
         window.localStorage.setItem(PINNED_COLLAPSED_KEY, next ? "1" : "0");
-      } catch {
+      } catch (error) {
+        reportError("storage", "Could not remember the folded sections", error);
         // Storage is a convenience; the fold still works for this session.
       }
       return next;
@@ -1382,8 +1425,11 @@ export function MailApp() {
             children: sections.flatMap((section): MenuEntry[] => {
               const choices = section.choices.map((choice): MenuEntry => ({
                 id: `mute:${section.contact?.email ?? ""}:${choice.kind}`,
-                label: choice.label,
+                label: muteMenuLabel(choice),
                 icon: BellOff,
+                // Like Priority: a check while muted, and the menu stays open.
+                current: choice.on,
+                keepOpen: true,
                 // Only a person picked from a conversation's menu is named; otherwise the newest senders.
                 run: () => muteThreads(choice.kind, targets, section.contact ? choice.values : undefined),
               }));
@@ -1601,8 +1647,8 @@ export function MailApp() {
         return;
       }
 
-      // ⌘Z / Ctrl+Z takes back the last archive, trash, spam or delete. In a text field it stays
-      // the field's own undo, and with nothing to undo it is left alone.
+      // ⌘Z / Ctrl+Z takes back the latest action that can be undone, and again for the one before.
+      // In a text field it stays the field's own undo, and with nothing to undo it is left alone.
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "z") {
         if (!isTypingTarget(event.target) && undo()) event.preventDefault();
         return;
@@ -2027,6 +2073,52 @@ export function MailApp() {
     () => pickDomain(null),
   );
   senderPanelRef.current = senderPanelState;
+  /** The conversations of this sender or domain in the panel's list, which Block moves to the Trash and Mute takes the accounts from. */
+  const senderTargetThreads = (target: SenderTarget): Thread[] => {
+    const wanted = target.value.trim().toLowerCase();
+    return threads.filter((thread) =>
+      thread.messages.some((message) =>
+        target.kind === "senders" ? message.from.email.trim().toLowerCase() === wanted : domainOf(message.from.email) === wanted,
+      ),
+    );
+  };
+  /** Priority, Mute and Block of a sender or domain: where they stand, and what each does. Mute and Block are left out for the user's own addresses. */
+  const senderCommands = (target: SenderTarget) => {
+    const targets = senderTargetThreads(target);
+    const isOwn = target.kind === "senders" ? emailTargets([target.value], ownAddresses).senders.length === 0 : emailTargets([`x@${target.value}`], ownAddresses).domains.length === 0;
+    const muted = mutedCheck(notifySettings, [...new Set(targets.map((thread) => thread.accountId))])(target.kind, target.value);
+    return {
+      priority: isPriorityEntry(priority, target.kind, target.value),
+      muted,
+      blocked: isBlockedEntry(blocklist, target.kind, target.value),
+      filterable: !isOwn,
+      togglePriority: () => togglePriority(target.kind, target.value),
+      toggleMute: () => muteThreads(target.kind, targets, [target.value]),
+      toggleBlock: () => blockThreads(target.kind, targets, [target.value]),
+    };
+  };
+  /** The buttons of the heading above the list: the same three commands as the row's menu. */
+  const senderHeadingActions = (target: SenderTarget): SenderHeadingActions => {
+    const commands = senderCommands(target);
+    return {
+      priority: commands.priority,
+      onTogglePriority: commands.togglePriority,
+      ...(commands.filterable ? { muted: commands.muted, onToggleMute: commands.toggleMute, blocked: commands.blocked, onToggleBlock: commands.toggleBlock } : {}),
+    };
+  };
+  const senderMenuEntries = (target: SenderTarget): MenuEntry[] => {
+    const commands = senderCommands(target);
+    return [
+      // Like the Priority and Mute menus of a conversation: a check while on, and the menu stays open.
+      { id: "priority", label: "Priority", icon: Zap, current: commands.priority, keepOpen: true, run: commands.togglePriority },
+      ...(commands.filterable
+        ? [
+            { id: "mute", label: "Mute", icon: BellOff, current: commands.muted, keepOpen: true, run: commands.toggleMute },
+            { id: "block", label: "Block", icon: ShieldBan, current: commands.blocked, destructive: true, run: commands.toggleBlock },
+          ]
+        : []),
+    ];
+  };
   const groupToggle = activeView === "sender" ? <GroupByDomainButton state={senderPanelState} /> : null;
   const senderPanelProps = {
     state: senderPanelState,
@@ -2038,6 +2130,7 @@ export function MailApp() {
     selectedDomain: activeDomain,
     onSelect: pickSender,
     onSelectDomain: pickDomain,
+    onMenu: (target: SenderTarget, x: number, y: number) => setSenderMenu({ x, y, target }),
     loading: loading && allThreads.length === 0,
   };
 
@@ -2110,8 +2203,7 @@ export function MailApp() {
         onOpenSettings={() => setSettingsDialog({ open: true, tab: "appearance", adding: false })}
         aiOff={ai !== null && !ai.configured}
         sorting={ai?.pending ?? 0}
-        events={actions.events}
-        onClearEvents={() => actions.clearEvents()}
+        retryFor={retryEvent}
       />
 
       {/* With a thread open there is no list toolbar, so the panel keeps the full height beside it. */}
@@ -2191,9 +2283,9 @@ export function MailApp() {
                 ) : (
                   <>
                     {activeDomain ? (
-                      <SenderHeading domain={activeDomain} count={listThreads.length} priority={isPriorityEntry(priority, "domains", activeDomain)} onTogglePriority={() => togglePriority("domains", activeDomain)} />
+                      <SenderHeading domain={activeDomain} count={listThreads.length} {...senderHeadingActions({ kind: "domains", value: activeDomain })} />
                     ) : (
-                      activeSender && <SenderHeading sender={activeSender} priority={isPriorityEntry(priority, "senders", activeSender.email)} onTogglePriority={() => togglePriority("senders", activeSender.email)} />
+                      activeSender && <SenderHeading sender={activeSender} {...senderHeadingActions({ kind: "senders", value: activeSender.email })} />
                     )}
                     <FocusedList
                       items={items}
@@ -2262,19 +2354,19 @@ export function MailApp() {
               onManage={() => openAccounts(false)}
             />
 
-            {folder === "drafts" && <ScheduledMail scope={scope} onVisible={setScheduledCount} />}
+            {folder === "sent" && <ScheduledMail scope={scope} onVisible={setScheduledCount} />}
             {showNoAccounts ? (
               <NoAccounts demo={api.system.demo} onAdd={() => openAccounts(true)} />
             ) : loading && allThreads.length === 0 ? (
               <ListSkeleton />
-            ) : listThreads.length === 0 && !(folder === "drafts" && scheduledCount) ? (
+            ) : listThreads.length === 0 && !(folder === "sent" && scheduledCount) ? (
               <EmptyList folder={folder} query={query} unreadOnly={unreadOnly} />
             ) : (
               <>
                 {activeDomain ? (
-                  <SenderHeading domain={activeDomain} count={listThreads.length} priority={isPriorityEntry(priority, "domains", activeDomain)} onTogglePriority={() => togglePriority("domains", activeDomain)} />
+                  <SenderHeading domain={activeDomain} count={listThreads.length} {...senderHeadingActions({ kind: "domains", value: activeDomain })} />
                 ) : (
-                  activeSender && <SenderHeading sender={activeSender} priority={isPriorityEntry(priority, "senders", activeSender.email)} onTogglePriority={() => togglePriority("senders", activeSender.email)} />
+                  activeSender && <SenderHeading sender={activeSender} {...senderHeadingActions({ kind: "senders", value: activeSender.email })} />
                 )}
                 <FocusedList
                   items={items}
@@ -2313,6 +2405,10 @@ export function MailApp() {
           entries={menuEntries}
           onClose={() => setItemMenu(null)}
         />
+      )}
+
+      {senderMenu && (
+        <ItemMenu x={senderMenu.x} y={senderMenu.y} entries={senderMenuEntries(senderMenu.target)} onClose={() => setSenderMenu(null)} />
       )}
 
       {deleteConfirm && (

@@ -61,7 +61,7 @@ const api: MiniMailApi = {
     testGateway: () => invoke(IPC.categoriesTest),
     reclassify: (options) => invoke(IPC.categoriesReclassify, options),
     sortCounts: (options) => invoke(IPC.categoriesSortCounts, options),
-    assign: (threads, categoryId) => invoke(IPC.categoriesAssign, { threads, categoryId }),
+    assign: (threads, categoryId, ref) => invoke(IPC.categoriesAssign, { threads, categoryId, ref }),
   },
   senders: {
     trusted: () => invoke(IPC.sendersTrusted),
@@ -111,6 +111,23 @@ const api: MiniMailApi = {
     settings: () => invoke(IPC.notificationsGet),
     setSettings: (settings) => invoke(IPC.notificationsSet, settings),
     test: () => invoke(IPC.notificationsTest),
+  },
+  events: {
+    list: () => invoke(IPC.eventsList),
+    markDone: () => invoke(IPC.eventsMarkDone),
+    // One-way on purpose: nothing waits for the journal, and reporting can never fail the caller.
+    report: (report) => {
+      try {
+        ipcRenderer.send(IPC.eventsReport, report);
+      } catch {
+        // expected: the report could not even be sent; there is nowhere left to tell.
+      }
+    },
+    onChanged: (listener) => {
+      const handler = (_event: unknown, events: Parameters<typeof listener>[0]) => listener(events);
+      ipcRenderer.on(IPC.eventsChanged, handler);
+      return () => ipcRenderer.removeListener(IPC.eventsChanged, handler);
+    },
   },
   system: {
     openExternal: (url) => invoke(IPC.openExternal, url),

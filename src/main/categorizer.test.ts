@@ -8,6 +8,9 @@ import { defaultCategories } from "@shared/categories";
 import type { MessageSummary } from "@shared/types";
 
 import { Categorizer } from "./categorizer";
+import type { EventJournal } from "./event-journal";
+import { installJournal } from "./events";
+import type { EventReport } from "@shared/events";
 import { CategoryStore, GatewayKeyStore, type Cipher } from "./category-store";
 import { TrustedSenders } from "./trusted-senders";
 import {
@@ -226,6 +229,8 @@ describe("Categorizer", () => {
   let classify: ReturnType<typeof vi.fn<Classifier>>;
   let updated: ReturnType<typeof vi.fn>;
   let categorizer: Categorizer;
+  /** Everything the categorizer told the event journal. */
+  let recorded: EventReport[];
 
   const keys = {
     get: () => key,
@@ -246,9 +251,12 @@ describe("Categorizer", () => {
     classify = vi.fn<Classifier>(async () => ({ categoryId: "newsletters", probability: 0.95 }));
     updated = vi.fn();
     categorizer = new Categorizer({ store, keys, classify, onUpdated: updated });
+    recorded = [];
+    installJournal({ record: (report: EventReport) => void recorded.push(report) } as unknown as EventJournal);
   });
 
   afterEach(() => {
+    installJournal(null);
     vi.useRealTimers();
     rmSync(dir, { recursive: true, force: true });
   });
@@ -445,6 +453,37 @@ describe("Categorizer", () => {
       finished: true,
       error: null,
     });
+  });
+
+  it("records a failed sort as an error naming the email, never leaving it unexplained", async () => {
+    classify.mockRejectedValueOnce(Object.assign(new Error("rate limit exceeded"), { statusCode: 429 }));
+    categorizer.apply([msg({ id: "1", subject: "Tech Networking Event", from: { name: "Startup Valley", email: "events@sv.example" } })], "inbox");
+    await settle();
+    const errors = recorded.filter((report) => report.level === "error");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      area: "sorting",
+      title: "Could not sort an email",
+      detail: expect.stringMatching(/rate limiting/),
+      context: "Tech Networking Event — Startup Valley",
+      accountId: "a1",
+    });
+    // The wait before the next attempt is recorded too.
+    expect(recorded.some((report) => report.title === "Sorting paused after a failure")).toBe(true);
+  });
+
+  it("records each verdict, so 'no category' can be told apart from a failure", async () => {
+    classify.mockResolvedValueOnce({ categoryId: null, probability: 0.3 });
+    categorizer.apply([msg({ id: "1", subject: "Tech Networking Event" })], "inbox");
+    await settle();
+    expect(recorded.filter((report) => report.level === "error")).toEqual([]);
+    expect(recorded).toContainEqual(
+      expect.objectContaining({ level: "info", area: "sorting", title: "Sorted as no category", detail: "Jev was 30% sure." }),
+    );
+
+    categorizer.apply([msg({ id: "2" })], "inbox");
+    await settle();
+    expect(recorded).toContainEqual(expect.objectContaining({ title: "Sorted into Newsletters", detail: "Jev was 95% sure." }));
   });
 
   it("ends the run with the error when the gateway fails, and says so when nothing was queued", async () => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import { FIRST_PAGE, MAIL_WINDOW } from "@shared/mail-window";
 import { dropFolderDuplicates } from "@shared/dashboard";
@@ -17,7 +17,8 @@ import type {
 import { api } from "@/lib/api";
 import { groupByAccount, mergeAccountRows, mergeErrors } from "@/lib/merge";
 import { applyCategory } from "@/lib/optimistic";
-import { MailActions } from "@/lib/mail-actions";
+import { ACTION_LABEL, MailActions, undoRef } from "@/lib/mail-actions";
+import { newUndoRef, undoStack } from "@/lib/undo-stack";
 
 /** Every folder whose mail the Inbox list can show, in display order. */
 export const SHOWN_FOLDERS: readonly ShownFolder[] = ["inbox", "archive", "trash", "spam"];
@@ -182,7 +183,7 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
               perf(`painted ${rows.length} rows from disk copy`);
               return withCopy;
             })
-            .catch(() => null);
+            .catch(() => null); // expected: recorded by the main process
 
       // One request per account, shown as each answers: a slow server only delays its own rows.
       await Promise.all(
@@ -194,7 +195,7 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
             if (withCopy && !withCopy.has(accountId)) {
               const first = await api.mail
                 .list({ folder: folders[0], accountIds: [accountId], limit: FIRST_PAGE })
-                .catch(() => null);
+                .catch(() => null); // expected: recorded by the main process
               if (stale()) return;
               if (first && first.messages.length > 0) {
                 live.set(accountId, first.messages);
@@ -208,6 +209,7 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
             const results = await Promise.all(
               names.map((name) =>
                 api.mail.list({ folder: name, accountIds: [accountId], limit: MAIL_WINDOW })
+                  // expected: the failed request was recorded by the main process; the banner shows it.
                   .catch((error: unknown) => ({ messages: [], errors: [{ accountId, message: errorText(error) }] })),
               ),
             );
@@ -227,12 +229,12 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
             actions.observe(results.flatMap((result) => result.messages), successful, new Set([accountId]), started);
             answered.set(accountId, results.flatMap((result) => result.errors));
           } catch (error) {
+            // expected: the failed request was recorded by the main process; the banner shows it.
             if (stale()) return;
             answered.set(accountId, [{ accountId, message: errorText(error) }]);
           }
           setMessages((onScreen) => mergeAccountRows(targets, [live, fromDisk], onScreen));
-          const account = accountLabels.current.get(accountId) ?? accountId;
-          for (const error of answered.get(accountId) ?? []) actions.reportSyncError(account, error.message);
+          // Failed lists were recorded by the main process; the banner below is for the person looking.
           setErrors((previous) => mergeErrors(previous, answered));
           setLoading(false);
           perf(`account ${answered.size}/${targets.length} answered`);
@@ -260,11 +262,17 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
   }, [refresh]);
 
   // Turning an extra folder on or off keeps the rows on screen and brings in (or drops) its mail.
-  const firstExtraKey = useRef(extraKey);
+  // It reloads (no replay of the copy on disk): that copy of Archive, Trash or Spam can be days old,
+  // and painting it would show mail the server has since purged or moved, only to drop it again
+  // when the live list arrives. The refresh indicator shows while the folder loads.
+  // Turning one off needs no request: the list already hides the rows of unchecked folders (`shownKey`).
+  const previousExtras = useRef<readonly MailFolder[]>(extraRef.current);
   useEffect(() => {
-    if (firstExtraKey.current === extraKey) return;
-    firstExtraKey.current = extraKey;
-    void refresh();
+    const before = previousExtras.current;
+    const now = extraRef.current;
+    previousExtras.current = now;
+    if (now.every((name) => before.includes(name))) return;
+    void refresh(false, true);
   }, [extraKey, refresh]);
 
   useEffect(() => api.mail.onChanged(() => void refresh(true)), [refresh]);
@@ -297,32 +305,72 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
       const rows = source.filter((row) => wanted.has(row.id));
       const done = UNDOABLE[action];
       const { batch, count, undoable } = actions.enqueue(action, rows, !!done, (id) => toast.dismiss(`undo-${id}`));
+      // ⌘Z and the Undo on the Log row take it back from here, whether or not it has been sent yet.
+      if (count && actions.canRevert(batch)) {
+        undoStack.push({
+          ref: undoRef(batch),
+          label: `${ACTION_LABEL[action]} (${count === 1 ? "a message" : `${count} messages`})`,
+          logged: true,
+          run: () => void actions.revert(batch),
+        });
+      }
       if (count && undoable) {
         toast(count === 1 ? `Message ${done}` : `${count} messages ${done}`, {
           id: `undo-${batch}`,
           duration: 6000,
-          action: { label: "Undo", onClick: () => actions.undo(batch) },
+          action: { label: "Undo", onClick: () => undoStack.undo(undoRef(batch)) },
         });
       }
     },
     [actions],
   );
-  const undo = useCallback(() => actions.undo(), [actions]);
+  /** ⌘Z: takes back the newest action that can be undone, mail or not. False when there is none. */
+  const undo = useCallback(() => undoStack.undoLast(), []);
 
-  /** Files conversations (ids as in `Thread.id`) under a category by hand, or under none (null). */
+  /** Files conversations in the local list and on the server. True when the server took it. */
+  const changeCategory = useCallback(
+    async (threadIds: string[], categoryId: string | null, ref?: string): Promise<boolean> => {
+      setMessages((previous) => applyCategory(previous, new Set(threadIds), categoryId));
+      try {
+        await api.categories.assign(threadIds, categoryId, ref);
+        return true;
+      } catch (error) {
+        toast.error(`Could not change the category: ${errorText(error)}`);
+        void refresh(true);
+        return false;
+      }
+    },
+    [refresh],
+  );
+
+  /**
+   * Files conversations (ids as in `Thread.id`) under a category by hand, or under none (null).
+   * Each conversation's category before is kept, so ⌘Z or the Log row's Undo can put it back.
+   */
   const assignCategory = useCallback(
     async (threadIds: string[], categoryId: string | null): Promise<void> => {
       if (threadIds.length === 0) return;
-      setMessages((previous) => applyCategory(previous, new Set(threadIds), categoryId));
-      try {
-        await api.categories.assign(threadIds, categoryId);
-      } catch (error) {
-        toast.error(`Could not change the category: ${errorText(error)}`);
-        actions.reportSyncError("", `Could not change the category: ${errorText(error)}`);
-        void refresh(true);
+      const wanted = new Set(threadIds);
+      const before = new Map<string, string | null>();
+      for (const message of rawMessages.current) {
+        const key = `${message.accountId}:${message.threadId}`;
+        if (wanted.has(key) && !before.has(key)) before.set(key, message.categoryId ?? null);
       }
+      const changed = [...before].filter(([, previous]) => previous !== categoryId);
+      const ref = changed.length > 0 ? newUndoRef("category") : undefined;
+      if (!(await changeCategory(threadIds, categoryId, ref)) || !ref) return;
+      undoStack.push({
+        ref,
+        label: changed.length === 1 ? "a conversation's category" : `the category of ${changed.length} conversations`,
+        logged: true,
+        run: () => {
+          const byPrevious = new Map<string | null, string[]>();
+          for (const [key, previous] of changed) byPrevious.set(previous, [...(byPrevious.get(previous) ?? []), key]);
+          for (const [previous, keys] of byPrevious) void changeCategory(keys, previous);
+        },
+      });
     },
-    [actions, refresh],
+    [changeCategory],
   );
 
   const visibleMessages = useMemo(() => {

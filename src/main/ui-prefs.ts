@@ -6,6 +6,7 @@ import { shownFoldersSchema } from "@shared/schemas";
 import type { UiPrefs } from "@shared/types";
 
 import { writePrivateFile } from "./category-store";
+import { reportError } from "./events";
 
 const DEFAULTS: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [] };
 
@@ -32,7 +33,7 @@ export class UiPrefsStore {
       const { version: _version, ...saved } = fileSchema.parse(JSON.parse(readFileSync(filePath, "utf8")));
       this.prefs = saved;
     } catch (error) {
-      console.error("[ui-prefs] using defaults:", error);
+      reportError("storage", "Could not read the saved view; using defaults", error);
     }
   }
 

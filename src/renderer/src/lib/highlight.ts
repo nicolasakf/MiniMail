@@ -9,3 +9,8 @@ export const HOVER_ON_TINT =
 
 /** The light red a blocked sender's name is shown in, wherever senders are listed. */
 export const BLOCKED_TEXT = "text-red-400 dark:text-red-400";
+
+/** The purple of the Mute command and the mute icon on a muted conversation, wherever they are shown. */
+export const MUTED_TEXT = "text-purple-600 dark:text-purple-400";
+/** The same purple for an icon drawn in a list row. */
+export const MUTED_ICON = "text-purple-500";

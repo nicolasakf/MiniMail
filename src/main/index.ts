@@ -15,10 +15,12 @@ import { createCodeFallback } from "./code-fallback";
 import { Categorizer } from "./categorizer";
 import { VerificationCodes } from "./verification-codes";
 import { CategoryStore, GatewayKeyStore } from "./category-store";
-import { registerIpc } from "./ipc";
+import { registerIpc, publishEvents } from "./ipc";
+import { EventJournal } from "./event-journal";
+import { installJournal, recordInfo, reportError } from "./events";
 import { createJevClassifier } from "./jev";
 import type { OAuthConfig } from "./oauth";
-import { initLog, logEvent } from "./log";
+import { flushLog, initLog, logEvent, writeLogLine } from "./log";
 import { perfLog } from "./perf";
 import { findGravatar, findSiteIcon } from "./logos/icon-finder";
 import { LogoCache } from "./logos/logo-cache";
@@ -53,6 +55,27 @@ const oauthConfig: OAuthConfig = {
   microsoftClientId: import.meta.env.MAIN_VITE_MICROSOFT_CLIENT_ID,
 };
 
+// Nothing may fail unseen. These catch what no one wrote a catch for; the journal (once installed)
+// shows it in the Log popover and writes it to main.log, and `flushJournal` makes sure
+// the last words reach the disk even if the process is about to go.
+let journal: EventJournal | null = null;
+function flushJournal(): void {
+  try {
+    journal?.flushSync();
+    flushLog();
+  } catch {
+    // expected: this is the recorder itself failing while the app exits; there is nowhere left to report.
+  }
+}
+process.on("uncaughtException", (error) => {
+  reportError("app", "The app hit an unexpected error", error);
+  flushJournal();
+});
+process.on("unhandledRejection", (reason) => {
+  reportError("app", "Something failed without being handled", reason);
+  flushJournal();
+});
+
 /** Dev server URL injected by electron-vite; undefined in a packaged build. */
 const rendererUrl = process.env["ELECTRON_RENDERER_URL"];
 
@@ -85,14 +108,14 @@ async function openExternalSafely(url: string): Promise<void> {
 function protectNavigation(window: BrowserWindow): void {
   // Links inside the app (or in rendered emails) go to the real browser, never a new Electron window.
   window.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalSafely(url).catch(() => undefined);
+    openExternalSafely(url).catch((error) => reportError("app", "Could not open a link", error));
     return { action: "deny" };
   });
   window.webContents.on("will-navigate", (event, url) => {
     const isAppUrl = rendererUrl ? url.startsWith(rendererUrl) : url.startsWith("file://");
     if (!isAppUrl) {
       event.preventDefault();
-      openExternalSafely(url).catch(() => undefined);
+      openExternalSafely(url).catch((error) => reportError("app", "Could not open a link", error));
     }
   });
 }
@@ -128,6 +151,11 @@ function createWindow(): void {
     if (message.startsWith("[perf]")) perfLog(message.slice("[perf]".length).trim());
   });
   window.webContents.once("did-finish-load", () => perfLog("page finished loading"));
+  window.webContents.on("did-fail-load", (_event, code, description, _url, isMainFrame) => {
+    if (isMainFrame && code !== -3) reportError("app", "The window could not load", `${description} (${code})`);
+  });
+  window.webContents.on("unresponsive", () => reportError("app", "The window stopped responding"));
+  window.webContents.on("responsive", () => recordInfo("app", "The window responds again"));
   window.on("focus", () => window.webContents.send(IPC.mailChanged));
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
@@ -150,12 +178,19 @@ function setDockBadge(count: number): void {
 
 /** Shows an operating-system notification; clicking it brings MiniMail to the front. */
 function showNotification({ title, body, silent }: { title: string; body: string; silent: boolean }): void {
-  if (!Notification.isSupported()) return;
+  if (!Notification.isSupported()) {
+    reportError("notifications", "Notifications are not supported on this system");
+    return;
+  }
+  recordInfo("notifications", "Showed a notification", "", { context: `${title} — ${body}` });
   const notification = new Notification({ title, body, silent });
   liveNotifications.add(notification);
   const done = (): void => void liveNotifications.delete(notification);
   notification.on("close", done);
-  notification.on("failed", done);
+  notification.on("failed", (_event, error) => {
+    done();
+    reportError("notifications", "Could not show a notification", error);
+  });
   notification.on("click", () => {
     done();
     if (!mainWindow) return;
@@ -195,8 +230,14 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(() => {
     perfLog("electron ready");
     initLog(app.getPath("logs"));
-    logEvent("app", `MiniMail ${app.getVersion()} started`);
     const userData = app.getPath("userData");
+    // The journal comes first so that everything after it, startup failures included, is recorded.
+    journal = new EventJournal(join(userData, "events.jsonl"), safeStorage, {
+      writeLog: writeLogLine,
+      onChange: publishEvents,
+    });
+    installJournal(journal);
+    logEvent("app", `MiniMail ${app.getVersion()} started`, "info");
     const store = new AccountStore(join(userData, "accounts.json"));
     categoryStore = new CategoryStore(join(userData, "categories.json"));
     const keys = new GatewayKeyStore(join(userData, "ai-gateway.json"), safeStorage);
@@ -297,6 +338,7 @@ if (!app.requestSingleInstanceLock()) {
       drafts,
       delivery,
       prefs: new UiPrefsStore(join(userData, "ui-prefs.json")),
+      journal,
       oauthConfig,
       rendererUrl,
       openExternal: openExternalSafely,
@@ -306,6 +348,8 @@ if (!app.requestSingleInstanceLock()) {
     createWindow();
     startPolling();
     delivery.start();
+    // The history is read after the window is on its way, in small slices, so it never delays launch.
+    setTimeout(() => void journal?.load(), 0);
 
     app.on("activate", () => {
       if (!mainWindow) createWindow();
@@ -316,7 +360,19 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform !== "darwin") app.quit();
   });
 
+  app.on("render-process-gone", (_event, _contents, details) => {
+    reportError("app", "A window crashed", `${details.reason} (exit code ${details.exitCode})`);
+    flushJournal();
+  });
+  app.on("child-process-gone", (_event, details) => {
+    if (details.reason !== "clean-exit") {
+      reportError("app", `A ${details.type} process stopped`, `${details.reason}${details.name ? ` (${details.name})` : ""}`);
+    }
+  });
+
   app.on("will-quit", () => {
+    recordInfo("app", "MiniMail quit");
+    flushJournal();
     delivery?.stop();
     if (pollTimer) clearInterval(pollTimer);
     setDockBadge(0);

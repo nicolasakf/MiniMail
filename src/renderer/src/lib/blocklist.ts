@@ -13,13 +13,15 @@ import type { Thread } from "@shared/threads";
 import type { Contact } from "@shared/types";
 
 import { threadContacts } from "./format";
+import { reportError } from "@/lib/events";
 
 const STORAGE_KEY = "minimail.blocklist";
 
 function read(): BlockList {
   try {
     return parseBlockList(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null"));
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not read the blocked senders", error);
     return parseBlockList(null);
   }
 }
@@ -50,7 +52,8 @@ export function toggleBlock(kind: BlockKind, value: string): void {
   current = toggleBlockEntry(current, kind, value);
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-  } catch {
+  } catch (error) {
+    reportError("storage", "Could not remember the blocked senders", error);
     // Storage can be unavailable; the block holds until the app closes.
   }
   listeners.forEach((listener) => listener());
@@ -90,10 +93,15 @@ export function emailTargets(emails: readonly string[], own: readonly string[]):
   return { senders: [...senders], domains: [...domains] };
 }
 
-export interface BlockChoice {
-  kind: BlockKind;
+/** What Mute acts on: a sender or domain, or the conversation itself. */
+export type MuteKind = BlockKind | "threads";
+
+export interface BlockChoice<K extends string = BlockKind> {
+  kind: K;
   values: string[];
   label: string;
+  /** What the choice acts on, without the verb: "this conversation", "ana@acme.com", "@acme.com", "3 senders". */
+  name: string;
   /** Every one of the values is already blocked (or muted): choosing it undoes that. */
   on: boolean;
 }
@@ -112,7 +120,8 @@ function filterChoices(
   const choice = (kind: BlockKind, values: string[], one: string, many: string): BlockChoice[] => {
     if (values.length === 0) return [];
     const on = values.every((value) => isOn(kind, value));
-    return [{ kind, values, on, label: `${on ? verbs.off : verbs.on} ${values.length === 1 ? one : many}` }];
+    const name = values.length === 1 ? one : many;
+    return [{ kind, values, on, name, label: `${on ? verbs.off : verbs.on} ${name}` }];
   };
   const [sender] = targets.senders;
   const [domain] = targets.domains;
@@ -128,14 +137,22 @@ export function blockChoices(list: BlockList, targets: Targets): BlockChoice[] {
 }
 
 /** The choices of the Mute command; `isMuted` tells whether a sender or domain is muted for these conversations. */
-export function muteChoices(isMuted: (kind: BlockKind, value: string) => boolean, targets: Targets): BlockChoice[] {
+export function muteChoices(isMuted: (kind: MuteKind, value: string) => boolean, targets: Targets): BlockChoice[] {
   return filterChoices(isMuted, targets, { on: "Mute", off: "Unmute" });
 }
 
+/**
+ * How a Mute menu words a choice. Like the Priority menu it names the target and shows a check
+ * while it is muted, so the label carries no verb ("This conversation", "Everything from ana@acme.com").
+ */
+export function muteMenuLabel(choice: BlockChoice<MuteKind>): string {
+  return choice.kind === "threads" ? choice.name.charAt(0).toUpperCase() + choice.name.slice(1) : `Everything from ${choice.name}`;
+}
+
 /** One block of the Block or Mute menu: a person's own choices (with their `contact`), or the plain choices. */
-export interface BlockSection {
+export interface BlockSection<K extends string = BlockKind> {
   contact?: Contact;
-  choices: BlockChoice[];
+  choices: BlockChoice<K>[];
 }
 
 /**
@@ -162,12 +179,24 @@ export function blockSections(list: BlockList, threads: readonly Thread[], own: 
   return filterSections((targets) => blockChoices(list, targets), threads, own);
 }
 
+/**
+ * What the Mute command offers: the conversation itself first (as Priority does), then the senders
+ * and domains. Muting a conversation needs no sender, so it is offered even when every sender is the user.
+ */
 export function muteSections(
-  isMuted: (kind: BlockKind, value: string) => boolean,
+  isMuted: (kind: MuteKind, value: string) => boolean,
   threads: readonly Thread[],
   own: readonly string[],
-): BlockSection[] {
-  return filterSections((targets) => muteChoices(isMuted, targets), threads, own);
+): BlockSection<MuteKind>[] {
+  const sections: BlockSection<MuteKind>[] = filterSections((targets) => muteChoices(isMuted, targets), threads, own);
+  if (threads.length === 0) return sections;
+  const ids = threads.map((thread) => thread.id);
+  const on = ids.every((id) => isMuted("threads", id));
+  const name = ids.length === 1 ? "this conversation" : `${ids.length} conversations`;
+  const conversation: BlockChoice<MuteKind> = { kind: "threads", values: ids, on, name, label: `${on ? "Unmute" : "Mute"} ${name}` };
+  const [first, ...rest] = sections;
+  if (first && !first.contact) return [{ choices: [conversation, ...first.choices] }, ...rest];
+  return [{ choices: [conversation] }, ...sections];
 }
 
 // Another window (a detached composer shares the origin) can change the list.

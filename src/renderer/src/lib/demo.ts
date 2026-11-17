@@ -4,6 +4,7 @@ import { trustKey } from "@shared/trust";
 import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "@shared/notifications";
 import { DEFAULT_LOGO_SETTINGS, isFreemail, logoKey, type LogoRequest, type LogoSettings } from "@shared/logos";
 import type { AccountCapabilities, MiniMailApi } from "@shared/api";
+import type { AppEvent } from "@shared/events";
 import { categoryProblems, defaultCategories, ruleBasedCategoryId } from "@shared/categories";
 import {
   CODE_MODEL_PATTERN,
@@ -620,6 +621,37 @@ function demoFile(messages: MessageDetail[], messageId: string, attachmentId: st
   };
 }
 
+/** The event journal without a main process: kept in memory, with a few sample rows to look at. */
+function demoEvents(): MiniMailApi["events"] {
+  const listeners = new Set<(events: AppEvent[]) => void>();
+  const at = Date.now();
+  let serial = at;
+  const sample: AppEvent[] = [
+    { id: at - 3, at: at - 60_000, lastAt: at - 60_000, repeats: 1, level: "error", area: "sorting", title: "Could not sort an email", detail: "The Vercel AI Gateway is rate limiting requests; MiniMail will retry shortly.", context: "Tech Networking Event by Startup Valley" },
+    { id: at - 2, at: at - 120_000, lastAt: at - 30_000, repeats: 4, level: "error", area: "sync", title: "Could not sync Outlook", detail: "The operation was aborted due to timeout" },
+    { id: at - 1, at: at - 180_000, lastAt: at - 180_000, repeats: 1, level: "action", area: "mail", title: "Archived a conversation", detail: "", context: "Your receipt from Acme" },
+  ];
+  let events = sample.sort((a, b) => b.id - a.id);
+  const notify = (changed: AppEvent[]) => listeners.forEach((listener) => listener(changed));
+  return {
+    async list() {
+      return [...events];
+    },
+    async markDone() {
+      events = events.map((event) => (event.level === "error" ? { ...event, done: true } : event));
+    },
+    report(report) {
+      const event: AppEvent = { id: ++serial, at: Date.now(), lastAt: Date.now(), repeats: 1, detail: "", ...report };
+      events = [event, ...events];
+      notify([event]);
+    },
+    onChanged(listener) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+  };
+}
+
 export function createDemoApi(): MiniMailApi {
   let accounts: Account[] = [ME_GMAIL, ME_UNIVERSITY, ME_ZOHO];
   let messages = seedMessages();
@@ -840,7 +872,7 @@ export function createDemoApi(): MiniMailApi {
         return ids.map((id) => {
           const info = messages.find((message) => message.id === id)?.unsubscribe;
           if (!info) return { id, status: "failed" as const, error: "This message cannot be unsubscribed from." };
-          // The university Career Center refuses, so the demo shows how a failed unsubscribe reaches the notifications popover.
+          // The university Career Center refuses, so the demo shows how a failed unsubscribe reaches the Log popover.
           if (info.url.includes("university.example")) {
             return { id, status: "failed" as const, error: "The sender refused the request (status 403)." };
           }
@@ -1074,6 +1106,7 @@ export function createDemoApi(): MiniMailApi {
         }
       },
     },
+    events: demoEvents(),
     system: {
       async openExternal(url) {
         window.open(url, "_blank", "noopener,noreferrer");

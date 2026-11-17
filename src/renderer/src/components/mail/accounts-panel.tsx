@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { Check, ImageOff, ImagePlus, Loader2, MoreHorizontal, Pencil, Plus, Trash2, X } from "lucide-react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import type { AccountCapabilities } from "@shared/api";
 import { accountLabel, MAX_ALIAS_LENGTH } from "@shared/accounts";
@@ -24,8 +24,10 @@ import { SettingsPageHeader } from "../settings/fields";
 
 import { AccountMark } from "./account-mark";
 import { ChooseProvider, ProviderFormHeader, type SetupProvider } from "./add-account-shared";
+import { Label } from "@/components/ui/label";
 import { InfoLabel } from "./info-label";
 import { ImapAccountForm } from "./imap-account-form";
+import { noteShownError } from "@/lib/events";
 
 type View = { name: "list" } | { name: "choose" } | { name: "form"; provider: SetupProvider };
 
@@ -72,6 +74,7 @@ export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChan
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    // expected: a failure was recorded by the main process; the sign-in options just stay hidden.
     api.accounts.capabilities().then(setCapabilities).catch(() => undefined);
   }, []);
 
@@ -408,6 +411,7 @@ function AddAccountForm({
       onAdded(await api.accounts.add(input));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
+      noteShownError("Could not add the account", reason);
       setBusy(null);
     }
   };
@@ -475,7 +479,20 @@ function AddAccountForm({
                 <PasswordFields
                   password={password}
                   onPasswordChange={setPassword}
-                  info="Enable 2-Step Verification, then create an app password at myaccount.google.com/apppasswords."
+                  hint={
+                    <>
+                      Enable 2-Step Verification, then create an app password at{" "}
+                      <a
+                        className="underline"
+                        href="https://myaccount.google.com/apppasswords"
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        myaccount.google.com/apppasswords
+                      </a>
+                      .
+                    </>
+                  }
                 />
                 <Button
                   variant="secondary"
@@ -553,17 +570,15 @@ function AddAccountForm({
 function PasswordFields({
   password,
   onPasswordChange,
-  info,
+  hint,
 }: {
   password: string;
   onPasswordChange: (value: string) => void;
-  info: string;
+  hint: React.ReactNode;
 }) {
   return (
     <div className="space-y-2">
-      <InfoLabel htmlFor="account-password" info={info}>
-        App password
-      </InfoLabel>
+      <Label htmlFor="account-password">App password</Label>
       <Input
         id="account-password"
         type="password"
@@ -571,6 +586,7 @@ function PasswordFields({
         value={password}
         onChange={(event) => onPasswordChange(event.target.value)}
       />
+      <p className="text-xs text-muted-foreground">{hint}</p>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { senderDomain } from "./categories";
+import type { Thread } from "./threads";
 import type { MessageSummary } from "./types";
 
 /**
@@ -59,6 +60,11 @@ export interface NotificationSettings extends AccountNotificationSettings {
   dockBadge: boolean;
   /** Fold several messages that arrive together into one notification. */
   groupBursts: boolean;
+  /**
+   * Conversations (`accountId:threadId`) whose new messages never notify. Kept once for all
+   * accounts, since the id already names the account.
+   */
+  mutedThreads: string[];
 }
 
 export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
@@ -72,11 +78,13 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   dockBadge: true,
   muteWhenFocused: true,
   groupBursts: true,
+  mutedThreads: [],
 };
 
 /** Most entries in each list, so a settings file cannot grow without bound. */
 export const MAX_MUTED_SENDERS = 200;
 export const MAX_NOTIFICATION_IDS = 200;
+export const MAX_MUTED_THREADS = 1000;
 
 /** Messages older than this never notify: a message dragged into a folder is not "arriving". */
 export const FRESH_MS = 10 * 60_000;
@@ -123,6 +131,22 @@ export function mutedKey(kind: "senders" | "domains", value: string): string {
   return kind === "domains" ? `@${key.replace(/^@/, "")}` : key;
 }
 
+/** The id a conversation is muted by: the same `accountId:threadId` form the priority list uses. */
+export function mutedThreadId(message: Pick<MessageSummary, "accountId" | "threadId">): string {
+  return `${message.accountId}:${message.threadId}`;
+}
+
+/** The settings with these conversations muted (or, with `muted` false, unmuted). Oldest drop past the cap. */
+export function withMutedThreads(
+  settings: NotificationSettings,
+  threadIds: readonly string[],
+  muted: boolean,
+): NotificationSettings {
+  const rest = settings.mutedThreads.filter((id) => !threadIds.includes(id));
+  const next = muted ? [...rest, ...threadIds.filter((id, at) => threadIds.indexOf(id) === at)].slice(-MAX_MUTED_THREADS) : rest;
+  return { ...settings, mutedThreads: next };
+}
+
 /**
  * The settings with these entries muted (or, with `muted` false, unmuted) for the accounts. An
  * account that keeps its own muted list changes that list; every other account follows the shared
@@ -163,6 +187,12 @@ export function categoryAllowed(
   return filter.mode === "only" ? listed : !listed;
 }
 
+/** Whether the conversation is muted, itself or through its newest sender or that sender's domain (the name a list shows). */
+export function isMutedThread(settings: NotificationSettings, thread: Pick<Thread, "id" | "accountId" | "latest">): boolean {
+  if (settings.mutedThreads.includes(thread.id)) return true;
+  return isSenderMuted(thread.latest.from.email, settingsForAccount(settings, thread.accountId).mutedSenders);
+}
+
 /**
  * Whether a message that just arrived notifies, by everything except the moment: the focus check
  * belongs to the delivery, not to the message.
@@ -170,6 +200,7 @@ export function categoryAllowed(
 export function messageNotifies(message: MessageSummary, settings: NotificationSettings): boolean {
   const own = settingsForAccount(settings, message.accountId);
   if (!own.enabled || !message.unread) return false;
+  if (settings.mutedThreads.includes(mutedThreadId(message))) return false;
   if (!(own.folders as readonly string[]).includes(message.folder)) return false;
   if (isSenderMuted(message.from.email, own.mutedSenders)) return false;
   return categoryAllowed(own.categories, message.categoryId);

@@ -58,7 +58,7 @@ export function SortAgainMenu() {
     api.categories
       .sortCounts(sinceIso ? { since: sinceIso } : undefined)
       .then((next) => current && setCounts(next))
-      .catch(() => current && setCounts(null));
+      .catch(() => current && setCounts(null)); // expected: recorded by the main process
     return () => {
       current = false;
     };

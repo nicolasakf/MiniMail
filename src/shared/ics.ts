@@ -149,7 +149,8 @@ function parseTime(line: IcsLine | undefined): ParsedTime | null {
     const guess = asUtc - zoneOffset(zone, asUtc);
     return { iso: new Date(asUtc - zoneOffset(zone, guess)).toISOString(), allDay: false };
   } catch {
-    return { iso: new Date(asUtc).toISOString(), allDay: false }; // A zone name this runtime does not know.
+    // expected: a time zone name this runtime does not know; the time is read as UTC.
+    return { iso: new Date(asUtc).toISOString(), allDay: false };
   }
 }
 

@@ -15,6 +15,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { ProviderFormHeader } from "./add-account-shared";
+import { noteShownError } from "@/lib/events";
 
 function emptySettings(email: string): ImapSettings {
   return {
@@ -63,6 +64,7 @@ export function ImapAccountForm({
 
   /** The servers for this address: the provider's own configuration, or Zoho's when that was chosen. */
   const lookUp = async (address: string): Promise<ImapSettings | null> => {
+    // expected: a failed lookup was recorded by the main process; the form falls back to manual settings.
     const found = await api.accounts.discoverImap(address).catch(() => null);
     return found ?? (zoho ? zohoSettings(address, "com", false) : null);
   };
@@ -122,6 +124,7 @@ export function ImapAccountForm({
       }));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
+      noteShownError("Could not add the account", reason);
       setBusy(null);
     }
   };

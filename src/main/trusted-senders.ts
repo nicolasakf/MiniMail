@@ -5,6 +5,7 @@ import { z } from "zod";
 import { MAX_TRUSTED_SENDERS, trustKey } from "@shared/trust";
 
 import { writePrivateFile, type Cipher } from "./category-store";
+import { reportError } from "./events";
 
 const fileSchema = z.object({ version: z.literal(1), data: z.string() });
 const listSchema = z.array(z.string());
@@ -60,7 +61,7 @@ export class TrustedSenders {
       const plain = this.cipher.decryptString(Buffer.from(file.data, "base64"));
       this.entries = listSchema.parse(JSON.parse(plain)).map(trustKey).slice(-MAX_TRUSTED_SENDERS);
     } catch (error) {
-      console.error("[trusted-senders] could not read the list, starting empty:", error);
+      reportError("storage", "Could not read the trusted senders; starting with none", error);
       this.entries = [];
     }
   }

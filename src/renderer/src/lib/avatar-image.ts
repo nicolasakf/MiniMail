@@ -12,6 +12,7 @@ export async function fileToAvatar(file: File): Promise<string> {
   try {
     bitmap = await createImageBitmap(file);
   } catch {
+    // expected: rethrown below with a message the caller shows (and records).
     throw new Error("That file is not a picture MiniMail can read. Try a PNG, JPEG or WebP image.");
   }
   try {

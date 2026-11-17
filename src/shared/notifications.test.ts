@@ -4,13 +4,16 @@ import {
   categoryAllowed,
   DEFAULT_NOTIFICATION_SETTINGS,
   isMutedForAccounts,
+  isMutedThread,
   isSenderMuted,
   mutedKey,
   messageNotifies,
+  mutedThreadId,
   normalizeMutedSender,
   NO_CATEGORY,
   settingsForAccount,
   withMutedSenders,
+  withMutedThreads,
   type NotificationSettings,
 } from "./notifications";
 import { notificationSettingsSchema } from "./schemas";
@@ -168,5 +171,31 @@ describe("muting from a conversation", () => {
     expect(isMutedForAccounts(muted, ["a1"], "@acme.com")).toBe(true);
     expect(isMutedForAccounts(muted, ["a1", "a2"], "@acme.com")).toBe(false);
     expect(isMutedForAccounts(muted, [], "@acme.com")).toBe(false);
+  });
+});
+
+describe("muted conversations", () => {
+  it("never notify for a muted conversation, but do for the others", () => {
+    const muted = settings({ mutedThreads: ["a1:t1"] });
+    expect(mutedThreadId(message())).toBe("a1:t1");
+    expect(messageNotifies(message(), muted)).toBe(false);
+    expect(messageNotifies(message({ threadId: "t2" }), muted)).toBe(true);
+    expect(messageNotifies(message({ accountId: "a2" }), muted)).toBe(true);
+  });
+
+  it("marks a conversation as muted when it, its sender or its domain is muted", () => {
+    const latest = message();
+    const thread = { id: "a1:t1", accountId: "a1", latest };
+    expect(isMutedThread(settings(), thread)).toBe(false);
+    expect(isMutedThread(settings({ mutedThreads: ["a1:t1"] }), thread)).toBe(true);
+    expect(isMutedThread(withMutedSenders(settings(), ["a1"], [mutedKey("senders", latest.from.email)], true), thread)).toBe(true);
+    expect(isMutedThread(withMutedSenders(settings(), ["a1"], [mutedKey("domains", latest.from.email.split("@")[1])], true), thread)).toBe(true);
+  });
+
+  it("mutes and unmutes without duplicates", () => {
+    const once = withMutedThreads(settings(), ["a1:t1", "a1:t1", "a1:t2"], true);
+    expect(once.mutedThreads).toEqual(["a1:t1", "a1:t2"]);
+    expect(withMutedThreads(once, ["a1:t1"], true).mutedThreads).toEqual(["a1:t2", "a1:t1"]);
+    expect(withMutedThreads(once, ["a1:t1"], false).mutedThreads).toEqual(["a1:t2"]);
   });
 });

@@ -6,6 +6,7 @@ import { invitationResponseSchema } from "@shared/schemas";
 import type { InvitationResponse } from "@shared/types";
 
 import { writePrivateFile } from "./category-store";
+import { reportError } from "./events";
 
 const fileSchema = z.object({
   version: z.literal(1),
@@ -28,7 +29,7 @@ export class InvitationAnswers {
     try {
       this.answers = fileSchema.parse(JSON.parse(readFileSync(filePath, "utf8"))).answers;
     } catch (error) {
-      console.error("[invitation-answers] starting empty:", error);
+      reportError("storage", "Could not read the invitation answers; starting empty", error);
     }
   }
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 import {
   MAX_ATTACHMENT_BYTES,
@@ -27,6 +27,7 @@ import {
 import { deleteDraft, newDraftId, removeServerDraft, saveDraft, showDraftSavedToast } from "@/lib/drafts";
 import { plainBody, prepareRichBody } from "@/lib/rich-compose";
 import { withTimeout } from "@/lib/timeout";
+import { noteShownError } from "@/lib/events";
 
 /**
  * What the composer is busy with. Only one thing happens at a time: every action starts by
@@ -153,6 +154,7 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
       await onClose();
     } catch (reason) {
       setError(`Could not close: ${messageOf(reason)}`);
+      noteShownError("Could not close the composer", messageOf(reason));
       leave();
       return;
     }
@@ -185,6 +187,7 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
       } catch (reason) {
         saveFailed.current = true;
         setError(`Could not save the draft: ${messageOf(reason)} Close again to discard it.`);
+        noteShownError("Could not save the draft", messageOf(reason));
         leave();
         return;
       }
@@ -240,6 +243,7 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
       }
     } catch (reason) {
       setError(messageOf(reason));
+      noteShownError("The composer hit an error", messageOf(reason));
       leave();
       return;
     }
@@ -260,6 +264,7 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
       await withTimeout(api.composerWindow.open(saved), WINDOW_TIMEOUT_MS, "The new window did not open.");
     } catch (reason) {
       setError(messageOf(reason));
+      noteShownError("The composer hit an error", messageOf(reason));
       leave();
       return;
     }
@@ -282,6 +287,7 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
         setAttachments((previous) => [...previous, ...added]);
       } catch (reason) {
         setError(messageOf(reason));
+      noteShownError("The composer hit an error", messageOf(reason));
       } finally {
         leave();
       }

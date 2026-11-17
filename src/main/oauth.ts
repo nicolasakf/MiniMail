@@ -203,6 +203,7 @@ async function requestTokens(
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(form),
   });
+  // expected: a response without a JSON body is handled right below (the status decides).
   const body: unknown = await response.json().catch(() => ({}));
   if (!response.ok) {
     const failure = z

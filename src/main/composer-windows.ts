@@ -1,10 +1,26 @@
 import { join } from "node:path";
 
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from "electron";
 
 import { IPC } from "@shared/ipc";
 import { draftIdSchema, savedDraftSchema } from "@shared/schemas";
 import type { SavedDraft } from "@shared/types";
+import { reportIpcFailure } from "./ipc-events";
+
+/** `ipcMain.handle` that records whatever the handler throws, like every other channel. */
+function guarded<A extends unknown[], R>(
+  channel: string,
+  run: (event: IpcMainInvokeEvent, ...args: A) => R,
+): void {
+  ipcMain.handle(channel, async (event, ...args) => {
+    try {
+      return await run(event, ...(args as A));
+    } catch (error) {
+      reportIpcFailure(channel, error);
+      throw error;
+    }
+  });
+}
 
 interface ComposerWindow {
   window: BrowserWindow;
@@ -30,13 +46,13 @@ export function registerComposerWindows(
     return true;
   };
 
-  ipcMain.handle(IPC.composerWindowFocus, (event, id: unknown) =>
+  guarded(IPC.composerWindowFocus, (event, id: unknown) =>
     event.sender === mainWindow()?.webContents && event.senderFrame === event.sender.mainFrame
       ? focus(draftIdSchema.parse(id))
       : false,
   );
 
-  ipcMain.handle(IPC.composerWindowOpen, async (event, value: unknown) => {
+  guarded(IPC.composerWindowOpen, async (event, value: unknown) => {
     if (event.sender !== mainWindow()?.webContents || event.senderFrame !== event.sender.mainFrame) {
       throw new Error("Open the composer window from MiniMail.");
     }
@@ -87,7 +103,7 @@ export function registerComposerWindows(
     }
   });
 
-  ipcMain.handle(IPC.composerWindowInitialDraft, (event) => {
+  guarded(IPC.composerWindowInitialDraft, (event) => {
     if (event.senderFrame !== event.sender.mainFrame) return null;
     const entry = windows.get(event.sender.id);
     if (!entry) return null;
@@ -95,7 +111,7 @@ export function registerComposerWindows(
     return entry.seed;
   });
 
-  ipcMain.handle(IPC.composerWindowFinish, (event) => {
+  guarded(IPC.composerWindowFinish, (event) => {
     if (event.senderFrame !== event.sender.mainFrame) return;
     const entry = windows.get(event.sender.id);
     if (!entry) return;

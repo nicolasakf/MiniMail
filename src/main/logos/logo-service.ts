@@ -54,6 +54,7 @@ export class LogoService {
     await Promise.all(
       requests.map(async (request) => {
         const key = logoKey(request);
+        // expected: a logo that cannot be found is shown as the letter avatar, which is the normal case.
         results[key] = await this.resolve(request).catch(() => null);
       }),
     );
