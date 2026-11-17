@@ -12,7 +12,8 @@ import { defineConfig } from "vite";
 export default defineConfig({
   root: "src/renderer",
   plugins: [react()],
-  server: { port: 5173, strictPort: true },
+  // Starts at 5173 and moves to the next free port when something (say, the Electron dev server) has it.
+  server: { port: 5173, strictPort: false },
   resolve: {
     alias: {
       "@": resolve("src/renderer/src"),
