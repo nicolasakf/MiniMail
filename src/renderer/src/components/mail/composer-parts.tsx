@@ -5,6 +5,7 @@ import { AlertCircle, CalendarClock, ChevronDown, Clock3, Ellipsis, Loader2, Pap
 import type { DraftAttachment } from "@shared/types";
 
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,7 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FileIcon } from "@/components/ui/file-icon";
 import { attachmentBytes, formatBytes } from "@/lib/composer-state";
-import { composeTimeLabel, fromDateTimeInput, sendLaterOptions, sendTimeHint, toDateTimeInput } from "@/lib/send-later";
+import { composeTimeLabel, joinMoment, sendLaterOptions, sendTimeHint, splitMoment } from "@/lib/send-later";
 
 import { ToolButton } from "./composer-ui";
 
@@ -105,39 +106,47 @@ export function SendButton({ sendAt, sending, disabled, canSchedule, onSend, onS
 const STRIP = "mx-3 mb-2 flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-[13px]";
 
 function SchedulePicker({ sendAt, onSet, onCancel }: { sendAt: number | undefined; onSet: (time: number) => void; onCancel: () => void }) {
-  const [value, setValue] = useState(() => toDateTimeInput(sendAt ?? Date.now() + 60 * 60_000));
-  const time = fromDateTimeInput(value);
+  const initial = splitMoment(sendAt ?? Date.now() + 60 * 60_000);
+  const [day, setDay] = useState(initial.day);
+  const [clock, setClock] = useState(initial.clock);
+  const time = joinMoment(day, clock);
   const valid = time !== undefined && time > Date.now();
+  const today = splitMoment(Date.now()).day;
   return (
     <div
-      className={`${STRIP} flex-wrap`}
+      className={`${STRIP} w-fit max-w-[calc(100%-1.5rem)] flex-col items-stretch gap-3`}
       onKeyDown={(event) => {
-        if (event.key === "Escape") {
+        // Escape inside the month or year list only closes that list.
+        if (event.key === "Escape" && !(event.target as HTMLElement).closest('[role="listbox"]')) {
           event.preventDefault();
+          event.stopPropagation();
           onCancel();
-        } else if (event.key === "Enter" && !event.metaKey && !event.ctrlKey) {
-          event.preventDefault();
-          if (valid) onSet(time);
         }
       }}
     >
-      <CalendarClock className="size-4 shrink-0 text-muted-foreground" />
-      <label className="sr-only" htmlFor="send-later-time">Send at</label>
-      <input
-        id="send-later-time"
-        type="datetime-local"
-        autoFocus
-        value={value}
-        min={toDateTimeInput(Date.now())}
-        onChange={(event) => setValue(event.target.value)}
-        className="h-8 rounded-lg border border-border bg-background px-2 text-[13px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      />
-      <Button type="button" disabled={!valid} onClick={() => time !== undefined && onSet(time)}
-        className="h-8 rounded-lg bg-sidebar-primary px-3 text-xs text-sidebar-primary-foreground hover:bg-sidebar-primary/90">
-        Set
-      </Button>
-      <Button type="button" variant="ghost" className="h-8 rounded-lg px-2.5 text-xs" onClick={onCancel}>Cancel</Button>
-      {!valid && value && <span className="text-xs text-muted-foreground">Pick a time in the future.</span>}
+      <Calendar value={day} onChange={setDay} min={today} />
+      <div className="flex flex-wrap items-center gap-2">
+        <CalendarClock className="size-4 shrink-0 text-muted-foreground" />
+        <label className="sr-only" htmlFor="send-later-time">Send at</label>
+        <input
+          id="send-later-time"
+          type="time"
+          value={clock}
+          onChange={(event) => setClock(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || event.metaKey || event.ctrlKey) return;
+            event.preventDefault();
+            if (valid) onSet(time);
+          }}
+          className="h-8 rounded-lg border border-border bg-background px-2 text-[13px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        />
+        <Button type="button" disabled={!valid} onClick={() => time !== undefined && onSet(time)}
+          className="h-8 rounded-lg bg-sidebar-primary px-3 text-xs text-sidebar-primary-foreground hover:bg-sidebar-primary/90">
+          Set
+        </Button>
+        <Button type="button" variant="ghost" className="h-8 rounded-lg px-2.5 text-xs" onClick={onCancel}>Cancel</Button>
+        {!valid && <span className="text-xs text-muted-foreground">Pick a time in the future.</span>}
+      </div>
     </div>
   );
 }

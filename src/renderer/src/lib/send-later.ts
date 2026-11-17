@@ -59,15 +59,21 @@ export function sendTimeHint(time: number, now: Date = new Date()): string {
   return date.toLocaleString(undefined, { month: "short", day: "numeric", ...clock });
 }
 
-/** The value a `datetime-local` input takes ("2026-11-14T09:00"), in local time. */
-export function toDateTimeInput(time: number): string {
+const pad = (value: number) => String(value).padStart(2, "0");
+
+/** The calendar day (`yyyy-MM-dd`) and clock time (`HH:mm`) of a moment, in local time. */
+export function splitMoment(time: number): { day: string; clock: string } {
   const date = new Date(time);
-  return new Date(time - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  return {
+    day: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    clock: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
+  };
 }
 
-/** The time a `datetime-local` input holds, or undefined while it is empty or incomplete. */
-export function fromDateTimeInput(value: string): number | undefined {
-  if (!value) return undefined;
-  const time = Date.parse(value);
-  return Number.isNaN(time) ? undefined : time;
+/** The moment a calendar day and a clock time make together, or undefined while either is missing. */
+export function joinMoment(day: string, clock: string): number | undefined {
+  const [year, month, date] = day.split("-").map(Number);
+  const [hours, minutes] = clock.split(":").map(Number);
+  if ([year, month, date, hours, minutes].some((part) => part === undefined || Number.isNaN(part))) return undefined;
+  return new Date(year, month - 1, date, hours, minutes, 0, 0).getTime();
 }

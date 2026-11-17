@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fromDateTimeInput, sendLaterOptions, sendTimeHint, toDateTimeInput } from "./send-later";
+import { joinMoment, sendLaterOptions, sendTimeHint, splitMoment } from "./send-later";
 
 // Local-time constructors on purpose: the options are defined in the user's own time zone.
 const at = (month: number, day: number, hour = 12, minute = 0) => new Date(2026, month - 1, day, hour, minute);
@@ -67,15 +67,16 @@ describe("sendTimeHint", () => {
   });
 });
 
-describe("datetime-local values", () => {
-  it("round-trips through the input format", () => {
+describe("day and clock values", () => {
+  it("round-trips through the calendar day and the time field", () => {
     const time = at(11, 14, 9, 45).getTime();
-    expect(toDateTimeInput(time)).toBe("2026-11-14T09:45");
-    expect(fromDateTimeInput(toDateTimeInput(time))).toBe(time);
+    expect(splitMoment(time)).toEqual({ day: "2026-11-14", clock: "09:45" });
+    const { day, clock } = splitMoment(time);
+    expect(joinMoment(day, clock)).toBe(time);
   });
 
-  it("treats an empty or incomplete input as no time", () => {
-    expect(fromDateTimeInput("")).toBeUndefined();
-    expect(fromDateTimeInput("2026-11-14T")).toBeUndefined();
+  it("treats a missing day or clock as no time", () => {
+    expect(joinMoment("2026-11-14", "")).toBeUndefined();
+    expect(joinMoment("", "09:45")).toBeUndefined();
   });
 });
