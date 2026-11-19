@@ -1,8 +1,9 @@
 {
   "name": "minimail",
   "version": "0.3.0",
-  "description": "A Spark-style desktop email client for Gmail, Outlook (personal and work/school) and Zoho",
+  "description": "Desktop email client with a unified inbox and categories you define in plain language",
   "private": true,
+  "license": "Apache-2.0",
   "main": "./out/main/index.js",
   "engines": {
     "node": ">=20"

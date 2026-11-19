@@ -4,6 +4,8 @@ artifactName: ${productName}-${version}-mac-${arch}.${ext}
 files:
   - out/**/*
   - package.json
+extraResources:
+  - LICENSE
 mac:
   category: public.app-category.productivity
   icon: build/icon.icns
