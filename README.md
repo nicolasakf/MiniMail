@@ -9,18 +9,30 @@ Email got overcomplicated over the years:
 
 MiniMail is a desktop email client built on a different question:
 
-> ### What is the minimum number of features an email app really needs?
+> ### How simple can we make it?
 
 ## The minimum
 
-![Traditional email: a mail client with nested folders such as Inbox, FYI, This Month, Drafts, Archive, Documents, Junk E-mail and Outbox. MiniMail: four filter buttons (Inbox, Archive, Trash and Spam) and category cards for Invitations, Newsletters, Ads, Notifications, Receipts and Verification codes.](docs/images/before-after.svg)
+![Traditional email: a mail client with six inboxes (Exchange, Gmail, Outlook.com, iCloud, a university account and Yahoo), each with nested folders such as Clients, Active, FYI, This Week, Drafts and Sync Issues, covered in unread counts and error badges. MiniMail: four filter buttons (Inbox, Archive, Trash and Spam) and, apart from them, Sent and Drafts.](docs/images/before-after.svg)
 
-- **Four places.** Inbox, Archive, Trash and Spam. That's it. There are no hand-written rules, or folders to create, nest or tidy.
-- **Categories that sort themselves.** Newsletters, ads, notifications and codes each collapse into one card. You describe a category in your own words and AI files the mail for you.
+Your mail can be in four places: Inbox, Archive, Trash and Spam. That's it. No written rules, no folders inside other folders.
+
+> Oh, but how am I going to sort and find all my mail in just those four folders? It's going to be a mess, right?
+
+No, because there are categories:
+
+![The Categories screen: a list of categories (Invitations, Notifications, Verification codes, Receipts, Newsletters and Ads) with Receipts open for editing, showing a plain-language description of the mail that belongs in it.](docs/images/categories.svg)
+
+**These categories sort themselves.** Newsletters, ads, notifications and codes each collapse into one card. You describe what type of emails you want in that category and AI files the mail for you.
+
+That way your mail stays findable, and the app around it stays simple and lightweight.
+
 - **Fast.** Your inbox is on screen as soon as the window opens.
 - **Nothing fails silently.** A send is confirmed or the error is shown, and every failure or server-side update is transparent to you.
 - **Sandboxed mail.** No scripts, no forms, and no remote images unless you allow them.
 - **One inbox, no server.** Gmail, Outlook, Zoho or any other IMAP account in one list. Credentials stay in your OS keychain.
+
+![The MiniMail window: a row of category cards (Invitations, Notifications, Verification codes, Receipts and Newsletters) above the conversation list, grouped by Pinned, Yesterday, This Week, Last Week and November, with the folder buttons, Smart, Sender and List views, and the compose button in the toolbar.](docs/images/app.svg)
 
 ## Run it
 

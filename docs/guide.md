@@ -2,11 +2,10 @@
 
 The [README](../README.md) has the short version. This is everything else.
 
-A desktop email client modeled on Spark's **Focused List** (smart inbox), styled with the
-Orion app's design tokens and shadcn components. It connects to Gmail, Outlook (personal and
-work/school), Zoho Mail, and other IMAP accounts, all in one inbox.
+MiniMail brings Gmail, Outlook (personal and work/school), Zoho Mail, and other IMAP accounts into one inbox.
+Use categories to group conversations by what the mail is about, or browse by sender or date.
 
-Electron + React 19 + Tailwind 3 + Radix/shadcn. Mail is read straight from your providers
+MiniMail uses Electron, React, Tailwind CSS and Radix UI. It reads mail straight from your providers
 (IMAP/SMTP for Gmail and other mail providers, Microsoft Graph for Outlook). There is no server; credentials
 are encrypted with the OS keychain and never leave this computer.
 
@@ -28,7 +27,7 @@ show the states a slow mail server produces: `?slow=8000` delays opening a messa
 
 ## What it does
 
-- **Focused List** on the Inbox: mail from people as normal rows; Notifications, Newsletters,
+- **Smart view** in the inbox: mail from people as individual conversations, with Notifications, Newsletters,
   Invitations, Invitation responses and Pinned collapsed into one row each, with sender chips.
   Click a group to open its own list (Back or Esc returns). Hover a group to archive all of it.
 - Date sections you can fold (Today, Yesterday, This Week, Last Week, then months, then years), conversation threading with a
@@ -42,7 +41,7 @@ show the states a slow mail server produces: `?slow=8000` delays opening a messa
   where there is room. Only MiniMail shows it: it is never sent in mail or to the provider.
   Leave it blank to go back to the address.
 - **Views**, switched with the tabs next to the account dropdown: **Smart** (the default,
-  the Focused List above), **Sender** and **List** (plain, by date). Tab cycles through the
+  with categories), **Sender** and **List** (by date). Tab cycles through the
   tabs, Shift+Tab goes back. Sender adds a panel next to
   the rail with every address the folder has mail from; pick one to list its mail, or group the
   panel by domain and expand a domain to see its senders. Opening a conversation there keeps
@@ -96,7 +95,7 @@ undo, push notifications (it polls every 60 s and on window focus).
 
 ## Categories and AI sorting
 
-Categories are the groups in the Focused List. MiniMail starts with
+Categories group conversations in the inbox’s **Smart** view. MiniMail starts with
 Invitations, Newsletters, Ads, Notifications and Verification codes. Newsletters are strictly
 editorial (news, digests, reading); anything that sells, or announces the sender's own products,
 features or offers, is an Ad even when it reads like news. An existing install gets Ads added
@@ -238,10 +237,10 @@ invitation responses. See the [release guide](macos-release.md) for public build
 ## Layout
 
 ```
-src/shared     types, smart-inbox classifier, threading, Focused List builder, IPC contract (pure, tested)
+src/shared     types, mail classifier, threading, inbox list builder, IPC contract (pure, tested)
 src/main       Electron main: accounts store (keychain), OAuth, IMAP/Graph providers, IPC
 src/preload    the only bridge the page gets (window.minimail)
-src/renderer   React UI; components/ui are copied from Orion; lib/demo.ts is the demo backend
+src/renderer   React interface, shared UI controls in components/ui, demo backend in lib/demo.ts
 ```
 
 How mail is sorted: calendar invites and replies by their MIME type or subject; automated
