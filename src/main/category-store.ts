@@ -140,10 +140,13 @@ export class CategoryStore {
         return icon ? { ...category, icon } : category;
       });
       // Built-in categories added since this file was written appear once; deleting one sticks.
+      // One the user already made under the same name is left alone: two with a name is an error.
       const offered = new Set(parsed.offered ?? LEGACY_DEFAULT_IDS);
-      const added = DEFAULT_CATEGORIES.filter(
-        (category) => !offered.has(category.id) && !this.list.some((existing) => existing.id === category.id),
-      );
+      const taken = (category: Category) =>
+        this.list.some(
+          (existing) => existing.id === category.id || existing.name.trim().toLowerCase() === category.name.toLowerCase(),
+        );
+      const added = DEFAULT_CATEGORIES.filter((category) => !offered.has(category.id) && !taken(category));
       const migrate = added.length > 0 || parsed.offered === undefined;
       this.list = [...this.list, ...added.map((category) => ({ ...category }))];
       for (const [key, value] of Object.entries(parsed.classifications)) {

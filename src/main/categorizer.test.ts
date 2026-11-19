@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { defaultCategories } from "@shared/categories";
+import { LEGACY_DEFAULT_IDS, defaultCategories } from "@shared/categories";
 import type { MessageSummary } from "@shared/types";
 
 import { Categorizer } from "./categorizer";
@@ -74,8 +74,8 @@ describe("Jev request", () => {
   it("offers each category by name with its criteria, plus a none option", () => {
     const { questions, optionToId } = buildClassificationRequest(input, categories);
     const options = Object.keys(questions.category.criteria);
-    expect(options).toEqual(["Invitations", "Newsletters", "Ads", "Notifications", "Verification codes", "None of these"]);
-    expect(questions.category.criteria["Verification codes"]).toBe(categories[4].criteria);
+    expect(options).toEqual(["Invitations", "Notifications", "Verification codes", "Receipts", "Newsletters", "Ads", "None of these"]);
+    expect(questions.category.criteria["Verification codes"]).toBe(categories[2].criteria);
     expect(optionToId.get("Newsletters")).toBe("newsletters");
     expect(optionToId.has("None of these")).toBe(false);
   });
@@ -149,7 +149,7 @@ describe("stores", () => {
   it("falls back to the defaults when the file is corrupt", () => {
     const path = join(dir, "categories.json");
     writeFileSync(path, "{ not json");
-    expect(new CategoryStore(path).categories()).toHaveLength(5);
+    expect(new CategoryStore(path).categories()).toHaveLength(6);
   });
 
   it("keeps a category's chosen icon, and gives older saved built-ins theirs", () => {
@@ -182,7 +182,30 @@ describe("stores", () => {
     const path = join(dir, "categories.json");
     const custom = [{ id: "x", name: "Receipts", criteria: "Purchase receipts.", hue: 40 }];
     writeFileSync(path, JSON.stringify({ version: 1, categories: custom, classifications: {} }));
+    // The user's own "Receipts" stays the only one: a second with that name would be an error.
     expect(new CategoryStore(path).categories().map((c) => c.id)).toEqual(["x", "ads"]);
+  });
+
+  it("adds Receipts once to a file saved before it existed, and keeps it deleted afterwards", () => {
+    const path = join(dir, "categories.json");
+    const legacy = defaultCategories().filter((c) => c.id !== "receipts");
+    writeFileSync(
+      path,
+      JSON.stringify({ version: 1, categories: legacy, offered: legacy.map((c) => c.id), classifications: {} }),
+    );
+
+    const upgraded = new CategoryStore(path);
+    expect(upgraded.categories().map((c) => c.id)).toEqual([...legacy.map((c) => c.id), "receipts"]);
+
+    upgraded.setCategories(upgraded.categories().filter((c) => c.id !== "receipts"));
+    expect(new CategoryStore(path).categories().some((c) => c.id === "receipts")).toBe(false);
+  });
+
+  it("does not add Receipts next to the user's own category of that name (different id)", () => {
+    const path = join(dir, "categories.json");
+    const mine = [{ id: "mine", name: "receipts", criteria: "Purchase receipts.", hue: 40 }];
+    writeFileSync(path, JSON.stringify({ version: 1, categories: mine, offered: [...LEGACY_DEFAULT_IDS], classifications: {} }));
+    expect(new CategoryStore(path).categories().map((c) => c.id)).toEqual(["mine", "ads"]);
   });
 
   it("remembers trusted senders encrypted, one entry per address, and forgets them on request", () => {

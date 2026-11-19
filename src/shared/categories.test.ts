@@ -36,14 +36,15 @@ function msg(overrides: Partial<MessageSummary> & { id: string }): MessageSummar
 }
 
 describe("default categories", () => {
-  it("ships invitations, newsletters, ads, notifications and verification codes, all with criteria", () => {
+  it("ships invitations, notifications, verification codes, receipts, newsletters and ads, in that order, all with criteria", () => {
     const categories = defaultCategories();
     expect(categories.map((c) => c.name)).toEqual([
       "Invitations",
-      "Newsletters",
-      "Ads",
       "Notifications",
       "Verification codes",
+      "Receipts",
+      "Newsletters",
+      "Ads",
     ]);
     expect(categoryProblems(categories)).toEqual([]);
   });

@@ -15,7 +15,7 @@ export const NO_CATEGORY_NAME = "None of these";
 /**
  * Categories every install starts with. They are ordinary categories: the user can rewrite
  * their criteria, rename them or delete them. Ids are stable so the rule-based fallback can
- * find them.
+ * find them. The order is the order they are listed in.
  */
 export const DEFAULT_CATEGORIES: readonly Category[] = [
   {
@@ -25,6 +25,30 @@ export const DEFAULT_CATEGORIES: readonly Category[] = [
     icon: "CalendarPlus",
     criteria:
       "Calendar invitations and event or meeting responses: someone inviting the recipient to a meeting, call or event; updated or cancelled invitations; and accept, decline or tentative replies to an invitation.",
+  },
+  {
+    id: "notifications",
+    name: "Notifications",
+    hue: 150,
+    icon: "Bell",
+    criteria:
+      "Automated messages triggered by activity in an app or service: alerts, order and shipping updates, billing or security notices, comments and mentions, build or deploy results. Receipts and invoices belong in Receipts. Not written by a person to the recipient, and not a one-time code (those are Verification codes).",
+  },
+  {
+    id: "verification-codes",
+    name: "Verification codes",
+    hue: 35,
+    icon: "KeyRound",
+    criteria:
+      "Emails whose main purpose is delivering a one-time code or link so the recipient can sign in, reset a password or verify their email address or identity: OTP and 2FA codes, magic links, confirm-your-email messages.",
+  },
+  {
+    id: "receipts",
+    name: "Receipts",
+    hue: 95,
+    icon: "Receipt",
+    criteria:
+      "Proof-of-purchase mail, tickets and package tracking updates: receipts, invoices, payment confirmations, order confirmations, subscription renewals and billing statements, refund confirmations, travel and events tickets and confirmations, updates on package tracking. They belong here even though they are automated. Do not include marketing about a purchase.",
   },
   {
     id: "newsletters",
@@ -42,26 +66,10 @@ export const DEFAULT_CATEGORIES: readonly Category[] = [
     criteria:
       "Mail that tries to sell something or promote the sender's own company: promotions, discounts, sales and offers, product launches, new features or \"what's new\" announcements, upgrade or win-back pitches, event or webinar promotion, cold outreach. Even when written like news, a company announcing its own products is an Ad. Usually bulk mail with an unsubscribe link.",
   },
-  {
-    id: "notifications",
-    name: "Notifications",
-    hue: 150,
-    icon: "Bell",
-    criteria:
-      "Automated messages triggered by activity in an app or service: alerts, receipts and invoices, order and shipping updates, billing or security notices, comments and mentions, build or deploy results. Not written by a person to the recipient, and not a one-time code (those are Verification codes).",
-  },
-  {
-    id: "verification-codes",
-    name: "Verification codes",
-    hue: 35,
-    icon: "KeyRound",
-    criteria:
-      "Emails whose main purpose is delivering a one-time code or link so the recipient can sign in, reset a password or verify their email address or identity: OTP and 2FA codes, magic links, confirm-your-email messages.",
-  },
 ];
 
 /**
- * The default ids that existed before "ads" was added. A saved file with no record of which
+ * The default ids that existed before "ads" (and later "receipts") was added. A saved file with no record of which
  * defaults it has already been offered is treated as having been offered exactly these.
  */
 export const LEGACY_DEFAULT_IDS: readonly string[] = [
