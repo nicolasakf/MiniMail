@@ -439,27 +439,15 @@ const SLOW_AFTER_MS = 5_000;
 /** After this long the view stops waiting and offers a retry (the download carries on behind it). */
 const GIVE_UP_AFTER_MS = 60_000;
 
-/** The card standing in for a message that has not downloaded yet; the newest one also hints at its body. */
-function MessagePlaceholder({ last }: { last: boolean }) {
+/** Stands in for a message body that has not downloaded yet; the header above it comes from the list. */
+function BodySkeleton() {
   return (
-    <article className={cn("corner-squircle rounded-xl border border-border p-4", last ? "bg-card" : "bg-card/40")}>
-      <div className="flex items-center gap-3">
-        <Skeleton className="size-9 shrink-0 rounded-full" />
-        <div className="min-w-0 flex-1 space-y-2">
-          <Skeleton className="h-3.5 w-[clamp(120px,30%,260px)]" />
-          <Skeleton className="h-3 w-[clamp(80px,18%,160px)]" />
-        </div>
-        <Skeleton className="h-3 w-24 shrink-0" />
-      </div>
-      {last && (
-        <div className="mt-4 space-y-2">
-          <Skeleton className="h-3.5 w-full" />
-          <Skeleton className="h-3.5 w-[92%]" />
-          <Skeleton className="h-3.5 w-[96%]" />
-          <Skeleton className="h-3.5 w-[60%]" />
-        </div>
-      )}
-    </article>
+    <div className="space-y-2 px-4 pb-4" aria-hidden="true">
+      <Skeleton className="h-3.5 w-full" />
+      <Skeleton className="h-3.5 w-[92%]" />
+      <Skeleton className="h-3.5 w-[96%]" />
+      <Skeleton className="h-3.5 w-[60%]" />
+    </div>
   );
 }
 
@@ -478,6 +466,9 @@ function LoadingNote({ slow }: { slow: boolean }) {
     </p>
   );
 }
+
+/** In a long conversation, only this many of the newest messages are listed; the rest fold into one row. */
+const FOLD_KEEP = 5;
 
 /** Full conversation: toolbar, subject, and each message (older ones collapsed). */
 export function ThreadView({
@@ -507,6 +498,8 @@ export function ThreadView({
   /** Bumped by "Try again" to run the download again. */
   const [attempt, setAttempt] = useState(0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /** Whether the messages before the last `FOLD_KEEP` are listed, or folded into one row. */
+  const [showEarlier, setShowEarlier] = useState(false);
   const markedRead = useRef(false);
   const openedAt = useRef(mailActions.manualVersion);
 
@@ -517,7 +510,12 @@ export function ThreadView({
     setLoaded(new Map());
     setFinished(false);
     setError(null);
-    setExpanded(new Set());
+    // Open the newest message and anything unread; keep the rest collapsed.
+    setExpanded(
+      new Set(thread.messages.filter((message, index, all) => index === all.length - 1 || message.unread).map((message) => message.id)),
+    );
+    // Older messages stay folded, unless one of them is unread: that one must not be hidden.
+    setShowEarlier(thread.messages.slice(0, -FOLD_KEEP).some((message) => message.unread));
     // The "slow" notice counts from the last arrival, so it only shows while the server is stuck.
     let slowTimer: ReturnType<typeof setTimeout> | undefined;
     const waitForServer = () => {
@@ -527,7 +525,6 @@ export function ThreadView({
     };
     waitForServer();
     const asked = performance.now();
-    const newestId = thread.messages[thread.messages.length - 1]?.id;
     if (import.meta.env.DEV) console.log(`[perf] open conversation: asking for ${thread.messages.length} message(s), newest first`);
     void (async () => {
       try {
@@ -545,8 +542,6 @@ export function ThreadView({
           }
           if (!detail) continue;
           setLoaded((known) => new Map(known).set(detail.id, detail));
-          // Open the newest message and anything unread; keep the rest collapsed.
-          if (detail.id === newestId || detail.unread) setExpanded((open) => new Set(open).add(detail.id));
         }
         clearTimeout(slowTimer);
         setSlow(false);
@@ -584,6 +579,8 @@ export function ThreadView({
     if (thread.unread && !mailActions.manuallyUnreadSince(thread.id, openedAt.current)) onAction("markRead");
   }, [details, thread.id, thread.unread, onAction, mailActions]);
 
+  /** How many of the oldest messages are folded into the "Show earlier" row. */
+  const foldedCount = showEarlier ? 0 : Math.max(0, thread.messages.length - FOLD_KEEP);
   const latest = details[details.length - 1];
   const actions = useMemo(() => actionsForThread(folder, thread), [folder, thread]);
   const owner = accountFor(accounts, thread.accountId);
@@ -832,17 +829,26 @@ export function ThreadView({
             )}
 
             <div className="space-y-3" aria-busy={!finished && !error}>
+              {foldedCount > 0 && (
+                <button
+                  type="button"
+                  className="corner-squircle flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card/40 p-3 text-sm text-muted-foreground hover:bg-card/70"
+                  onClick={() => setShowEarlier(true)}
+                >
+                  <ChevronDown className="size-4" />
+                  Show {foldedCount} earlier {foldedCount === 1 ? "message" : "messages"}
+                </button>
+              )}
               {thread.messages.map((summary, index) => {
+                if (index < foldedCount) return null;
+                // The header comes from the list, so it is there at once; the body and the cc line arrive with the download.
                 const message = loaded.get(summary.id);
-                if (!message) {
-                  return finished || error ? null : (
-                    <MessagePlaceholder key={summary.id} last={index === thread.messages.length - 1} />
-                  );
-                }
-                const open = expanded.has(message.id);
+                const header = message ?? summary;
+                const copied = message?.cc ?? [];
+                const open = expanded.has(summary.id);
                 return (
                   <article
-                    key={message.id}
+                    key={summary.id}
                     className={cn(
                       "corner-squircle rounded-xl border border-border",
                       open ? "bg-card" : "bg-card/40 hover:bg-card/70",
@@ -854,44 +860,48 @@ export function ThreadView({
                       tabIndex={0}
                       aria-expanded={open}
                       className="flex w-full cursor-pointer items-center gap-3 p-4 text-left"
-                      onClick={() => toggle(message.id)}
+                      onClick={() => toggle(summary.id)}
                       onKeyDown={(event) => {
                         if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
                         event.preventDefault();
-                        toggle(message.id);
+                        toggle(summary.id);
                       }}
                     >
-                      <SenderAvatar contact={message.from} size={36} logo={logoRequestFor(message)} />
+                      <SenderAvatar contact={header.from} size={36} logo={logoRequestFor(header)} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-2">
-                          {card(message.from, contactLabel(message.from), logoRequestFor(message), "min-w-0 truncate font-semibold")}
-                          {isBlockedAddress(blockList, message.from.email) && (
+                          {card(header.from, contactLabel(header.from), logoRequestFor(header), "min-w-0 truncate font-semibold")}
+                          {isBlockedAddress(blockList, header.from.email) && (
                             <span title="Blocked" className="flex shrink-0 self-center">
                               <ShieldBan aria-label="Blocked" className="size-3.5 text-red-400" />
                             </span>
                           )}
-                          {card(message.from, message.from.email, logoRequestFor(message), "min-w-0 truncate text-xs text-muted-foreground")}
+                          {card(header.from, header.from.email, logoRequestFor(header), "min-w-0 truncate text-xs text-muted-foreground")}
                         </div>
                         <div className="flex flex-wrap items-baseline gap-x-1 text-xs text-muted-foreground">
                           <span>to</span>
-                          {message.to.length === 0 && <span>me</span>}
-                          {recipients(message.to)}
-                          {message.cc.length > 0 && <span>, cc</span>}
-                          {recipients(message.cc)}
-                        </div>                      </div>
-                      {message.attachments.length > 0 && (
+                          {header.to.length === 0 && <span>me</span>}
+                          {recipients(header.to)}
+                          {copied.length > 0 && <span>, cc</span>}
+                          {recipients(copied)}
+                        </div>
+                      </div>
+                      {(message ? message.attachments.length > 0 : summary.hasAttachments) && (
                         <Paperclip className="size-4 shrink-0 text-muted-foreground" />
                       )}
                       <span className="shrink-0 text-xs text-muted-foreground">
-                        {formatFullDate(message.date)}
+                        {formatFullDate(header.date)}
                       </span>
                     </div>
 
-                    {open && (
-                      <div className="space-y-4 px-4 pb-4">
-                        <MessageBody message={message} />
-                      </div>
-                    )}
+                    {open &&
+                      (message ? (
+                        <div className="space-y-4 px-4 pb-4">
+                          <MessageBody message={message} />
+                        </div>
+                      ) : (
+                        !finished && !error && <BodySkeleton />
+                      ))}
                   </article>
                 );
               })}
