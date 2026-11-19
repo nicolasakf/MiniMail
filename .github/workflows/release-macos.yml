@@ -39,7 +39,6 @@ jobs:
         env:
           MINIMAIL_RELEASE_GOOGLE_CLIENT_ID: ${{ vars.MINIMAIL_GOOGLE_CLIENT_ID }}
           MINIMAIL_RELEASE_GOOGLE_CLIENT_SECRET: ${{ secrets.MINIMAIL_GOOGLE_CLIENT_SECRET }}
-          MINIMAIL_RELEASE_MICROSOFT_CLIENT_ID: ${{ vars.MINIMAIL_MICROSOFT_CLIENT_ID }}
       - name: Sign and notarize the app and disk image
         env:
           CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}

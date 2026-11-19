@@ -51,10 +51,17 @@ const polling = new Polling(Date.now, (online) =>
   ),
 );
 
+/**
+ * MiniMail's Microsoft Entra application (client) ID. It is public by design: the sign-in is
+ * authorization code + PKCE with no client secret, and the ID only tells Microsoft which app is asking.
+ * A fork can use its own registration with `MAIN_VITE_MICROSOFT_CLIENT_ID` in `.env.local` (not in release builds).
+ */
+const MICROSOFT_CLIENT_ID = "b55c1c24-7074-4f8b-ad43-fe14a98c7da4";
+
 const oauthConfig: OAuthConfig = {
   googleClientId: import.meta.env.MAIN_VITE_GOOGLE_CLIENT_ID,
   googleClientSecret: import.meta.env.MAIN_VITE_GOOGLE_CLIENT_SECRET,
-  microsoftClientId: import.meta.env.MAIN_VITE_MICROSOFT_CLIENT_ID,
+  microsoftClientId: import.meta.env.MAIN_VITE_MICROSOFT_CLIENT_ID || MICROSOFT_CLIENT_ID,
 };
 
 // Nothing may fail unseen. These catch what no one wrote a catch for; the journal (once installed)

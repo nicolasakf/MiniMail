@@ -30,4 +30,4 @@ npm run dev        # the desktop app
 npm run dev:web    # the UI alone, with demo data and no accounts
 ```
 
-Google and Microsoft sign-in in a development build needs your own OAuth client ids in `.env.local` (see [`.env.example`](.env.example)). The rest is in the [guide](docs/guide.md): adding accounts, OAuth setup, AI sorting (it needs your own key), shortcuts and privacy.
+Microsoft sign-in works out of the box; Google sign-in in a development build needs your own OAuth client id in `.env.local` (see [`.env.example`](.env.example)). The rest is in the [guide](docs/guide.md): adding accounts, OAuth setup, AI sorting (it needs your own key), shortcuts and privacy.

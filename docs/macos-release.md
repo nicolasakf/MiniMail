@@ -36,10 +36,12 @@ personal accounts. Organization-level app approval can still apply.
 | --- | --- |
 | Repository variable `MINIMAIL_GOOGLE_CLIENT_ID` | Google **Desktop app** OAuth client ID. |
 | Repository secret `MINIMAIL_GOOGLE_CLIENT_SECRET` | Companion credential from the Google desktop client. Google treats installed apps as public clients, and the value is extractable from the installer. Use a dedicated desktop registration. |
-| Repository variable `MINIMAIL_MICROSOFT_CLIENT_ID` | Microsoft Entra Application (client) ID. |
+
+Microsoft needs no setting: its Entra client ID is public (PKCE, no secret) and is built
+into the app (`MICROSOFT_CLIENT_ID` in `src/main/index.ts`).
 
 The workflow passes these settings only to the build step. For a local release
-build, the equivalent process variables are `MINIMAIL_RELEASE_GOOGLE_CLIENT_ID`,
-`MINIMAIL_RELEASE_GOOGLE_CLIENT_SECRET`, and `MINIMAIL_RELEASE_MICROSOFT_CLIENT_ID`.
-Release mode ignores local `.env.local` OAuth settings. If a provider's release
-settings are missing, browser sign-in for that provider is unavailable.
+build, the equivalent process variables are `MINIMAIL_RELEASE_GOOGLE_CLIENT_ID` and
+`MINIMAIL_RELEASE_GOOGLE_CLIENT_SECRET`.
+Release mode ignores local `.env.local` OAuth settings. If the Google release
+settings are missing, browser sign-in for Google is unavailable.

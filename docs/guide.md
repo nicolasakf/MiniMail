@@ -225,8 +225,9 @@ an invitation or from the account's connection options.
 For a development build, put your OAuth settings in `.env.local` using
 [`.env.example`](../.env.example). For Google, create a **Desktop app** OAuth
 client in Google Cloud. An external consent screen in Testing issues Gmail
-refresh tokens that expire after seven days. For Microsoft, register an app
-with **Accounts in any organizational directory and personal Microsoft
+refresh tokens that expire after seven days. Microsoft sign-in works out of the
+box with MiniMail's built-in (public) client ID; to use your own, set
+`MAIN_VITE_MICROSOFT_CLIENT_ID` and register an app with **Accounts in any organizational directory and personal Microsoft
 accounts** and add `http://localhost` under **Mobile and desktop applications**.
 Configure delegated Graph permissions `User.Read`, `Mail.ReadWrite`,
 `Mail.Send`, and `offline_access`. Add `Calendars.ReadWrite` for optional
