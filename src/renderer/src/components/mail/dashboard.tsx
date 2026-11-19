@@ -31,11 +31,15 @@ import type {
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SHOWN_FOLDERS } from "@/hooks/use-mailbox";
+import { SHOWN_FOLDERS, type AccountScope } from "@/hooks/use-mailbox";
 
 import { AccountMark } from "./account-mark";
 import { CategoryIcon } from "./category-icon";
-import { FolderFilterGroup, RefreshButton } from "./list-header";
+import {
+  AccountSwitcher,
+  FolderFilterGroup,
+  RefreshButton,
+} from "./list-header";
 import {
   ACCENT,
   BarList,
@@ -53,6 +57,7 @@ import {
   weekdayName,
   type BarRow,
   type Column,
+  type LegendEntry,
   type Slice,
 } from "./dashboard-charts";
 import { SenderAvatar } from "./sender-avatar";
@@ -81,6 +86,18 @@ const FLAG_LABELS: Record<DashboardFlag, string> = {
 /** Volume chart series: read in the regular blue, unread in amber. */
 const UNREAD_COLOR = "hsl(var(--chart-unread))";
 const READ_COLOR = ACCENT;
+/** The mail mix series: mail from people in the regular blue, automated and bulk mail in gray. */
+const PEOPLE_COLOR = ACCENT;
+const AUTOMATED_COLOR = "hsl(var(--muted-foreground) / 0.45)";
+
+/** What the stacked bars of the volume chart are split by. */
+export type VolumeGrouping = "read" | "category" | "mix";
+
+const VOLUME_GROUPINGS: readonly { grouping: VolumeGrouping; label: string }[] = [
+  { grouping: "read", label: "Read" },
+  { grouping: "category", label: "Category" },
+  { grouping: "mix", label: "Mail mix" },
+];
 
 const TOP_SHOWN = 8;
 const TOP_EXPANDED = 20;
@@ -138,8 +155,15 @@ interface DashboardProps {
   categories: readonly Category[];
   loading: boolean;
   errors: readonly AccountError[];
+  /** Which account the charts count: one, or all of them. */
+  scope: AccountScope;
+  onScopeChange: (scope: AccountScope) => void;
+  onManageAccounts: () => void;
   range: DashboardRange;
   onRangeChange: (range: DashboardRange) => void;
+  /** What the volume chart's bars are split by; kept by the parent so it survives opening a list. */
+  volumeBy: VolumeGrouping;
+  onVolumeByChange: (grouping: VolumeGrouping) => void;
   onOpen: (selection: DashboardSelection) => void;
   onRefresh: () => void;
   /** The folders whose mail the statistics count. */
@@ -154,8 +178,13 @@ export function Dashboard({
   categories,
   loading,
   errors,
+  scope,
+  onScopeChange,
+  onManageAccounts,
   range,
   onRangeChange,
+  volumeBy,
+  onVolumeByChange,
   onOpen,
   onRefresh,
   shownFolders,
@@ -169,12 +198,13 @@ export function Dashboard({
       receivedMail(
         messages.filter(
           (message) =>
-            !SHOWN_FOLDERS.includes(message.folder as ShownFolder) ||
-            shownFolders.includes(message.folder as ShownFolder),
+            (scope === "all" || message.accountId === scope) &&
+            (!SHOWN_FOLDERS.includes(message.folder as ShownFolder) ||
+              shownFolders.includes(message.folder as ShownFolder)),
         ),
         accounts.map((account) => account.email),
       ),
-    [messages, accounts, shownFolders],
+    [messages, accounts, shownFolders, scope],
   );
   // "Today" moves on with each refresh of the data.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -205,36 +235,94 @@ export function Dashboard({
       ? "No category"
       : (categoryById.get(id)?.name ?? "Removed category");
 
+  const categoryEntries = stats.categories.map((entry) => {
+    const category =
+      entry.categoryId === null
+        ? undefined
+        : categoryById.get(entry.categoryId);
+    return {
+      id: entry.categoryId,
+      name: categoryName(entry.categoryId),
+      color: categoryColor(category),
+    };
+  });
+
+  const volumeLegend: LegendEntry[] =
+    volumeBy === "read"
+      ? [
+          { label: "Unread", color: UNREAD_COLOR },
+          { label: "Read", color: READ_COLOR },
+        ]
+      : volumeBy === "mix"
+        ? [
+            { label: "From people", color: PEOPLE_COLOR },
+            { label: "Automated & bulk", color: AUTOMATED_COLOR },
+          ]
+        : categoryEntries.map((entry) => ({
+            label: entry.name,
+            color: entry.color,
+          }));
+
   const columns: Column[] = stats.timeline.map((bucket) => {
     const title = bucketTitle(bucket, stats.timeUnit);
-    const pick = (unread?: boolean) => () =>
+    const range = { start: bucket.start, end: bucket.end };
+    const pick = (
+      part?: { unread?: boolean; categoryId?: string | null; people?: boolean },
+      partName?: string,
+    ) => () =>
       open(
-        { kind: "time", start: bucket.start, end: bucket.end, unread },
-        unread === undefined
-          ? title
-          : `${title} · ${unread ? "unread" : "read"}`,
+        { kind: "time", ...range, ...part },
+        partName === undefined ? title : `${title} · ${partName}`,
         "Mail volume",
       );
+    // The first segment sits on the baseline: with unread first it is the part worth comparing
+    // from bucket to bucket; by category, the biggest category.
+    const segments: Column["segments"] =
+      volumeBy === "read"
+        ? [
+            {
+              key: "unread",
+              label: "Unread",
+              value: bucket.unread,
+              color: UNREAD_COLOR,
+              onPick: pick({ unread: true }, "unread"),
+            },
+            {
+              key: "read",
+              label: "Read",
+              value: bucket.count - bucket.unread,
+              color: READ_COLOR,
+              onPick: pick({ unread: false }, "read"),
+            },
+          ]
+        : volumeBy === "mix"
+          ? [
+              {
+                key: "people",
+                label: "From people",
+                value: bucket.people,
+                color: PEOPLE_COLOR,
+                onPick: pick({ people: true }, "from people"),
+              },
+              {
+                key: "automated",
+                label: "Automated & bulk",
+                value: bucket.count - bucket.people,
+                color: AUTOMATED_COLOR,
+                onPick: pick({ people: false }, "automated & bulk"),
+              },
+            ]
+          : categoryEntries.map((entry) => ({
+              key: entry.id ?? "none",
+              label: entry.name,
+              value: bucket.categories.get(entry.id) ?? 0,
+              color: entry.color,
+              onPick: pick({ categoryId: entry.id }, entry.name),
+            }));
     return {
       key: String(bucket.start),
       title,
-      // Unread sits on the baseline: it is the part worth comparing from bucket to bucket.
-      segments: [
-        {
-          key: "unread",
-          label: "Unread",
-          value: bucket.unread,
-          color: UNREAD_COLOR,
-          onPick: pick(true),
-        },
-        {
-          key: "read",
-          label: "Read",
-          value: bucket.count - bucket.unread,
-          color: READ_COLOR,
-          onPick: pick(false),
-        },
-      ],
+      segments,
       axisLabel: bucketAxis(bucket, stats.timeUnit, stats.timeline.length),
       onPick: pick(),
     };
@@ -359,6 +447,17 @@ export function Dashboard({
       <header className="electron-window-drag flex h-16 shrink-0 items-end justify-between gap-4 px-8 pb-3 pt-3">
         <div className="electron-no-drag -ml-2 flex min-w-0 items-center gap-4 px-2">
           <h1 className="shrink-0 text-base font-semibold">Dashboard</h1>
+          <AccountSwitcher
+            accounts={accounts}
+            scope={scope}
+            onScopeChange={onScopeChange}
+            onManageAccounts={onManageAccounts}
+          />
+          <RefreshButton
+            className="-mx-2"
+            onRefresh={onRefresh}
+            refreshing={loading}
+          />
           <Tabs
             value={range}
             onValueChange={(next) => onRangeChange(next as DashboardRange)}
@@ -375,7 +474,6 @@ export function Dashboard({
               ))}
             </TabsList>
           </Tabs>
-          <RefreshButton className="-ml-2" onRefresh={onRefresh} refreshing={loading} />
         </div>
         <div className="electron-no-drag flex min-w-0 items-center gap-3">
           <span className="hidden truncate text-xs text-muted-foreground lg:inline">
@@ -460,18 +558,33 @@ export function Dashboard({
               subtitle={TIMELINE_SUBTITLE[range]}
               className="col-span-12 xl:col-span-8"
               action={
-                <span className="text-xs tabular-nums text-muted-foreground">
-                  {formatCount(stats.total)} total
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {formatCount(stats.total)} total
+                  </span>
+                  <Tabs
+                    value={volumeBy}
+                    onValueChange={(next) => onVolumeByChange(next as VolumeGrouping)}
+                  >
+                    <TabsList aria-label="Group bars by" className="h-8 shrink-0">
+                      {VOLUME_GROUPINGS.map((option) => (
+                        <TabsTrigger
+                          key={option.grouping}
+                          value={option.grouping}
+                          className="h-6 py-0 text-xs"
+                        >
+                          {option.label}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+                </div>
               }
             >
               <ColumnChart
                 columns={columns}
                 ariaLabel={TIMELINE_SUBTITLE[range]}
-                legend={[
-                  { label: "Unread", color: UNREAD_COLOR },
-                  { label: "Read", color: READ_COLOR },
-                ]}
+                legend={volumeLegend}
               />
             </ChartCard>
 
@@ -585,7 +698,7 @@ export function Dashboard({
               </div>
             </ChartCard>
 
-            {accounts.length > 1 && (
+            {accounts.length > 1 && scope === "all" && (
               <ChartCard
                 title="By account"
                 subtitle={rangeLabel}

@@ -341,18 +341,8 @@ export function ColumnChart({
   const every = Math.max(1, Math.ceil(columns.length / 8));
 
   return (
-    <div className="flex flex-col" role="group" aria-label={ariaLabel}>
-      {legend && legend.length > 1 && (
-        <div className="mb-3 ml-8 flex items-center gap-4 text-xs text-muted-foreground">
-          {legend.map((entry) => (
-            <span key={entry.label} className="flex items-center gap-1.5">
-              <span className="size-2.5 rounded-[3px]" style={{ background: entry.color }} />
-              {entry.label}
-            </span>
-          ))}
-        </div>
-      )}
-      <div className="flex h-48">
+    <div className="flex flex-1 flex-col" role="group" aria-label={ariaLabel}>
+      <div className="flex min-h-48 flex-1">
         <div className="relative w-8 shrink-0">
           {ticks.map((tick) => (
             <span
@@ -390,6 +380,16 @@ export function ColumnChart({
           </span>
         ))}
       </div>
+      {legend && legend.length > 1 && (
+        <div className="mt-3 ml-8 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {legend.map((entry) => (
+            <span key={entry.label} className="flex items-center gap-1.5">
+              <span className="size-2.5 rounded-[3px]" style={{ background: entry.color }} />
+              {entry.label}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

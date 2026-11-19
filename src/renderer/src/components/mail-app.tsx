@@ -22,10 +22,11 @@ import { dropFolderDuplicates, matchesDrill, receivedMail, type DashboardRange }
 import { isPriorityEntry, isPriorityThread, priorityInbox, PRIORITY_GROUP, PRIORITY_GROUP_DEF } from "@shared/priority";
 import { buildSenders, threadsFromDomain, threadsFromSender } from "@shared/sender-list";
 import { conversationFolder, groupThreads, MOVE_DESTINATION, withRelatedMessages, type Thread } from "@shared/threads";
+import type { OpenConversationRequest } from "@shared/notifications";
 import type { Contact, MailAction, MailFolder, MessageSummary, ShownFolder, UiPrefs } from "@shared/types";
 
 import { Composer } from "@/components/mail/composer";
-import { Dashboard, type DashboardSelection } from "@/components/mail/dashboard";
+import { Dashboard, type DashboardSelection, type VolumeGrouping } from "@/components/mail/dashboard";
 import { FocusedList } from "@/components/mail/focused-list";
 import { ScheduledMail } from "@/components/mail/scheduled-mail";
 import { categoryMenuIcon } from "@/components/mail/category-icon";
@@ -114,6 +115,18 @@ function idsForAction(action: MailAction, thread: Thread): string[] {
 
 const PINNED_COLLAPSED_KEY = "minimail.pinnedCollapsed";
 const MINIMIZED_EXPANDED_KEY = "minimail.minimizedExpanded";
+const COLLAPSED_DATES_KEY = "minimail.collapsedDateSections";
+
+/** The date headings (Today, This Week, October, ...) the user folded last time; never throws. */
+function readCollapsedDates(): Set<string> {
+  try {
+    const stored: unknown = JSON.parse(window.localStorage.getItem(COLLAPSED_DATES_KEY) ?? "[]");
+    return new Set(Array.isArray(stored) ? stored.filter((key): key is string => typeof key === "string") : []);
+  } catch (error) {
+    reportError("storage", "Could not read the folded sections", error);
+    return new Set();
+  }
+}
 
 /** Whether the user unfolded the Minimized heading last time (it starts folded); never throws. */
 function readMinimizedExpanded(): boolean {
@@ -137,7 +150,6 @@ function readPinnedCollapsed(): boolean {
 
 /** How long a first press of a destructive shortcut waits for its confirming second press. */
 const CONFIRM_WINDOW_MS = 3000;
-const CONFIRM_TOAST_ID = "confirm-shortcut";
 
 /** A destructive shortcut that has been pressed once and is waiting for the same key again. */
 interface PendingConfirm {
@@ -199,6 +211,7 @@ export function MailApp() {
     setFolder,
     threads: allThreads,
     loading,
+    syncing,
     errors,
     query,
     setQuery,
@@ -237,6 +250,7 @@ export function MailApp() {
   const [screen, setScreen] = useState<"mail" | "dashboard">("mail");
   const onDashboard = screen === "dashboard";
   const [dashboardRange, setDashboardRange] = useState<DashboardRange>("30d");
+  const [volumeBy, setVolumeBy] = useState<VolumeGrouping>("read");
   /** What a Dashboard click picked; its mail is listed instead of the charts. */
   const [drill, setDrill] = useState<DashboardSelection | null>(null);
   /** The mail behind a Dashboard click is on screen, as a list like the Inbox's. */
@@ -265,7 +279,13 @@ export function MailApp() {
           : listFolder,
     [listFolder, held],
   );
-  const dashboardMail = useDashboardMail(accounts.length, onDashboard, actions, actionVersion);
+  const dashboardMail = useDashboardMail(
+    accounts.length,
+    onDashboard,
+    actions,
+    actionVersion,
+    (id) => accounts.find((account) => account.id === id)?.email ?? id,
+  );
   const { reload: reloadDashboard } = dashboardMail;
   actionChanged.current = () => {
     if (onDashboard) void reloadDashboard(true);
@@ -501,6 +521,7 @@ export function MailApp() {
 
   const [pinnedCollapsed, setPinnedCollapsed] = useState(readPinnedCollapsed);
   const [minimizedExpanded, setMinimizedExpanded] = useState(readMinimizedExpanded);
+  const [collapsedDates, setCollapsedDates] = useState(readCollapsedDates);
   const isMac = useIsMac();
   /** The settings dialog: open or not, the page it opens on, and whether Accounts opens on the add picker. */
   const [settingsDialog, setSettingsDialog] = useState<{ open: boolean; tab: SettingsTab; adding: boolean }>({
@@ -509,7 +530,7 @@ export function MailApp() {
     adding: false,
   });
 
-  // Section boundaries (Today / Yesterday) are recomputed whenever the data changes.
+  // Section boundaries (Today / Yesterday / This Week) are recomputed whenever the data changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const now = useMemo(() => new Date(), [threads]);
 
@@ -556,9 +577,9 @@ export function MailApp() {
     if (!focused || openGroup) {
       // Drafts keep their pinned ones at the top, under a heading, as the Inbox does.
       const pinnedSection = folder === "drafts" && !inDrill ? { collapsed: pinnedCollapsed } : undefined;
-      return { items: buildFlatList(listThreads, now, { pinnedSection }), dockGroups: [] };
+      return { items: buildFlatList(listThreads, now, { pinnedSection, collapsedSections: collapsedDates }), dockGroups: [] };
     }
-    const all = buildFocusedList(threads, { now, categories, pinnedCollapsed });
+    const all = buildFocusedList(threads, { now, categories, pinnedCollapsed, collapsedSections: collapsedDates });
     // Minimized categories leave the category rows (and their place in the keyboard navigation).
     const isDocked = (item: ListItem): item is GroupListItem => item.type === "group" && minimized.has(item.kind);
     const rest: ListItem[] = all.filter((item) => !isDocked(item));
@@ -577,7 +598,7 @@ export function MailApp() {
     const slim = minimizedExpanded ? docked.map((group): ListItem => ({ ...group, slim: true })) : [];
     rest.splice(at < 0 ? rest.length : at, 0, heading, ...slim);
     return { items: rest, dockGroups: docked };
-  }, [focused, openGroup, folder, inDrill, threads, listThreads, now, categories, pinnedCollapsed, minimized, categoryLayout, minimizedExpanded]);
+  }, [focused, openGroup, folder, inDrill, threads, listThreads, now, categories, pinnedCollapsed, collapsedDates, minimized, categoryLayout, minimizedExpanded]);
   const navigable = useMemo(() => items.filter((item) => item.type !== "section"), [items]);
   /** Split view: the selected conversation is read beside the list instead of replacing it. */
   const split = appearance.splitView && !(onDashboard && !drill) && !(accountsLoaded && accounts.length === 0);
@@ -673,6 +694,41 @@ export function MailApp() {
     else setOpenThreadId(threadId);
   }, []);
   useEffect(() => () => clearTimeout(paneTimer.current), []);
+
+  // A clicked notification opens the conversation it was about: leave whatever is on screen for
+  // that folder, then open the conversation as soon as the list holds it (a new message may still be loading).
+  const [pendingOpen, setPendingOpen] = useState<OpenConversationRequest | null>(null);
+  useEffect(
+    () =>
+      api.mail.onOpenConversation((request) => {
+        setScreen("mail");
+        setDrill(null);
+        setOpenGroupKind(null);
+        setChecked(new Set());
+        setQuery("");
+        setSearchOpen(false);
+        setScope("all");
+        setFolder(request.folder);
+        setOpenThreadId(null);
+        setPendingOpen(request);
+        void refresh(true);
+      }),
+    [refresh, setFolder, setQuery, setScope],
+  );
+  useEffect(() => {
+    if (!pendingOpen) return;
+    const id = `${pendingOpen.accountId}:${pendingOpen.threadId}`;
+    if (folder === pendingOpen.folder && !inDrill && allThreads.some((thread) => thread.id === id)) {
+      const row = navigable.find((item) => item.type === "thread" && item.thread.id === id);
+      if (row) setSelectedKey(row.key);
+      showInPane(id);
+      setPendingOpen(null);
+      return;
+    }
+    // The conversation may be gone (moved or deleted since the notification): stop waiting for it.
+    const giveUp = setTimeout(() => setPendingOpen(null), 15_000);
+    return () => clearTimeout(giveUp);
+  }, [pendingOpen, folder, inDrill, allThreads, navigable, showInPane]);
   const selectedThread = selectedItem?.type === "thread" ? selectedItem.thread : undefined;
 
   /** Moves the selection to the nearest row that is not part of `thread`, before it disappears. */
@@ -980,7 +1036,21 @@ export function MailApp() {
       });
       return;
     }
-    if (key !== PINNED_SECTION) return;
+    if (key !== PINNED_SECTION) {
+      // Any other heading is a date section: fold or unfold it, and remember that.
+      setCollapsedDates((previous) => {
+        const next = new Set(previous);
+        if (!next.delete(key)) next.add(key);
+        try {
+          window.localStorage.setItem(COLLAPSED_DATES_KEY, JSON.stringify([...next]));
+        } catch (error) {
+          reportError("storage", "Could not remember the folded sections", error);
+          // Storage is a convenience; the fold still works for this session.
+        }
+        return next;
+      });
+      return;
+    }
     setPinnedCollapsed((previous) => {
       const next = !previous;
       try {
@@ -1573,7 +1643,6 @@ export function MailApp() {
     if (!pendingConfirm.current) return;
     clearTimeout(pendingConfirm.current.timer);
     pendingConfirm.current = null;
-    toast.dismiss(CONFIRM_TOAST_ID);
   }, []);
   useEffect(() => clearPendingConfirm, [clearPendingConfirm]);
 
@@ -1694,8 +1763,8 @@ export function MailApp() {
         actOnThread(action, target);
         if (fullOpen && action === "deleteForever") setOpenThreadId(null);
       };
-      /** Archive, trash, spam and delete need the same key twice: the first press only asks. */
-      const confirmThenAct = (action: MailAction, message: (key: string) => string) => {
+      /** Archive, trash and spam need the same key twice within a few seconds: the first press only arms it. */
+      const confirmThenAct = (action: MailAction) => {
         if (!target && !bulk) return;
         const subject = bulk ? `bulk:${[...checked].join(",")}` : (target?.id ?? "");
         const pending = pendingConfirm.current;
@@ -1705,14 +1774,12 @@ export function MailApp() {
           return;
         }
         clearPendingConfirm();
-        const label = event.key.length === 1 ? event.key.toUpperCase() : event.key;
         pendingConfirm.current = {
           key: pressed,
           action,
           threadId: subject,
           timer: setTimeout(clearPendingConfirm, CONFIRM_WINDOW_MS),
         };
-        toast(message(label), { id: CONFIRM_TOAST_ID, duration: CONFIRM_WINDOW_MS });
       };
 
       // In the Sender view the panel can have the keyboard: up/down walk the senders, left/right fold
@@ -1828,7 +1895,7 @@ export function MailApp() {
         case "a":
           // In Archive, A is the way back to the inbox and needs no confirmation.
           if (targetFolder === "archive") act_("unarchive");
-          else confirmThenAct("archive", (key) => `Press ${key} again to archive`);
+          else confirmThenAct("archive");
           break;
         case "i":
           // Back to the Inbox from wherever it is (Archive also has A for this). A selection can mix
@@ -1843,12 +1910,12 @@ export function MailApp() {
         case "Delete":
           // Deleting forever has no shortcut (use the button or the menu); in Trash these keys do nothing.
           if (targetFolder !== "trash") {
-            confirmThenAct("trash", (key) => `Press ${key} again to move to Trash`);
+            confirmThenAct("trash");
           }
           break;
         case "s":
           if (targetFolder !== "spam" && targetFolder !== "sent" && targetFolder !== "drafts") {
-            confirmThenAct("spam", (key) => `Press ${key} again to report spam`);
+            confirmThenAct("spam");
           }
           break;
         case "p":
@@ -2203,6 +2270,9 @@ export function MailApp() {
         onOpenSettings={() => setSettingsDialog({ open: true, tab: "appearance", adding: false })}
         aiOff={ai !== null && !ai.configured}
         sorting={ai?.pending ?? 0}
+        syncing={
+          syncing || dashboardMail.syncing ? (allThreads.length === 0 && !onDashboard ? "downloading" : "checking") : undefined
+        }
         retryFor={retryEvent}
       />
 
@@ -2221,10 +2291,15 @@ export function MailApp() {
             categories={categories}
             loading={dashboardMail.loading}
             errors={dashboardMail.errors}
+            scope={scope}
+            onScopeChange={setScope}
+            onManageAccounts={() => openAccounts(false)}
             range={dashboardRange}
             onRangeChange={setDashboardRange}
+            volumeBy={volumeBy}
+            onVolumeByChange={setVolumeBy}
             onOpen={openDrill}
-            onRefresh={() => void reloadDashboard(false)}
+            onRefresh={() => void reloadDashboard(false, true)}
             shownFolders={drillShown}
             onToggleFolder={toggleDrillFolder}
           />
@@ -2270,7 +2345,7 @@ export function MailApp() {
                 scope={scope}
                 onScopeChange={setScope}
                 onManageAccounts={() => openAccounts(false)}
-                onRefresh={() => void reloadDashboard(false)}
+                onRefresh={() => void reloadDashboard(false, true)}
                 refreshing={dashboardMail.loading}
                 {...headerActions}
               />

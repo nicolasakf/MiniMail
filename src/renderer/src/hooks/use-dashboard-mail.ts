@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { MAIL_WINDOW } from "@shared/mail-window";
-import type { AccountError, MailFolder, MessageSummary } from "@shared/types";
+import { refreshSummary } from "@shared/list-changes";
+import type { AccountError, ListChange, MailFolder, MessageSummary } from "@shared/types";
 
 import { api } from "@/lib/api";
+import { recordInfo } from "@/lib/events";
 import type { MailActions } from "@/lib/mail-actions";
 
 /** Every folder received mail can be in: the same tabs the rail offers. */
@@ -24,15 +26,27 @@ function flatten(byFolder: Map<MailFolder, MessageSummary[]>): MessageSummary[] 
  * while `active`, paints the copy on disk first, then the servers' answer,
  * and reloads quietly whenever the main process reports changed mail.
  */
-export function useDashboardMail(accountCount: number, active: boolean, actions: MailActions, actionVersion: number) {
+export function useDashboardMail(
+  accountCount: number,
+  active: boolean,
+  actions: MailActions,
+  actionVersion: number,
+  /** The address shown for an account in the Log line of a refresh. */
+  labelOf: (accountId: string) => string,
+) {
+  const label = useRef(labelOf);
+  label.current = labelOf;
   const [messages, setMessages] = useState<MessageSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  /** The servers have not answered yet; what is on screen is the copy saved on disk. */
+  const [syncing, setSyncing] = useState(false);
   const [errors, setErrors] = useState<AccountError[]>([]);
   const ticket = useRef(0);
   const snapshot = useRef(0);
 
   const load = useCallback(
-    async (silent: boolean) => {
+    /** `refreshed` is the refresh button: it also leaves one line in the Log about what changed. */
+    async (silent: boolean, refreshed = false) => {
       const current = ++ticket.current;
       const started = performance.now();
       const stale = () => current !== ticket.current;
@@ -40,10 +54,12 @@ export function useDashboardMail(accountCount: number, active: boolean, actions:
         setMessages([]);
         setErrors([]);
         setLoading(false);
+        setSyncing(false);
         return;
       }
       if (!silent) {
         setLoading(true);
+        setSyncing(true);
         // The disk copy answers at once; it is replaced by the live answer below.
         void Promise.all(
           DASHBOARD_FOLDERS.map((folder) =>
@@ -61,11 +77,13 @@ export function useDashboardMail(accountCount: number, active: boolean, actions:
       const byFolder = new Map<MailFolder, MessageSummary[]>();
       const failures: AccountError[] = [];
       const successful = new Set<MailFolder>();
+      const changed: ListChange[] = [];
       await Promise.all(
         DASHBOARD_FOLDERS.map(async (folder) => {
           try {
-            const result = await api.mail.list({ folder, limit: MAIL_WINDOW });
+            const result = await api.mail.list({ folder, limit: MAIL_WINDOW, changes: refreshed });
             byFolder.set(folder, result.messages);
+            changed.push(...(result.changes ?? []));
             failures.push(...result.errors);
             if (result.errors.length === 0) successful.add(folder);
           } catch (error) {
@@ -75,6 +93,10 @@ export function useDashboardMail(accountCount: number, active: boolean, actions:
         }),
       );
       if (stale()) return;
+      if (refreshed) {
+        const { title, context } = refreshSummary(changed, failures, (id) => label.current(id));
+        recordInfo("refresh", title, "", { context });
+      }
       if (successful.size === DASHBOARD_FOLDERS.length) snapshot.current = started;
       // A folder that failed outright keeps what is on screen rather than emptying the charts.
       setMessages((onScreen) => {
@@ -93,6 +115,7 @@ export function useDashboardMail(accountCount: number, active: boolean, actions:
         }),
       );
       setLoading(false);
+      setSyncing(false);
     },
     [accountCount, actions],
   );
@@ -110,7 +133,7 @@ export function useDashboardMail(accountCount: number, active: boolean, actions:
     () => actions.project(messages, new Set(DASHBOARD_FOLDERS), undefined, () => snapshot.current),
     [actions, actionVersion, messages],
   );
-  return { messages: projected, loading, errors, reload: load };
+  return { messages: projected, loading, syncing, errors, reload: load };
 }
 
 export type DashboardMail = ReturnType<typeof useDashboardMail>;

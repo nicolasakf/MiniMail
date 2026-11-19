@@ -84,7 +84,10 @@ describe("buildDashboardStats", () => {
     expect(today.withAttachments).toBe(1);
     expect(today.timeUnit).toBe("hour");
     expect(today.timeline).toHaveLength(24);
-    expect(today.timeline[8]).toMatchObject({ count: 2, unread: 1 });
+    expect(today.timeline[8]).toMatchObject({ count: 2, unread: 1, people: 1 });
+    expect(today.timeline[8].categories.get(null)).toBe(1);
+    expect(today.timeline[8].categories.get("newsletters")).toBe(1);
+    expect(today.timeline[14].categories.get("ads")).toBe(1);
 
     const week = buildDashboardStats(mail, "7d", NOW);
     expect(week.total).toBe(5);
@@ -163,6 +166,17 @@ describe("matchesDrill", () => {
     const filter = { kind: "time", start: addDays(NOW, -2), end: addDays(NOW, -1) } as const;
     expect(matchesDrill(ad, { filter: { ...filter, unread: true }, range: "all" }, NOW)).toBe(true);
     expect(matchesDrill(ad, { filter: { ...filter, unread: false }, range: "all" }, NOW)).toBe(false);
+  });
+
+  it("narrows a time bucket to a category or to people and automated mail", () => {
+    const filter = { kind: "time", start: addDays(NOW, -2), end: addDays(NOW, -1) } as const;
+    const check = (part: { categoryId?: string | null; people?: boolean }) =>
+      matchesDrill(ad, { filter: { ...filter, ...part }, range: "all" }, NOW);
+    expect(check({ categoryId: "ads" })).toBe(true);
+    expect(check({ categoryId: null })).toBe(false);
+    expect(check({ categoryId: "news" })).toBe(false);
+    expect(check({ people: false })).toBe(true);
+    expect(check({ people: true })).toBe(false);
   });
 
   it("uses a time bucket's own bounds instead of the range", () => {

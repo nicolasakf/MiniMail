@@ -27,9 +27,11 @@ export type DashboardFilter =
   | { kind: "account"; accountId: string }
   /**
    * A time bucket of the volume chart; replaces the range. `end` is exclusive. With `unread`
-   * set, only the unread (true) or read (false) part of it.
+   * set, only the unread (true) or read (false) part of it; with `categoryId`, only that category's
+   * part (null is no category); with `people`, only the mail from people (true) or the automated
+   * and bulk mail (false).
    */
-  | { kind: "time"; start: number; end: number; unread?: boolean }
+  | { kind: "time"; start: number; end: number; unread?: boolean; categoryId?: string | null; people?: boolean }
   /** A cell of the weekday × hour grid. `weekday` 0 is Monday. */
   | { kind: "slot"; weekday: number; hour: number }
   | { kind: "flag"; flag: DashboardFlag };
@@ -49,6 +51,10 @@ export interface TimeBucket {
   count: number;
   /** Of `count`, how many are unread. */
   unread: number;
+  /** Of `count`, how many are written by a person; the rest is automated or bulk mail. */
+  people: number;
+  /** Of `count`, how many are in each category (null is none). */
+  categories: Map<string | null, number>;
 }
 
 export type TimeUnit = "hour" | "day" | "month";
@@ -231,7 +237,9 @@ export function matchesDrill(message: MessageSummary, drill: DashboardDrill, now
     return (
       time >= filter.start &&
       time < filter.end &&
-      (filter.unread === undefined || message.unread === filter.unread)
+      (filter.unread === undefined || message.unread === filter.unread) &&
+      (filter.categoryId === undefined || message.categoryId === filter.categoryId) &&
+      (filter.people === undefined || isPerson(message) === filter.people)
     );
   }
   if (time < rangeStart(drill.range, now)) return false;
@@ -267,7 +275,7 @@ export function timelineBuckets(
       start.setHours(hour);
       const end = new Date(today);
       end.setHours(hour + 1);
-      buckets.push({ start: start.getTime(), end: end.getTime(), count: 0, unread: 0 });
+      buckets.push({ start: start.getTime(), end: end.getTime(), count: 0, unread: 0, people: 0, categories: new Map() });
     }
     return { unit: "hour", buckets };
   }
@@ -275,7 +283,7 @@ export function timelineBuckets(
     const days = range === "7d" ? 7 : 30;
     const buckets: TimeBucket[] = [];
     for (let offset = days - 1; offset >= 0; offset -= 1) {
-      buckets.push({ start: addDays(now, -offset), end: addDays(now, -offset + 1), count: 0, unread: 0 });
+      buckets.push({ start: addDays(now, -offset), end: addDays(now, -offset + 1), count: 0, unread: 0, people: 0, categories: new Map() });
     }
     return { unit: "day", buckets };
   }
@@ -289,7 +297,7 @@ export function timelineBuckets(
   for (let back = months - 1; back >= 0; back -= 1) {
     const start = new Date(current.getFullYear(), current.getMonth() - back, 1).getTime();
     const end = new Date(current.getFullYear(), current.getMonth() - back + 1, 1).getTime();
-    buckets.push({ start, end, count: 0, unread: 0 });
+    buckets.push({ start, end, count: 0, unread: 0, people: 0, categories: new Map() });
   }
   return { unit: "month", buckets };
 }
@@ -367,6 +375,8 @@ export function buildDashboardStats(
     if (bucket) {
       bucket.count += 1;
       if (message.unread) bucket.unread += 1;
+      if (isPerson(message)) bucket.people += 1;
+      bucket.categories.set(message.categoryId, (bucket.categories.get(message.categoryId) ?? 0) + 1);
     }
     heatmap[weekdayOf(time)][new Date(time).getHours()] += 1;
 
