@@ -35,6 +35,7 @@ import { perfLog } from "../perf";
 import { nativeIdOf, patchSummaries, type SummaryStore } from "./summary-cache";
 import { describeError, makeSnippet, type AttachmentFile, type MailAuth, type MailProvider } from "./types";
 import { recordInfo, reportError } from "../events";
+import { isNetworkOnline } from "../network";
 
 /** Bytes of each message fetched for the list view (enough for headers + a preview). */
 const PREVIEW_BYTES = 24 * 1024;
@@ -288,6 +289,12 @@ const WATCH_BACKOFF_MS = [2_000, 10_000, 30_000, 120_000];
  * down past the first pauses is a failure.
  */
 const WATCH_ERROR_FROM_ATTEMPT = 3;
+/**
+ * While the computer has no network, how often the watcher asks whether it is back. Nothing is
+ * tried or reported meanwhile (the app says once that there is no network), and this short pause
+ * keeps the live connection from waiting out a long backoff after the network returns.
+ */
+const WATCH_OFFLINE_RECHECK_MS = 5_000;
 /** Gmail labels of mail that is not archived: still in the Inbox, sent by the user, or a draft. */
 const NOT_ARCHIVED_LABELS = new Set(["\\inbox", "\\sent", "\\draft"]);
 /** How far back an All Mail scan reads, in multiples of the window, looking for archived mail. */
@@ -331,6 +338,7 @@ export class ImapWatcher {
     private readonly server: MailServer,
     private readonly getAuth: () => Promise<MailAuth>,
     private readonly onChange: () => void,
+    private readonly isOnline: () => boolean = isNetworkOnline,
   ) {}
 
   /** True while the connection is open on the inbox and the server is able to push to us. */
@@ -356,6 +364,11 @@ export class ImapWatcher {
 
   private async connect(): Promise<void> {
     if (this.stopped) return;
+    // No network: every try would only fail on the lookup of the server's name. Wait for it instead.
+    if (!this.isOnline()) {
+      this.retryIn(WATCH_OFFLINE_RECHECK_MS);
+      return;
+    }
     let client: ImapFlow | null = null;
     try {
       const auth = await this.getAuth();
@@ -387,12 +400,15 @@ export class ImapWatcher {
       if (this.everConnected) this.changed();
       this.everConnected = true;
     } catch (error) {
-      const detail = `${this.server.host}: ${describeError(error)}`;
-      // `failures` counts the drop that started this too, so the first failed try is already attempt 2 after one.
-      if (this.failures + 1 < WATCH_ERROR_FROM_ATTEMPT) {
-        recordInfo("sync", "Could not reach the mail server yet; trying again", detail);
-      } else {
-        reportError("sync", "Could not keep a live connection to the mail server", detail);
+      // The network went away during the try: that is no fault of the server, and it is already told once.
+      if (this.isOnline()) {
+        const detail = `${this.server.host}: ${describeError(error)}`;
+        // `failures` counts the drop that started this too, so the first failed try is already attempt 2 after one.
+        if (this.failures + 1 < WATCH_ERROR_FROM_ATTEMPT) {
+          recordInfo("sync", "Could not reach the mail server yet; trying again", detail);
+        } else {
+          reportError("sync", "Could not keep a live connection to the mail server", detail);
+        }
       }
       if (client) this.dropped(client);
     }
@@ -405,8 +421,18 @@ export class ImapWatcher {
     this.live = false;
     if (client.usable) void client.close();
     if (this.stopped || this.retry) return;
+    // A drop with no network is not a failed try: do not grow the backoff or count toward an error.
+    if (!this.isOnline()) {
+      this.retryIn(WATCH_OFFLINE_RECHECK_MS);
+      return;
+    }
     const wait = WATCH_BACKOFF_MS[Math.min(this.failures, WATCH_BACKOFF_MS.length - 1)];
     this.failures += 1;
+    this.retryIn(wait);
+  }
+
+  private retryIn(wait: number): void {
+    if (this.stopped || this.retry) return;
     this.retry = setTimeout(() => {
       this.retry = null;
       void this.connect();

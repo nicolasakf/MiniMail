@@ -214,6 +214,98 @@ describe("ImapWatcher", () => {
     expect(recorded).toEqual([]);
   });
 
+  describe("with no network", () => {
+    /** What the operating system says about the network; the test flips it. */
+    let online: boolean;
+    let offlineWatcher: ImapWatcher;
+
+    beforeEach(() => {
+      online = true;
+      offlineWatcher = new ImapWatcher(
+        { host: "imap.example.com", port: 993, security: "tls", username: "me@example.com" },
+        getAuth,
+        () => (changes += 1),
+        () => online,
+      );
+    });
+
+    afterEach(async () => {
+      await offlineWatcher.stop();
+    });
+
+    it("does not try, and shows nothing, while the network is down; it connects soon after it is back", async () => {
+      online = false;
+      offlineWatcher.start();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(fake.clients).toHaveLength(0);
+      expect(getAuth).not.toHaveBeenCalled();
+      expect(recorded).toEqual([]);
+
+      online = true;
+      await vi.advanceTimersByTimeAsync(5_100);
+      expect(offlineWatcher.connected).toBe(true);
+      expect(recorded).toEqual([]);
+    });
+
+    it("keeps a dropped connection quiet while the network is down and reconnects with the network", async () => {
+      offlineWatcher.start();
+      await flush();
+      const first = current();
+
+      online = false;
+      first.usable = false;
+      first.emit("close");
+      await vi.advanceTimersByTimeAsync(30 * 60_000);
+      expect(fake.clients).toHaveLength(1);
+      expect(recorded).toEqual([]);
+
+      online = true;
+      await vi.advanceTimersByTimeAsync(5_100);
+      expect(offlineWatcher.connected).toBe(true);
+      // Anything may have arrived meanwhile.
+      await vi.advanceTimersByTimeAsync(300);
+      expect(changes).toBe(1);
+      expect(recorded).toEqual([]);
+    });
+
+    it("does not blame the server for a try that the network cut short, nor count it toward an error", async () => {
+      fake.failConnect = true;
+      // The network is up when the try starts and gone when it fails.
+      let cutNext = false;
+      const cutting = new ImapWatcher(
+        { host: "imap.example.com", port: 993, security: "tls", username: "me@example.com" },
+        async () => {
+          if (cutNext) online = false;
+          return { pass: "secret" };
+        },
+        () => (changes += 1),
+        () => online,
+      );
+      cutting.start();
+      await flush();
+      expect(recorded.map((report) => report.level)).toEqual(["info"]);
+
+      cutNext = true;
+      await vi.advanceTimersByTimeAsync(2_100);
+      expect(fake.clients).toHaveLength(2);
+      expect(recorded.map((report) => report.level)).toEqual(["info"]);
+
+      // Back, with the server still refusing: this is a second failed try, not yet an error.
+      cutNext = false;
+      online = true;
+      await vi.advanceTimersByTimeAsync(5_100);
+      expect(recorded.map((report) => report.level)).toEqual(["info", "info"]);
+      await cutting.stop();
+    });
+
+    it("still reports an error when the network is up and the server stays unreachable", async () => {
+      fake.failConnect = true;
+      offlineWatcher.start();
+      await vi.advanceTimersByTimeAsync(13_000);
+      expect(recorded.map((report) => report.level)).toEqual(["info", "info", "error"]);
+    });
+  });
+
   it("does not schedule two reconnects when an error and a close both arrive", async () => {
     watcher.start();
     await flush();

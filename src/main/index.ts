@@ -34,6 +34,7 @@ import { ComposeLibraryStore } from "./compose-library";
 import { DraftStore } from "./draft-store";
 import { NotificationSettingsStore } from "./notification-settings";
 import { Notifier } from "./notifier";
+import { setNetworkProbe } from "./network";
 import { POLL_INTERVAL_MS, Polling } from "./polling";
 import { UiPrefsStore } from "./ui-prefs";
 import { TrustedSenders } from "./trusted-senders";
@@ -42,6 +43,9 @@ import { MailService } from "./service";
 import { AccountStore } from "./store";
 
 perfLog("main bundle loaded");
+
+// The live connections to the mail servers wait for the network too; see `network.ts`.
+setNetworkProbe(() => net.isOnline());
 
 /** When MiniMail asks the accounts for new mail on its own; see `polling.ts`. */
 const polling = new Polling(Date.now, (online) =>
