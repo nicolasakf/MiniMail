@@ -9,18 +9,18 @@ Email got overcomplicated over the years:
 
 MiniMail is a desktop email client built on a different question:
 
-> ### What is the minimum number of things an email really app needs?
+> ### What is the minimum number of features an email app really needs?
 
 ## The minimum
 
 ![Traditional email: a mail client with nested folders such as Inbox, FYI, This Month, Drafts, Archive, Documents, Junk E-mail and Outbox. MiniMail: four filter buttons (Inbox, Archive, Trash and Spam) and category cards for Invitations, Newsletters, Ads, Notifications, Receipts and Verification codes.](docs/images/before-after.svg)
 
-- **Four places.** Inbox, Archive, Trash and Spam are four buttons above the list. There are no folders to create, nest or tidy.
-- **Categories that sort themselves.** Newsletters, ads, notifications and codes each collapse into one row. You describe a category in plain words and AI files the mail.
-- **Fast.** Your last inbox is on screen as soon as the window opens.
-- **Nothing fails silently.** A send is confirmed or the error is shown, and every failure goes into a Log.
-- **Sandboxed mail.** No scripts, no forms, and no remote images until you allow them.
-- **One inbox, no server.** Gmail, Outlook, Zoho and any IMAP account in one list. Credentials stay in your OS keychain.
+- **Four places.** Inbox, Archive, Trash and Spam. That's it. There are no hand-written rules, or folders to create, nest or tidy.
+- **Categories that sort themselves.** Newsletters, ads, notifications and codes each collapse into one card. You describe a category in your own words and AI files the mail for you.
+- **Fast.** Your inbox is on screen as soon as the window opens.
+- **Nothing fails silently.** A send is confirmed or the error is shown, and every failure or server-side update is transparent to you.
+- **Sandboxed mail.** No scripts, no forms, and no remote images unless you allow them.
+- **One inbox, no server.** Gmail, Outlook, Zoho or any other IMAP account in one list. Credentials stay in your OS keychain.
 
 ## Run it
 
