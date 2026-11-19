@@ -17,7 +17,7 @@ import type { Thread } from "@shared/threads";
 import type { Contact } from "@shared/types";
 
 import { threadContacts } from "./format";
-import { getBlockList, setBlocked, subscribeBlockList } from "./blocklist";
+import { emailTargets, getBlockList, setBlocked, subscribeBlockList } from "./blocklist";
 import { countedTargets, recordAction, reportError } from "@/lib/events";
 import { newUndoRef, undoStack } from "@/lib/undo-stack";
 
@@ -152,4 +152,33 @@ export function prioritySections(thread: Thread, own: readonly string[]): Priori
     return [{ choices: [conversation] }, ...contacts.map((contact) => ({ contact, choices: contactChoices(contact) }))];
   }
   return [{ choices: [conversation, ...contactChoices(contacts[0] ?? thread.latest.from)] }];
+}
+
+/** A sender or domain choice of the contact card's priority rows, worded like its Mute and Block rows. */
+export interface PriorityCardChoice {
+  kind: "senders" | "domains";
+  value: string;
+  label: string;
+}
+
+/** What the contact card offers for priority: one row for the sender and one for their domain, each taking the mark back when it is already on. */
+export function priorityCardChoices(list: PriorityList, email: string, own: readonly string[]): PriorityCardChoice[] {
+  const [sender] = emailTargets([email], own).senders;
+  const [domain] = emailTargets([email], own).domains;
+  const choices: PriorityCardChoice[] = [];
+  if (sender) {
+    choices.push({
+      kind: "senders",
+      value: sender,
+      label: isPriorityEntry(list, "senders", sender) ? `Remove priority from ${sender}` : `Mark ${sender} as priority`,
+    });
+  }
+  if (domain) {
+    choices.push({
+      kind: "domains",
+      value: domain,
+      label: isPriorityEntry(list, "domains", domain) ? `Remove priority from @${domain}` : `Mark @${domain} as priority`,
+    });
+  }
+  return choices;
 }

@@ -3,19 +3,17 @@ import { useState, type ReactNode } from "react";
 import { BellOff, Check, Copy, PenLine, Search, ShieldBan, Zap } from "lucide-react";
 import { toast } from "@/lib/toast";
 
-import { isPriorityEntry } from "@shared/priority";
 import type { BlockKind } from "@shared/blocklist";
 import type { LogoRequest } from "@shared/logos";
 import type { Contact } from "@shared/types";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Switch } from "@/components/ui/switch";
 import { blockChoices, emailTargets, muteChoices, useBlockList } from "@/lib/blocklist";
 import { mutedCheck } from "@/lib/mute";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
 import { contactLabel } from "@/lib/format";
 import { BLOCKED_TEXT } from "@/lib/highlight";
-import { togglePriority, usePriority } from "@/lib/priority";
+import { priorityCardChoices, togglePriority, usePriority } from "@/lib/priority";
 import { cn } from "@/lib/utils";
 
 import { SenderAvatar } from "./sender-avatar";
@@ -93,7 +91,7 @@ export function ContactCard({ contact, children, className, own, hideFiltering =
     filtering && onMute && accountId !== undefined
       ? muteChoices(mutedCheck(settings, [accountId]), emailTargets([contact.email], own))
       : [];
-  const isPriority = isPriorityEntry(priority, "senders", contact.email);
+  const priorityChoices = filtering ? priorityCardChoices(priority, contact.email, own) : [];
 
   const run = (action: () => void) => {
     setOpen(false);
@@ -157,22 +155,14 @@ export function ContactCard({ contact, children, className, own, hideFiltering =
             detail={contact.email}
             onClick={() => run(() => onSearch(contact))}
           />
-          {filtering && (
+          {priorityChoices.map((choice) => (
             <CardRow
-              icon={<Zap className={cn(isPriority && "fill-current text-amber-600 dark:text-amber-400")} />}
-              label="Mark as priority"
-              onClick={() => togglePriority("senders", contact.email)}
-              trailing={
-                <Switch
-                  checked={isPriority}
-                  tabIndex={-1}
-                  aria-label="Mark as priority"
-                  // The row toggles it; the switch only shows the state.
-                  className="pointer-events-none h-5 w-9 [&>span]:size-4 [&>span]:data-[state=checked]:translate-x-4"
-                />
-              }
+              key={choice.kind}
+              icon={<Zap />}
+              label={choice.label}
+              onClick={() => run(() => togglePriority(choice.kind, choice.value))}
             />
-          )}
+          ))}
           {muteChoicesShown.map((choice) => (
             <CardRow
               key={choice.kind}
