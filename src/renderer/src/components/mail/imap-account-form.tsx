@@ -134,11 +134,6 @@ export function ImapAccountForm({
       <ProviderFormHeader
         provider={provider}
         title={zoho ? "Connect Zoho Mail" : "Connect another email account"}
-        description={
-          zoho
-            ? "Sign in with your Zoho address and an app password."
-            : "Works with any provider that supports IMAP and SMTP."
-        }
         disabled={working}
         onBack={onBack}
       />
@@ -172,24 +167,37 @@ export function ImapAccountForm({
             disabled={working}
             onChange={(event) => setPassword(event.target.value)}
           />
-          <p className="text-xs text-muted-foreground">
+          <div className="text-xs text-muted-foreground">
             {zoho ? (
-              <>
-                Enable IMAP in Zoho Mail. With two-factor authentication, create an app password in{" "}
-                <a
-                  className="underline"
-                  href={`https://accounts.zoho.${zohoRegion ?? "com"}/`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Zoho Accounts
-                </a>
-                .
-              </>
+              <ol className="list-decimal space-y-1 pl-4">
+                <li>Enable IMAP access in Zoho Mail (Settings → Mail Accounts → IMAP Access).</li>
+                <li>
+                  <a
+                    className="text-sidebar-ring underline underline-offset-2"
+                    href={`https://accounts.zoho.${zohoRegion ?? "com"}/home#multiTFA/modes`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Turn on two-factor authentication
+                  </a>{" "}
+                  for this Zoho account.
+                </li>
+                <li>
+                  <a
+                    className="text-sidebar-ring underline underline-offset-2"
+                    href={`https://accounts.zoho.${zohoRegion ?? "com"}/home#security/app_password`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Create an app password
+                  </a>{" "}
+                  and paste it above.
+                </li>
+              </ol>
             ) : (
-              "Use an app password if your provider requires one for email clients."
+              <p>Use an app password if your provider requires one for email clients.</p>
             )}
-          </p>
+          </div>
         </div>
 
         <div className="space-y-3">

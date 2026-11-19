@@ -558,10 +558,7 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
 
   return (
     <div className="flex max-w-2xl flex-col gap-4 p-6">
-      <SettingsPageHeader
-        title="Categories"
-        description="Every new conversation goes into the category whose criteria fit it best, or stays a normal conversation when none does."
-      />
+      <SettingsPageHeader title="Categories" />
 
         <div className="space-y-4">
           <AiSection ai={ai} onState={onState} />

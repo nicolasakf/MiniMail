@@ -65,7 +65,7 @@ export function ChooseProvider({
   return (
     <>
       {canGoBack && <BackButton onClick={onBack}>Accounts</BackButton>}
-      <SettingsPageHeader title="Add an account" description="Choose your email provider to get started." />
+      <SettingsPageHeader title="Add an account" />
       <ul className="grid gap-2">
         {CHOICES.map(({ provider, title, subtitle }) => (
           <li key={provider}>
@@ -118,13 +118,11 @@ export function BackButton({
 export function ProviderFormHeader({
   provider,
   title,
-  description,
   disabled,
   onBack,
 }: {
   provider: SetupProvider;
   title: string;
-  description: string;
   disabled?: boolean;
   onBack: () => void;
 }) {
@@ -135,10 +133,7 @@ export function ProviderFormHeader({
       </BackButton>
       <div className="flex items-center gap-3">
         <ProviderBadge provider={provider} size="lg" />
-        <div className="min-w-0 space-y-0.5">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
+        <h2 className="min-w-0 text-lg font-semibold">{title}</h2>
       </div>
     </>
   );

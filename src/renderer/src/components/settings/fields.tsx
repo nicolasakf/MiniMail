@@ -8,26 +8,12 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-/**
- * Title and one-line description at the top of each settings page (Orion's tab header). An optional
- * `action` sits at the right end of the description line.
- */
-export function SettingsPageHeader({
-  title,
-  description,
-  action,
-}: {
-  title: string;
-  description: string;
-  action?: ReactNode;
-}) {
+/** Title at the top of each settings page (Orion's tab header). An optional `action` sits at its right end. */
+export function SettingsPageHeader({ title, action }: { title: string; action?: ReactNode }) {
   return (
-    <div className="space-y-2">
+    <div className="flex min-h-9 items-center justify-between gap-4">
       <h2 className="text-lg font-semibold">{title}</h2>
-      <div className="flex items-center justify-between gap-4">
-        <p className="min-w-0 text-sm text-muted-foreground">{description}</p>
-        {action ? <div className="shrink-0">{action}</div> : null}
-      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
 }

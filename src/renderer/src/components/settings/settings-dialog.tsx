@@ -159,8 +159,8 @@ export function SettingsDialog({
               />,
             )}
             {page("categories", <CategoriesPanel categories={categories} ai={ai} onState={onCategoryState} />)}
-            {page("senders", <SendersTab />)}
-            {page("notifications", <NotificationsTab accounts={accounts} categories={categories} />)}
+            {page("senders", <SendersTab accounts={accounts} />)}
+            {page("notifications", <NotificationsTab accounts={accounts} categories={categories} onOpenSenders={() => show("senders")} />)}
           </div>
         </div>
       </DialogContent>

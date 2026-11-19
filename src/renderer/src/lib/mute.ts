@@ -29,3 +29,25 @@ export function withMute(
   if (kind === "threads") return withMutedThreads(settings, values, muted);
   return withMutedSenders(settings, accountIds, values.map((value) => mutedKey(kind, value)), muted);
 }
+
+/**
+ * The settings with these entries (`a@b.c`, `@b.c`) muted, or unmuted, for every account: each account that keeps
+ * its own list changes it, and so does the shared one. This is what the Senders page does, since it has no
+ * account menu.
+ */
+export function withMutedEverywhere(
+  settings: NotificationSettings,
+  accountIds: readonly string[],
+  keys: readonly string[],
+  muted: boolean,
+): NotificationSettings {
+  const next = withMutedSenders(settings, accountIds, keys, muted);
+  return muted ? next : { ...next, mutedSenders: next.mutedSenders.filter((key) => !keys.includes(key)) };
+}
+
+/** Every sender or domain muted for at least one account, in the form the muted lists store (`a@b.c`, `@b.c`). */
+export function allMutedKeys(settings: NotificationSettings): string[] {
+  const keys = new Set(settings.mutedSenders);
+  for (const own of Object.values(settings.accounts)) for (const key of own.mutedSenders ?? []) keys.add(key);
+  return [...keys];
+}

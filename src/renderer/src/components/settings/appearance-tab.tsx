@@ -65,7 +65,7 @@ export function AppearanceTab() {
 
   return (
     <div ref={setPickerContainer} className="flex flex-col gap-6 p-6">
-      <SettingsPageHeader title="Appearance" description="Control the theme, the highlight color, the size of text, what lists show and which sender pictures appear." />
+      <SettingsPageHeader title="Appearance" />
 
       <div className="space-y-6">
         <section className="max-w-2xl space-y-3">

@@ -140,10 +140,7 @@ export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChan
     <div className="flex max-w-2xl flex-col gap-4 p-6">
         {view.name === "list" && (
           <>
-            <SettingsPageHeader
-              title="Accounts"
-              description="Mail accounts connected to MiniMail. Give each an alias and a picture to tell them apart."
-            />
+            <SettingsPageHeader title="Accounts" />
             <ul className="space-y-2">
               {accounts.map((account) => (
                 <li
@@ -438,7 +435,6 @@ function AddAccountForm({
       <ProviderFormHeader
         provider={provider}
         title={FORM_TITLES[provider]}
-        description="Sign in to give MiniMail access to your mail."
         disabled={busy !== null}
         onBack={onBack}
       />
@@ -480,18 +476,30 @@ function AddAccountForm({
                   password={password}
                   onPasswordChange={setPassword}
                   hint={
-                    <>
-                      Enable 2-Step Verification, then create an app password at{" "}
-                      <a
-                        className="underline"
-                        href="https://myaccount.google.com/apppasswords"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        myaccount.google.com/apppasswords
-                      </a>
-                      .
-                    </>
+                    <ol className="list-decimal space-y-1 pl-4">
+                      <li>
+                        <a
+                          className="text-sidebar-ring underline underline-offset-2"
+                          href="https://myaccount.google.com/signinoptions/twosv"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Turn on 2-Step Verification
+                        </a>{" "}
+                        for this Google account.
+                      </li>
+                      <li>
+                        <a
+                          className="text-sidebar-ring underline underline-offset-2"
+                          href="https://myaccount.google.com/apppasswords"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Create an app password
+                        </a>{" "}
+                        and paste it above.
+                      </li>
+                    </ol>
                   }
                 />
                 <Button
@@ -586,7 +594,7 @@ function PasswordFields({
         value={password}
         onChange={(event) => onPasswordChange(event.target.value)}
       />
-      <p className="text-xs text-muted-foreground">{hint}</p>
+      <div className="text-xs text-muted-foreground">{hint}</div>
     </div>
   );
 }

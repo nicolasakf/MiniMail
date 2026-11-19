@@ -21,15 +21,19 @@ import {
   logoRequestFor,
   type LogoRequest,
 } from "@shared/logos";
-import { normalizeMutedSender } from "@shared/notifications";
+import { MAX_MUTED_SENDERS, mutedKey, normalizeMutedSender } from "@shared/notifications";
 import { MAX_PRIORITY_ENTRIES, isPriorityEntry } from "@shared/priority";
-import type { Contact } from "@shared/types";
+import type { Account, Contact } from "@shared/types";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { useNotificationSettings } from "@/hooks/use-notification-settings";
 import { useBlockList } from "@/lib/blocklist";
 import { cachedContacts, refreshContacts } from "@/lib/contact-cache";
+import { countedTargets, recordAction } from "@/lib/events";
+import { allMutedKeys, withMutedEverywhere } from "@/lib/mute";
+import { newUndoRef, undoStack } from "@/lib/undo-stack";
 import { cn } from "@/lib/utils";
 import {
   setBlockedClearingPriority,
@@ -353,13 +357,14 @@ function AddForm({
 }
 
 /**
- * The senders and domains marked as priority or blocked, with a way to add and remove them. It
- * reads and writes the same lists as the Priority and Block commands, so a change here shows
- * everywhere at once, and priority and block keep excluding each other.
+ * The senders and domains marked as priority, muted or blocked, with a way to add and remove them. It
+ * reads and writes the same lists as the Priority, Mute and Block commands, so a change here shows
+ * everywhere at once, and priority and block keep excluding each other. Muting here covers every account.
  */
-export function SendersTab() {
+export function SendersTab({ accounts }: { accounts: readonly Account[] }) {
   const priority = usePriority();
   const blocks = useBlockList();
+  const { settings: notify, update: updateNotify } = useNotificationSettings();
   const [contacts, setContacts] =
     useState<readonly ContactEntry[]>(cachedContacts);
 
@@ -410,12 +415,38 @@ export function SendersTab() {
     return null;
   };
 
+  const mutedKeys = notify ? allMutedKeys(notify) : [];
+  const mutedEntries: Entry[] = [
+    ...mutedKeys.filter((key) => key.startsWith("@")).map((key) => ({ kind: "domains" as const, value: key.slice(1) })),
+    ...mutedKeys.filter((key) => !key.startsWith("@")).map((key) => ({ kind: "senders" as const, value: key })),
+  ];
+  const accountIds = accounts.map((account) => account.id);
+
+  const setMuted = (entry: Entry, muted: boolean) => {
+    const key = mutedKey(entry.kind, entry.value);
+    void updateNotify((current) => withMutedEverywhere(current, accountIds, [key], muted));
+    const title = `${muted ? "Muted" : "Unmuted"} ${countedTargets(entry.kind, 1)}`;
+    const ref = newUndoRef("mute");
+    recordAction("notifications", title, "", { context: label(entry), ref });
+    undoStack.push({
+      ref,
+      label: title,
+      context: label(entry),
+      run: () => void updateNotify((current) => withMutedEverywhere(current, accountIds, [key], !muted)),
+    });
+  };
+
+  const addMuted = (entry: Entry): string | null => {
+    if (!notify) return "Your settings are still loading. Try again in a moment.";
+    if (mutedKeys.includes(mutedKey(entry.kind, entry.value))) return `${label(entry)} is already muted.`;
+    if (mutedKeys.length >= MAX_MUTED_SENDERS) return `You can mute up to ${MAX_MUTED_SENDERS} senders.`;
+    setMuted(entry, true);
+    return null;
+  };
+
   return (
     <div className="space-y-6">
-      <SettingsPageHeader
-        title="Senders"
-        description="Who you marked as priority and who you blocked. Add an address or a whole @domain."
-      />
+      <SettingsPageHeader title="Senders" />
 
       <section className="space-y-3">
         <SettingsSectionTitle
@@ -441,6 +472,24 @@ export function SendersTab() {
             {priority.threads.length === 1 ? "" : "s"} not listed here.
           </p>
         )}
+      </section>
+
+      <Separator />
+
+      <section className="space-y-3">
+        <SettingsSectionTitle
+          title="Muted"
+          info="Mail from these senders and domains never notifies, in any account. It is still filed where it always was. Add a whole company with @company.com."
+        />
+        <AddForm
+          id="senders-muted"
+          placeholder="news@example.com or @example.com"
+          action="Mute"
+          contacts={contacts}
+          taken={(entry) => mutedKeys.includes(mutedKey(entry.kind, entry.value))}
+          onAdd={addMuted}
+        />
+        <EntryList title="Muted senders" entries={mutedEntries} onRemove={(entry) => setMuted(entry, false)} />
       </section>
 
       <Separator />

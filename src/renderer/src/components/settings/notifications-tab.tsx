@@ -1,14 +1,11 @@
 import { useState } from "react";
 
-import { BellRing, Plus, X } from "lucide-react";
+import { BellRing } from "lucide-react";
 import { toast } from "@/lib/toast";
 
-import { accountLabel } from "@shared/accounts";
 import { iconFor } from "@shared/categories";
 import {
-  MAX_MUTED_SENDERS,
   NO_CATEGORY,
-  normalizeMutedSender,
   settingsForAccount,
   type AccountNotificationSettings,
   type AccountSettingKey,
@@ -20,7 +17,6 @@ import type { Account, Category } from "@shared/types";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
 import { api } from "@/lib/api";
@@ -102,95 +98,11 @@ function toggled<T>(list: readonly T[], value: T, on: boolean): T[] {
   return on ? [...without, value] : without;
 }
 
-function MutedSenders({
-  senders,
-  disabled,
-  onChange,
-}: {
-  senders: readonly string[];
-  disabled: boolean;
-  onChange: (senders: string[]) => void;
-}) {
-  const [text, setText] = useState("");
-  const [problem, setProblem] = useState<string | null>(null);
-
-  const add = () => {
-    const sender = normalizeMutedSender(text);
-    if (!sender) {
-      setProblem("Enter an address like news@example.com, or a whole domain like @example.com.");
-      return;
-    }
-    if (senders.includes(sender)) {
-      setProblem("That sender is already muted.");
-      return;
-    }
-    if (senders.length >= MAX_MUTED_SENDERS) {
-      setProblem(`You can mute up to ${MAX_MUTED_SENDERS} senders.`);
-      return;
-    }
-    onChange([...senders, sender]);
-    setText("");
-    setProblem(null);
-  };
-
-  return (
-    <div className="space-y-3">
-      <form
-        className="flex max-w-xl items-center gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          add();
-        }}
-      >
-        <Input
-          id="notify-muted-sender"
-          value={text}
-          disabled={disabled}
-          placeholder="news@example.com or @example.com"
-          aria-label="Sender to mute"
-          aria-invalid={problem !== null}
-          onChange={(event) => {
-            setText(event.target.value);
-            setProblem(null);
-          }}
-        />
-        <Button type="submit" variant="outline" disabled={disabled || text.trim() === ""}>
-          <Plus /> Mute
-        </Button>
-      </form>
-      {problem && (
-        <p role="alert" className="text-xs text-red-300">
-          {problem}
-        </p>
-      )}
-      {senders.length > 0 && (
-        <ul className="flex flex-wrap gap-2" aria-label="Muted senders">
-          {senders.map((sender) => (
-            <li
-              key={sender}
-              className="corner-squircle flex items-center gap-1 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1 text-xs"
-            >
-              <span className="max-w-[16rem] truncate">{sender}</span>
-              <button
-                type="button"
-                aria-label={`Stop muting ${sender}`}
-                disabled={disabled}
-                className="rounded p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onChange(senders.filter((item) => item !== sender))}
-              >
-                <X className="size-3.5" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 interface NotificationsTabProps {
   accounts: readonly Account[];
   categories: readonly Category[];
+  /** Go to the Senders page, where muted senders and domains are listed. */
+  onOpenSenders: () => void;
 }
 
 /** Scope value for the choices every account follows unless it says otherwise. */
@@ -230,14 +142,14 @@ function InheritNote({
  * and when it stays quiet. The account menu at the top picks whose choices the page edits: the
  * defaults for all accounts, or one account's own, which replace the defaults only where set.
  */
-export function NotificationsTab({ accounts, categories }: NotificationsTabProps) {
+export function NotificationsTab({ accounts, categories, onOpenSenders }: NotificationsTabProps) {
   const { settings, update } = useNotificationSettings();
   const [scope, setScope] = useState(ALL_ACCOUNTS);
 
   if (!settings) {
     return (
       <div className="flex flex-col gap-6 p-6">
-        <SettingsPageHeader title="Notifications" description="Choose which new mail interrupts you." />
+        <SettingsPageHeader title="Notifications" />
       </div>
     );
   }
@@ -291,11 +203,6 @@ export function NotificationsTab({ accounts, categories }: NotificationsTabProps
     <div className="flex flex-col gap-6 p-6">
       <SettingsPageHeader
         title="Notifications"
-        description={
-          account
-            ? `Choices for ${accountLabel(account)}. Anything you leave alone follows all accounts.`
-            : "Choose which new mail interrupts you, and what the notification shows."
-        }
         action={
           accounts.length > 1 ? (
             <AccountSwitcher
@@ -419,20 +326,18 @@ export function NotificationsTab({ accounts, categories }: NotificationsTabProps
         <Separator />
 
         <section className="max-w-2xl space-y-3">
-          <SettingsSectionTitle
-            title="Muted senders"
-            info={
-              account
-                ? "Mail from these addresses or domains never notifies for this account. This list replaces the one for all accounts."
-                : "Mail from these addresses or domains never notifies. Add a whole company with @company.com."
-            }
-          />
-          {inherit("mutedSenders")}
-          <MutedSenders
-            senders={view.mutedSenders}
-            disabled={off}
-            onChange={(mutedSenders) => change({ mutedSenders })}
-          />
+          <SettingsSectionTitle title="Muted senders" />
+          <p className="text-sm text-muted-foreground">
+            Mail from muted senders and domains never notifies.{" "}
+            <button
+              type="button"
+              onClick={onOpenSenders}
+              className="rounded-sm text-foreground underline underline-offset-2 outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Manage them on the Senders page
+            </button>
+            .
+          </p>
         </section>
 
         <Separator />
