@@ -53,6 +53,7 @@ import { ContactCard } from "./contact-card";
 import { MessageBody } from "./message-body";
 import { FolderBadge } from "./folder-badge";
 import { ThreadCard } from "./thread-card";
+import { AccountMark } from "./account-mark";
 import { SenderAvatar } from "./sender-avatar";
 import { noteShownError } from "@/lib/events";
 
@@ -625,6 +626,11 @@ export function ThreadView({
   const owner = accountFor(accounts, thread.accountId);
   const blockList = useBlockList();
   const ownAddresses = useMemo(() => accounts.map((account) => account.email), [accounts]);
+  // A message sent from one of the user's own addresses shows that account's picture, not a sender avatar.
+  const accountByAddress = useMemo(
+    () => new Map(accounts.map((account) => [account.email.toLowerCase(), account])),
+    [accounts],
+  );
   const threadList = useMemo(() => [thread], [thread]);
   const unsubscribedLists = useUnsubscribed();
   const unsubscribeCmd = useMemo(() => unsubscribeCommand(threadList, unsubscribedLists), [threadList, unsubscribedLists]);
@@ -906,7 +912,14 @@ export function ThreadView({
                         toggle(summary.id);
                       }}
                     >
-                      <SenderAvatar contact={header.from} size={36} logo={logoRequestFor(header)} />
+                      {(() => {
+                        const own = accountByAddress.get(header.from.email.toLowerCase());
+                        return own ? (
+                          <AccountMark account={own} size={36} />
+                        ) : (
+                          <SenderAvatar contact={header.from} size={36} logo={logoRequestFor(header)} />
+                        );
+                      })()}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-2">
                           {card(header.from, contactLabel(header.from), logoRequestFor(header), "min-w-0 truncate font-semibold")}
