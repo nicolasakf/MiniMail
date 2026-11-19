@@ -234,6 +234,7 @@ export const ThreadRow = memo(function ThreadRow({
     <div
       role="row"
       data-row-key={rowKey}
+      data-thread-row=""
       aria-selected={selected}
       data-tinted={selected || checked || undefined}
       className={cn(

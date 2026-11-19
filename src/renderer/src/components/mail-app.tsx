@@ -1232,6 +1232,17 @@ export function MailApp() {
     [checkRange, checked, navigable, selectedKey, selectedThread, split, showInPane],
   );
 
+  /** Dragging over rows: selects from the row pressed to the one under the pointer, which becomes the cursor. */
+  const dragSelect = useCallback(
+    (fromKey: string, toKey: string) => {
+      setSenderPanelFocus(false);
+      anchorKey.current = fromKey;
+      setSelectedKey(toKey);
+      checkRange(fromKey, toKey);
+    },
+    [checkRange],
+  );
+
   /** ⌘A: selects every conversation on screen. `navigable` is exactly that list, group rows aside. */
   const selectAll = useCallback(() => {
     const ids = navigable.flatMap((item) => (item.type === "thread" ? [item.thread.id] : []));
@@ -2369,6 +2380,7 @@ export function MailApp() {
                       selectedKey={senderPanelFocused ? null : selectedKey}
                       checked={checked}
                       onSelect={selectRow}
+                      onDragSelect={dragSelect}
                       onOpenThread={openFromList}
                       onOpenGroup={showGroup}
                       onOpenThreadById={setOpenThreadId}
@@ -2450,6 +2462,7 @@ export function MailApp() {
                   selectedKey={senderPanelFocused ? null : selectedKey}
                   checked={checked}
                   onSelect={selectRow}
+                  onDragSelect={dragSelect}
                   onOpenThread={openFromList}
                   onOpenGroup={showGroup}
                   onOpenThreadById={setOpenThreadId}

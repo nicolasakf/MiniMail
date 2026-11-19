@@ -14,6 +14,7 @@ import {
   listBlocks,
   type ListBlock,
 } from "@/lib/list-blocks";
+import { useDragSelect } from "@/hooks/use-drag-select";
 import { cn } from "@/lib/utils";
 
 import { CategoryDock } from "./category-dock";
@@ -35,6 +36,8 @@ interface FocusedListProps {
   selectedKey: string | null;
   checked: ReadonlySet<string>;
   onSelect: (key: string, modifiers?: SelectModifiers) => void;
+  /** Press on a row and drag over others: selects from the row pressed (`fromKey`) to the one under the pointer. */
+  onDragSelect: (fromKey: string, toKey: string) => void;
   onOpenThread: (thread: Thread) => void;
   onOpenGroup: (kind: GroupKind) => void;
   /** Click on a sender chip in a group row: opens that conversation directly. */
@@ -77,6 +80,7 @@ export function FocusedList({
   selectedKey,
   checked,
   onSelect,
+  onDragSelect,
   onOpenThread,
   onOpenGroup,
   onOpenThreadById,
@@ -88,6 +92,8 @@ export function FocusedList({
   minimized = [],
 }: FocusedListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const traceRef = useRef<HTMLDivElement>(null);
+  const onDragPointerDown = useDragSelect(containerRef, traceRef, onDragSelect);
   const showAccountDot = accounts.length > 1;
   const appearance = useAppearance();
   const vertical = effectiveCategoryLayout(appearance) === "vertical";
@@ -273,6 +279,7 @@ export function FocusedList({
       <div
         ref={containerRef}
         role="grid"
+        onPointerDown={onDragPointerDown}
         className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-20 [container-type:inline-size]"
       >
         <div
@@ -292,6 +299,12 @@ export function FocusedList({
               {renderBlock(blocks[virtual.index])}
             </div>
           ))}
+          {/* The rectangle drawn while dragging over rows; placed by `useDragSelect`. */}
+          <div
+            ref={traceRef}
+            aria-hidden
+            className="pointer-events-none absolute z-10 hidden rounded-sm border border-sidebar-primary/70 bg-sidebar-primary/10"
+          />
         </div>
       </div>
       <CategoryDock
