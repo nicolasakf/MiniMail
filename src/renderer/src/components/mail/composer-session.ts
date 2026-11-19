@@ -21,6 +21,7 @@ import {
   hasContent,
   resolveRecipients,
   sendProblem,
+  sendStatus,
   toSavedDraft,
   type ComposerFields,
 } from "@/lib/composer-state";
@@ -67,13 +68,17 @@ interface SessionOptions {
   accounts: readonly Account[];
   /** Closes the composer once what it holds has been sent, saved or handed on. */
   onClose: () => void | Promise<void>;
+  /** An immediate send starts: the owner minimizes the composer so the user can carry on. */
+  onSending?: () => void;
+  /** An immediate send that started with `onSending` failed; the message is what the composer shows. */
+  onSendFailed?: (message: string) => void;
 }
 
 /**
  * Everything the composer holds and does, apart from how it looks: the fields, the draft that
  * Esc keeps, sending (now or later), moving into its own window, and closing.
  */
-export function useComposerSession({ seed, accounts, onClose }: SessionOptions) {
+export function useComposerSession({ seed, accounts, onClose, onSending, onSendFailed }: SessionOptions) {
   const [accountId, setAccountId] = useState(seed.accountId || accounts[0]?.id || "");
   const [to, setTo] = useState<Contact[]>(seed.to);
   const [cc, setCc] = useState<Contact[]>(seed.cc);
@@ -89,6 +94,13 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
   const [attachments, setAttachments] = useState<DraftAttachment[]>(seed.attachments ?? []);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<ComposerPhase>("idle");
+  /** The error of the last send that failed; while the composer still shows it, the minimized pill is red. */
+  const [failedSend, setFailedSend] = useState<string | null>(null);
+  // Read when a send ends, long after the render that started it.
+  const hooks = useRef({ onSending, onSendFailed });
+  useLayoutEffect(() => {
+    hooks.current = { onSending, onSendFailed };
+  });
 
   /** The body lives in the editor; it is read here only when something needs it, never per keystroke. */
   const bodyHtml = useRef<string | undefined>(seed.bodyHtml);
@@ -229,6 +241,10 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
 
     if (!enter("sending")) return;
     setError(null);
+    setFailedSend(null);
+    // An immediate send goes out while the user keeps working; a scheduled one is only queued here, which is quick.
+    const goesOutNow = !fields.sendAt;
+    if (goesOutNow) hooks.current.onSending?.();
     try {
       if (fields.sendAt) {
         // The scheduled copy lives here, so the server's draft goes; cancelling brings back a local draft.
@@ -242,8 +258,13 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
         await removeServerDraft(seed.serverMessageId, "sent");
       }
     } catch (reason) {
-      setError(messageOf(reason));
-      noteShownError("The composer hit an error", messageOf(reason));
+      const message = messageOf(reason);
+      setError(message);
+      noteShownError("The composer hit an error", message);
+      if (goesOutNow) {
+        setFailedSend(message);
+        hooks.current.onSendFailed?.(message);
+      }
       leave();
       return;
     }
@@ -306,6 +327,8 @@ export function useComposerSession({ seed, accounts, onClose }: SessionOptions) 
     error,
     setError,
     phase,
+    /** For the minimized pill: "sending" while the message goes out, "failed" while its error is still shown. */
+    sendStatus: sendStatus(phase, failedSend, error),
     /** The form is locked while it saves, sends, moves or closes. Reading files in does not lock it. */
     locked: phase !== "idle" && phase !== "attaching",
     send,

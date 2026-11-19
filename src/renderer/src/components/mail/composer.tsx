@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import type { ComposeSeed } from "@/lib/compose";
 import { cleanEditorHtml } from "@/lib/rich-compose";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
 import { SignatureMenu, SignatureSheet, useSignatureLibrary, type SignatureDraft } from "./compose-library";
@@ -52,8 +53,34 @@ interface ComposerProps {
  * keeps what was written as a draft.
  */
 export function Composer({ seed, accounts, onClose, detached, minimized, tray, trayBusy, onMinimizedChange }: ComposerProps) {
-  const session = useComposerSession({ seed, accounts, onClose });
+  // Sending minimizes the composer into the tray so the user can keep working. If it fails the
+  // pill turns red and a toast says so, since nobody is looking at the composer's own error then.
+  // A detached window has no tray: it stays open and locked while it sends.
+  const failToast = useRef<string | number | undefined>(undefined);
+  const dismissFailToast = () => {
+    if (failToast.current !== undefined) toast.dismiss(failToast.current);
+    failToast.current = undefined;
+  };
+  const session = useComposerSession({
+    seed,
+    accounts,
+    onClose,
+    onSending: detached ? undefined : () => onMinimizedChange?.(true),
+    onSendFailed: (message) => {
+      if (!minimized) return;
+      dismissFailToast();
+      failToast.current = toast.error("Could not send the message", {
+        description: message,
+        duration: Infinity,
+        action: { label: "Reopen", onClick: () => onMinimizedChange?.(false) },
+      });
+    },
+  });
   const { fields, set, locked, error, setError } = session;
+  useEffect(() => {
+    if (!minimized) dismissFailToast();
+  }, [minimized]);
+  useEffect(() => dismissFailToast, []);
 
   const panel = useRef<HTMLElement>(null);
   const editor = useRef<Editor | null>(null);
@@ -160,7 +187,7 @@ export function Composer({ seed, accounts, onClose, detached, minimized, tray, t
   return (
     <>
       {minimized && tray && createPortal(
-        <MinimizedPill title={title} recipients={recipients} locked={locked}
+        <MinimizedPill title={title} recipients={recipients} locked={locked} status={session.sendStatus}
           onRestore={() => onMinimizedChange?.(false)} onClose={() => void session.requestClose()} />,
         tray,
       )}

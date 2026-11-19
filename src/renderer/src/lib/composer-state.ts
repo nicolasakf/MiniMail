@@ -164,3 +164,12 @@ export function toSavedDraft(
     serverMessageId: meta.serverMessageId,
   };
 }
+
+/**
+ * What the minimized pill shows about a send, if anything: a spinner while the message goes out,
+ * red while the error of the send that failed is still on show (dismissing it clears it).
+ */
+export function sendStatus(phase: string, failedSend: string | null, error: string | null): "sending" | "failed" | null {
+  if (phase === "sending") return "sending";
+  return failedSend !== null && failedSend === error ? "failed" : null;
+}

@@ -55,6 +55,8 @@ show the states a slow mail server produces: `?slow=8000` delays opening a messa
   images. Use the footer menu to insert an account signature, or to write one in the same editor
   (or as HTML, which is sanitized when saved). Signatures and drafts are stored locally with OS
   encryption. Minimize a draft to keep browsing the inbox, or open it in a separate desktop window.
+  Send minimizes the message while it goes out; if the send fails, its pill turns red with a "!"
+  and a toast offers to reopen it.
   Send Later (the arrow beside Send) queues mail in Drafts and sends when MiniMail is running.
 - Select mode (the pill switch) for bulk actions, search (loaded mail), light/dark/system theme.
 - HTML mail is sanitized and shown in a sandboxed frame; remote images are blocked until you

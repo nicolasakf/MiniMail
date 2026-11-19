@@ -17,6 +17,7 @@ import {
 import { FileIcon } from "@/components/ui/file-icon";
 import { attachmentBytes, formatBytes } from "@/lib/composer-state";
 import { composeTimeLabel, joinMoment, sendLaterOptions, sendTimeHint, splitMoment } from "@/lib/send-later";
+import { cn } from "@/lib/utils";
 
 import { ToolButton } from "./composer-ui";
 
@@ -256,19 +257,31 @@ export function DropOverlay() {
 /**
  * What is left of a minimized composer: a floating pill in the tray at the bottom right, sized to
  * its content. The subject sits on top and the first recipient below it, with a "+N" for any more,
- * so several can be told apart.
+ * so several can be told apart. While the message is on its way a spinner shows in front of it, and
+ * if the send failed a red "!" does, with the pill outlined in red until the composer is reopened.
  */
-export function MinimizedPill({ title, recipients, locked, onRestore, onClose }: {
+export function MinimizedPill({ title, recipients, locked, status, onRestore, onClose }: {
   title: string;
   /** Where it is going: the first is shown, the rest as a "+N". */
   recipients: readonly string[];
   locked: boolean;
+  /** "sending" while the message goes out, "failed" once it did not; nothing for a plain draft. */
+  status?: "sending" | "failed" | null;
   onRestore: () => void;
   onClose: () => void;
 }) {
+  const failed = status === "failed";
   return (
-    <div className="corner-squircle electron-no-drag flex h-12 min-w-0 max-w-[260px] shrink items-center rounded-full border border-border bg-background pl-4 pr-1.5 shadow-[0_10px_30px_-8px_rgb(0_0_0/0.5)] duration-150 animate-in fade-in-0 zoom-in-95">
-      <button type="button" aria-label={`Restore ${title}`}
+    <div className={cn(
+      "corner-squircle electron-no-drag flex h-12 min-w-0 max-w-[260px] shrink items-center rounded-full border bg-background pl-4 pr-1.5 shadow-[0_10px_30px_-8px_rgb(0_0_0/0.5)] duration-150 animate-in fade-in-0 zoom-in-95",
+      failed ? "border-red-500/60" : "border-border",
+      status && "pl-3",
+    )}>
+      {status === "sending" && <Loader2 aria-hidden className="mr-2 size-4 shrink-0 animate-spin text-muted-foreground" />}
+      {failed && <AlertCircle aria-hidden className="mr-2 size-4 shrink-0 text-red-600 dark:text-red-400" />}
+      <button type="button"
+        aria-label={`Restore ${title}${failed ? ". It could not be sent." : status === "sending" ? ". Sending." : ""}`}
+        title={failed ? "Could not send. Click to see why." : status === "sending" ? "Sending…" : undefined}
         className="group min-w-0 flex-1 text-left outline-none"
         onClick={onRestore}>
         <span className="block truncate text-[13px] font-medium leading-tight group-hover:text-sidebar-primary group-focus-visible:text-sidebar-primary">{title}</span>
