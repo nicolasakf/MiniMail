@@ -20,6 +20,7 @@ import {
   MAX_NAME_LENGTH,
   MIN_CRITERIA_LENGTH,
 } from "./categories";
+import { MODEL_PURPOSES, SORT_MODEL_PATTERN } from "./ai-models";
 import { CODE_MODEL_PATTERN } from "./verification-code";
 import { MAX_ATTACHMENT_BYTES, MAX_DRAFT_ATTACHMENTS, SORT_FOLDERS } from "./types";
 import type { AddAccountInput, Category, Draft, ListQuery, MailView, SavedDraft, UiPrefs } from "./types";
@@ -263,6 +264,19 @@ export const codeModelSchema = z
   .trim()
   .max(100)
   .regex(CODE_MODEL_PATTERN, 'Use a gateway model id like "reflection/beam".');
+
+/** The gateway model that sorts mail into categories, such as "typesafe-ai/jev". Never empty. */
+export const sortModelSchema = z
+  .string()
+  .trim()
+  .max(100)
+  .regex(SORT_MODEL_PATTERN, 'Use a gateway model id like "typesafe-ai/jev".');
+
+/** A connection test: which model purpose, and the model id to try (the one in the field, saved or not). */
+export const testModelSchema = z.object({
+  purpose: z.enum(MODEL_PURPOSES),
+  model: z.string().trim().max(100),
+});
 
 /** Folders whose new mail is sorted automatically: any combination; none turns automatic sorting off. */
 export const sortFoldersSchema = z

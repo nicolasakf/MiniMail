@@ -166,6 +166,8 @@ interface MultiTileFieldProps<T extends string> {
     activeClassName?: string;
   }[];
   onToggle: (value: T, on: boolean) => void;
+  /** Extra classes for the row of tiles, for example `justify-center`. */
+  className?: string;
 }
 
 /** SettingsTileField for choices that can be on together: each tile switches on and off by itself. */
@@ -175,9 +177,10 @@ export function SettingsMultiTileField<T extends string>({
   disabled,
   options,
   onToggle,
+  className,
 }: MultiTileFieldProps<T>) {
   return (
-    <div role="group" aria-label={ariaLabel} className="flex gap-1">
+    <div role="group" aria-label={ariaLabel} className={cn("flex gap-1", className)}>
       {options.map((option) => {
         const checked = values.includes(option.value);
         return (

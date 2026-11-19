@@ -108,9 +108,9 @@ export interface Category {
 export interface AiStatus {
   /** A Vercel AI Gateway key is stored. */
   configured: boolean;
-  /** Gateway model id used for classification. */
+  /** Gateway model id that sorts mail into categories. */
   model: string;
-  /** Gateway model id that reads verification codes the rules cannot; empty means rules only. */
+  /** Gateway model id for the AI-enabled features (reading verification codes the rules cannot); empty means rules only. */
   codeModel: string;
   /** Folders whose newly arrived mail is sorted automatically (the Inbox by default; none means new mail is not sorted automatically). */
   sortFolders: SortFolder[];
@@ -119,17 +119,17 @@ export interface AiStatus {
   /** Conversations waiting to be classified. */
   pending: number;
   /**
-   * Progress of the last "sort all mail again", or null if none was started. `total` grows as
+   * Progress of the last "sort mail again", or null if none was started. `total` grows as
    * each account's inbox is listed, so it is the count so far, not a promise of the final one.
    */
   sorting: SortProgress | null;
 }
 
-/** Folders "sort all mail again" can include. */
+/** Folders "sort mail again" can include. */
 export const SORT_FOLDERS = ["inbox", "archive", "spam", "trash"] as const;
 export type SortFolder = (typeof SORT_FOLDERS)[number];
 
-/** Options of "sort all mail again": how far back, and which extra folders join the Inbox. */
+/** Options of "sort mail again": how far back, and which extra folders join the Inbox. */
 export interface SortOptions {
   /** ISO date; only conversations with mail from then on are sorted again. Omitted means all. */
   since?: string;

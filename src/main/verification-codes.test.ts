@@ -1,9 +1,10 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_SORT_MODEL } from "@shared/ai-models";
 import { DEFAULT_CODE_MODEL } from "@shared/verification-code";
 import type { MessageDetail } from "@shared/types";
 
@@ -127,6 +128,29 @@ describe("AiSettingsStore", () => {
     expect(new AiSettingsStore(file).codeModel()).toBe("other/model");
     new AiSettingsStore(file).setCodeModel("");
     expect(new AiSettingsStore(file).codeModel()).toBe("");
+  });
+
+  it("sorts with Jev by default and remembers a change", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "minimail-ai-")), "ai-settings.json");
+    expect(new AiSettingsStore(file).sortModel()).toBe(DEFAULT_SORT_MODEL);
+    new AiSettingsStore(file).setSortModel(" other/sorter ");
+    expect(new AiSettingsStore(file).sortModel()).toBe("other/sorter");
+    expect(new AiSettingsStore(file).codeModel()).toBe(DEFAULT_CODE_MODEL);
+  });
+
+  it("upgrades a version 1 file: keeps its choices and fills the sorting model with Jev", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "minimail-ai-")), "ai-settings.json");
+    writeFileSync(file, JSON.stringify({ version: 1, codeModel: "mine/own", sortFolders: ["inbox", "spam"] }));
+    const upgraded = new AiSettingsStore(file);
+    expect(upgraded.codeModel()).toBe("mine/own");
+    expect(upgraded.sortFolders()).toEqual(["inbox", "spam"]);
+    expect(upgraded.sortModel()).toBe(DEFAULT_SORT_MODEL);
+
+    upgraded.setSortModel("other/sorter");
+    expect(JSON.parse(readFileSync(file, "utf8")).version).toBe(2);
+    const again = new AiSettingsStore(file);
+    expect(again.codeModel()).toBe("mine/own");
+    expect(again.sortModel()).toBe("other/sorter");
   });
 
   it("sorts only the Inbox by default and remembers the chosen folders in a fixed order", () => {

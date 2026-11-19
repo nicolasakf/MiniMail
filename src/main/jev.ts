@@ -1,4 +1,5 @@
 import { NO_CATEGORY_NAME } from "@shared/categories";
+import { DEFAULT_SORT_MODEL } from "@shared/ai-models";
 import type { Category, Contact, SmartCategory } from "@shared/types";
 
 /**
@@ -6,7 +7,7 @@ import type { Category, Contact, SmartCategory } from "@shared/types";
  * typed Choice question with a probability for every option, which is exactly what sorting
  * mail into the user's categories needs, and it is far cheaper and faster than a chat model.
  */
-export const JEV_MODEL = "typesafe-ai/jev";
+export const JEV_MODEL = DEFAULT_SORT_MODEL;
 
 /** Below this probability the answer is treated as "no category": better a plain row than a wrong group. */
 export const MIN_PROBABILITY = 0.4;
@@ -31,6 +32,8 @@ export interface Classification {
 export type Classifier = (
   input: ClassificationInput,
   categories: readonly Category[],
+  /** `model` tries a model other than the saved one (the connection test of an unsaved choice). */
+  options?: { model?: string },
 ) => Promise<Classification>;
 
 const SIGNAL_FACTS: Record<SmartCategory, string> = {
@@ -142,9 +145,12 @@ export function describeGatewayError(error: unknown): string {
   return raw.length > 240 ? `${raw.slice(0, 240)}…` : raw;
 }
 
-/** The real classifier: one Jev call per conversation through the Vercel AI Gateway. */
-export function createJevClassifier(getKey: () => string | undefined): Classifier {
-  return async (input, categories) => {
+/** The real classifier: one call per conversation to the sorting model (Jev unless changed) through the Vercel AI Gateway. */
+export function createJevClassifier(
+  getKey: () => string | undefined,
+  getModel: () => string = () => JEV_MODEL,
+): Classifier {
+  return async (input, categories, options) => {
     const apiKey = getKey();
     if (!apiKey) throw new Error("No Vercel AI Gateway key is set.");
 
@@ -152,7 +158,7 @@ export function createJevClassifier(getKey: () => string | undefined): Classifie
     const { createGateway, experimental_decide: decide } = await import("ai");
     const request = buildClassificationRequest(input, categories);
     const result = await decide({
-      model: createGateway({ apiKey }).decisionModel(JEV_MODEL),
+      model: createGateway({ apiKey }).decisionModel(options?.model || getModel()),
       state: request.state,
       questions: request.questions,
       maxRetries: 1,

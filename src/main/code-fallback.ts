@@ -24,6 +24,19 @@ export function buildCodePrompt(input: CodeSource & { from: Contact }): string {
   ].join("\n");
 }
 
+/** One small call to `modelId` that rejects when it cannot be used; the answer itself does not matter. */
+export async function checkCodeModel(apiKey: string, modelId: string): Promise<void> {
+  const { createGateway, generateText } = await import("ai");
+  await generateText({
+    model: createGateway({ apiKey })(modelId),
+    prompt: "Reply with the single word: ok",
+    temperature: 0,
+    maxOutputTokens: 16,
+    maxRetries: 0,
+    abortSignal: AbortSignal.timeout(20_000),
+  });
+}
+
 /**
  * The fallback: one small chat model call through the Vercel AI Gateway, the same key as sorting.
  * The caller checks the answer against the email, so a wrong answer here is harmless.

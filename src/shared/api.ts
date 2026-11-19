@@ -1,3 +1,4 @@
+import type { ModelPurpose } from "./ai-models";
 import type { ComposeLibrary } from "./compose-library";
 import type { ImapSettings } from "./imap-settings";
 import type {
@@ -89,12 +90,17 @@ export interface MiniMailApi {
     /** Stores a Vercel AI Gateway key (encrypted) and turns AI classification on. */
     setGatewayKey(key: string): Promise<CategoryState>;
     clearGatewayKey(): Promise<CategoryState>;
-    /** Sets the gateway model that reads codes the rules cannot ("" turns the fallback off). */
+    /** Sets the gateway model for the AI-enabled features, such as reading codes the rules cannot ("" turns them off). */
     setCodeModel(model: string): Promise<CategoryState>;
+    /** Sets the gateway model that sorts mail into categories. */
+    setSortModel(model: string): Promise<CategoryState>;
     /** Chooses which folders' newly arrived mail is sorted automatically (none turns automatic sorting off). */
     setSortFolders(folders: SortFolder[]): Promise<CategoryState>;
-    /** Makes one tiny classification call so a bad key or network problem shows up now. */
-    testGateway(): Promise<void>;
+    /**
+     * Makes one tiny call to `model` (saved or not) for that purpose, so a bad key, a wrong model id
+     * or a network problem shows up now. Rejects with what went wrong.
+     */
+    testModel(purpose: ModelPurpose, model: string): Promise<void>;
     /** Forgets every classification so the next refresh sorts all mail again with current criteria. */
     reclassify(options?: SortOptions): Promise<void>;
     /** How many conversations a sort with these options would send to Jev, per folder. */

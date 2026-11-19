@@ -13,6 +13,8 @@ import {
   categoryListSchema,
   codeIdsSchema,
   codeModelSchema,
+  sortModelSchema,
+  testModelSchema,
   sortFoldersSchema,
   draftIdSchema,
   draftSchema,
@@ -169,11 +171,18 @@ export function registerIpc(options: {
     aiSettings.setCodeModel(codeModelSchema.parse(model));
     return categorizer.state();
   });
+  handle(IPC.categoriesSetSortModel, (model: unknown) => {
+    aiSettings.setSortModel(sortModelSchema.parse(model));
+    return categorizer.state();
+  });
   handle(IPC.categoriesSetSortFolders, (folders: unknown) => {
     aiSettings.setSortFolders(sortFoldersSchema.parse(folders));
     return categorizer.state();
   });
-  handle(IPC.categoriesTest, () => categorizer.test());
+  handle(IPC.categoriesTest, (request: unknown) => {
+    const { purpose, model } = testModelSchema.parse(request);
+    return categorizer.testModel(purpose, model);
+  });
   handle(IPC.categoriesReclassify, (options: unknown) => {
     const parsed = reclassifySchema.parse(options);
     const folders = parsed?.folders ?? ["inbox"];

@@ -664,12 +664,38 @@ describe("Categorizer", () => {
     expect(peak).toBe(4);
   });
 
-  it("test() reports a failing key as a readable error", async () => {
+  it("testModel('sorting') reports a failing key as a readable error", async () => {
+    const saved = categorizer.state().ai.model;
     classify.mockRejectedValueOnce(Object.assign(new Error("Invalid API key or token."), { statusCode: 401 }));
-    await expect(categorizer.test()).rejects.toThrow(/rejected the API key/);
+    await expect(categorizer.testModel("sorting", saved)).rejects.toThrow(/rejected the API key/);
+    expect(categorizer.state().ai.lastError).toMatch(/rejected the API key/);
     classify.mockResolvedValueOnce({ categoryId: "verification-codes", probability: 0.9 });
-    await expect(categorizer.test()).resolves.toBeUndefined();
+    await expect(categorizer.testModel("sorting", saved)).resolves.toBeUndefined();
     expect(categorizer.state().ai.lastError).toBeNull();
+  });
+
+  it("testModel tries the model it is given, and a failing unsaved model does not mark sorting as failing", async () => {
+    classify.mockRejectedValueOnce(new Error("Model not found"));
+    await expect(categorizer.testModel("sorting", "other/model")).rejects.toThrow("Model not found");
+    expect(classify.mock.calls.at(-1)?.[2]).toEqual({ model: "other/model" });
+    expect(categorizer.state().ai.lastError).toBeNull();
+  });
+
+  it("testModel('features') checks the AI-enabled features model with the saved key", async () => {
+    const checkCodeModel = vi.fn(async () => {});
+    const withCheck = new Categorizer({ store, keys, classify, checkCodeModel, onUpdated: updated });
+    await withCheck.testModel("features", "reflection/beam");
+    expect(checkCodeModel).toHaveBeenCalledWith(key, "reflection/beam");
+
+    checkCodeModel.mockRejectedValueOnce(Object.assign(new Error("denied"), { statusCode: 401 }));
+    await expect(withCheck.testModel("features", "reflection/beam")).rejects.toThrow(/rejected the API key/);
+    await expect(withCheck.testModel("features", "")).rejects.toThrow(/features are off/);
+    expect(classify).not.toHaveBeenCalled();
+  });
+
+  it("testModel needs a key", async () => {
+    key = undefined;
+    await expect(categorizer.testModel("sorting", "typesafe-ai/jev")).rejects.toThrow(/No Vercel AI Gateway key/);
   });
 
   it("setting a key turns AI on and clearing it turns it off", () => {

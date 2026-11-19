@@ -1,0 +1,169 @@
+import { useEffect, useState } from "react";
+
+import { CircleAlert, CircleCheck, Loader2, RotateCcw } from "lucide-react";
+
+import type { ModelPurpose } from "@shared/ai-models";
+import { CODE_MODEL_PATTERN } from "@shared/verification-code";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { api } from "@/lib/api";
+import { noteShownError } from "@/lib/events";
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export type Connection = { state: "idle" } | { state: "testing" } | { state: "ok" } | { state: "error"; message: string };
+
+/** What a connection test says under its field. */
+export function ConnectionNote({ connection, okText }: { connection: Connection; okText: string }) {
+  if (connection.state === "ok") {
+    return (
+      <p className="flex items-center gap-1.5 text-xs text-emerald-400">
+        <CircleCheck className="size-3.5" /> {okText}
+      </p>
+    );
+  }
+  if (connection.state === "error") {
+    return (
+      <p role="alert" className="flex items-start gap-1.5 text-xs text-red-300">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0" /> {connection.message}
+      </p>
+    );
+  }
+  return null;
+}
+
+interface ModelFieldProps {
+  title: string;
+  /** One line under the title: what this model is used for. */
+  help: string;
+  purpose: ModelPurpose;
+  /** The model that is saved now. */
+  saved: string;
+  /** What Reset goes back to. */
+  defaultModel: string;
+  /** Whether the field may be empty (the AI-enabled features then run on rules only). */
+  allowEmpty: boolean;
+  ariaLabel: string;
+  /** A gateway key is saved; the model cannot be tested without one. */
+  configured: boolean;
+  /** Saves the model and tells the user how it went (it shows its own errors). */
+  onSave: (model: string) => Promise<void>;
+  /** Said under the field when it is saved empty. */
+  emptyNote?: string;
+}
+
+/**
+ * One gateway model choice with its own Save and Test connection. The test tries what is typed
+ * in the field, saved or not, so a model can be checked before it is used.
+ */
+export function ModelField({
+  title,
+  help,
+  purpose,
+  saved,
+  defaultModel,
+  allowEmpty,
+  ariaLabel,
+  configured,
+  onSave,
+  emptyNote,
+}: ModelFieldProps) {
+  const [model, setModel] = useState(saved);
+  const [saving, setSaving] = useState(false);
+  const [connection, setConnection] = useState<Connection>({ state: "idle" });
+  useEffect(() => setModel(saved), [saved]);
+
+  const trimmed = model.trim();
+  const valid = CODE_MODEL_PATTERN.test(trimmed) && (allowEmpty || trimmed !== "");
+  const testable = configured && valid && trimmed !== "";
+
+  const change = (next: string) => {
+    setModel(next);
+    setConnection({ state: "idle" });
+  };
+
+  const save = async (next: string) => {
+    setSaving(true);
+    try {
+      await onSave(next);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Back to the default: saves it when something else is saved, and otherwise only clears what was typed. */
+  const reset = () => {
+    setConnection({ state: "idle" });
+    if (saved === defaultModel) setModel(defaultModel);
+    else void save(defaultModel);
+  };
+
+  const test = async () => {
+    setConnection({ state: "testing" });
+    try {
+      await api.categories.testModel(purpose, trimmed);
+      setConnection({ state: "ok" });
+    } catch (error) {
+      setConnection({ state: "error", message: errorText(error) });
+      noteShownError(`The ${title.toLowerCase()} model could not be used`, errorText(error));
+    }
+  };
+
+  return (
+    <form
+      className="space-y-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (valid && trimmed !== saved) void save(trimmed);
+      }}
+    >
+      <div>
+        <h4 className="text-sm font-semibold">{title}</h4>
+        <p className="text-xs text-muted-foreground">{help}</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={model}
+          onChange={(event) => change(event.target.value)}
+          placeholder={defaultModel}
+          aria-label={ariaLabel}
+          aria-invalid={!valid}
+          autoComplete="off"
+          spellCheck={false}
+          className="h-9 min-w-[220px] flex-1 font-mono text-xs"
+        />
+        <Button type="submit" size="sm" disabled={saving || !valid || trimmed === saved}>
+          {saving && <Loader2 className="animate-spin" />}
+          Save
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!testable || connection.state === "testing"}
+          title={configured ? undefined : "Save a gateway key first"}
+          onClick={() => void test()}
+        >
+          {connection.state === "testing" && <Loader2 className="animate-spin" />}
+          Test connection
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={saving || (saved === defaultModel && trimmed === defaultModel)}
+          title={`Go back to ${defaultModel}`}
+          onClick={reset}
+        >
+          <RotateCcw /> Reset
+        </Button>
+      </div>
+      {!valid && <p className="text-xs text-red-300">Use a gateway model id like &quot;{defaultModel}&quot;.</p>}
+      {saved === "" && emptyNote && <p className="text-xs text-muted-foreground">{emptyNote}</p>}
+      <ConnectionNote connection={connection} okText={`Connected: ${trimmed} answered a test question.`} />
+    </form>
+  );
+}

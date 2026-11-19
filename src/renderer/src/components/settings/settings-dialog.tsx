@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { Bell, Palette, Tags, User, Users, type LucideIcon } from "lucide-react";
+import { Bell, Palette, Sparkles, Tags, User, Users, type LucideIcon } from "lucide-react";
 
 import type { Account, AiStatus, Category, CategoryState } from "@shared/types";
 
@@ -9,17 +9,19 @@ import { CategoriesPanel } from "@/components/mail/categories-panel";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
+import { AiFeaturesTab } from "./ai-features-tab";
 import { AppearanceTab } from "./appearance-tab";
 import { NotificationsTab } from "./notifications-tab";
 import { SendersTab } from "./senders-tab";
 
-export const SETTINGS_TABS = ["appearance", "accounts", "categories", "senders", "notifications"] as const;
+export const SETTINGS_TABS = ["appearance", "accounts", "categories", "ai-features", "senders", "notifications"] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const NAV: { id: SettingsTab; title: string; icon: LucideIcon }[] = [
   { id: "appearance", title: "Appearance", icon: Palette },
   { id: "accounts", title: "Accounts", icon: Users },
   { id: "categories", title: "Categories", icon: Tags },
+  { id: "ai-features", title: "AI Features", icon: Sparkles },
   { id: "senders", title: "Senders", icon: User },
   { id: "notifications", title: "Notifications", icon: Bell },
 ];
@@ -126,7 +128,7 @@ export function SettingsDialog({
       >
         <DialogHeader className="sr-only">
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Appearance, accounts, categories, senders and notifications.</DialogDescription>
+          <DialogDescription>Appearance, accounts, categories, AI features, senders and notifications.</DialogDescription>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 gap-3 p-3">
           <nav
@@ -159,6 +161,7 @@ export function SettingsDialog({
               />,
             )}
             {page("categories", <CategoriesPanel categories={categories} ai={ai} onState={onCategoryState} />)}
+            {page("ai-features", <AiFeaturesTab ai={ai} onState={onCategoryState} />)}
             {page("senders", <SendersTab accounts={accounts} />)}
             {page("notifications", <NotificationsTab accounts={accounts} categories={categories} onOpenSenders={() => show("senders")} />)}
           </div>

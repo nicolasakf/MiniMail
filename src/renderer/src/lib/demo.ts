@@ -5,6 +5,7 @@ import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "@share
 import { DEFAULT_LOGO_SETTINGS, isFreemail, logoKey, type LogoRequest, type LogoSettings } from "@shared/logos";
 import type { AccountCapabilities, MiniMailApi } from "@shared/api";
 import type { AppEvent } from "@shared/events";
+import { DEFAULT_SORT_MODEL, SORT_MODEL_PATTERN } from "@shared/ai-models";
 import { categoryProblems, defaultCategories, ruleBasedCategoryId } from "@shared/categories";
 import {
   CODE_MODEL_PATTERN,
@@ -721,10 +722,11 @@ export function createDemoApi(): MiniMailApi {
     return { done, total, accounts: perAccount, finished: done >= total, error: null };
   };
   let codeModel: string = DEFAULT_CODE_MODEL;
+  let sortModel: string = DEFAULT_SORT_MODEL;
   let sortFolders: SortFolder[] = ["inbox"];
   const categoryState = (): CategoryState => ({
     categories: categories.map((category) => ({ ...category })),
-    ai: { configured: aiConfigured, model: "typesafe-ai/jev", codeModel, sortFolders: [...sortFolders], lastError: null, pending: 0, sorting: sortProgress() },
+    ai: { configured: aiConfigured, model: sortModel, codeModel, sortFolders: [...sortFolders], lastError: null, pending: 0, sorting: sortProgress() },
   });
 
   return {
@@ -1062,14 +1064,21 @@ export function createDemoApi(): MiniMailApi {
         codeModel = model.trim();
         return categoryState();
       },
+      async setSortModel(model) {
+        await wait(40);
+        if (!SORT_MODEL_PATTERN.test(model.trim())) throw new Error('Use a gateway model id like "typesafe-ai/jev".');
+        sortModel = model.trim();
+        return categoryState();
+      },
       async setSortFolders(folders) {
         await wait(40);
         sortFolders = [...folders];
         return categoryState();
       },
-      async testGateway() {
+      async testModel(purpose, model) {
         await wait(600);
         if (!aiConfigured) throw new Error("No Vercel AI Gateway key is set.");
+        if (purpose === "features" && !model.trim()) throw new Error("No model is set: AI-enabled features are off.");
       },
       async reclassify(_options) {
         await wait(40);

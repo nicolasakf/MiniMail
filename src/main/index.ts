@@ -12,7 +12,7 @@ import type { OpenConversationRequest } from "@shared/notifications";
 import { AiSettingsStore } from "./ai-settings";
 import { AttachmentFiles } from "./attachment-files";
 import { InvitationAnswers } from "./invitation-answers";
-import { createCodeFallback } from "./code-fallback";
+import { checkCodeModel, createCodeFallback } from "./code-fallback";
 import { Categorizer } from "./categorizer";
 import { VerificationCodes } from "./verification-codes";
 import { CategoryStore, GatewayKeyStore } from "./category-store";
@@ -271,8 +271,10 @@ if (!app.requestSingleInstanceLock()) {
       store: categoryStore,
       keys,
       codeModel: () => aiSettings.codeModel(),
+      sortModel: () => aiSettings.sortModel(),
+      checkCodeModel,
       sortFolders: () => aiSettings.sortFolders(),
-      classify: createJevClassifier(() => keys.get()),
+      classify: createJevClassifier(() => keys.get(), () => aiSettings.sortModel()),
       // New answers change what the list should show, so ask the page to refresh.
       onUpdated: () => {
         mainWindow?.webContents.send(IPC.mailChanged);

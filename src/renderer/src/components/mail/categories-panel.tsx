@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { CircleAlert, CircleCheck, ExternalLink, GripVertical, KeyRound, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, CircleAlert, GripVertical, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 
 import {
@@ -11,24 +11,26 @@ import {
   MAX_CRITERIA_LENGTH,
   MAX_NAME_LENGTH,
 } from "@shared/categories";
+import { DEFAULT_SORT_MODEL } from "@shared/ai-models";
 import { SORT_FOLDERS, type AiStatus, type Category, type CategoryState, type SortFolder } from "@shared/types";
-import { CODE_MODEL_PATTERN, DEFAULT_CODE_MODEL } from "@shared/verification-code";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { ColorPicker } from "@/components/ui/color-picker";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { hexToHue, hslToHex } from "@/lib/color";
+import { FOLDER_STYLE } from "@/lib/folder-style";
 import { sortMailAgain } from "@/lib/sort-progress";
-import { retryMissingCodes } from "@/lib/verification-codes";
 import { cn } from "@/lib/utils";
 
 import { SettingsPageHeader } from "../settings/fields";
+import { SettingsMultiTileField } from "../settings/visual-fields";
 
 import { CategoryIcon } from "./category-icon";
 import { IconPicker } from "./icon-picker";
+import { GatewayKeyField, KeyGate } from "./key-gate";
+import { ModelField } from "./model-field";
 import { SortAgainMenu } from "./sort-again-menu";
 import { noteShownError } from "@/lib/events";
 
@@ -36,84 +38,18 @@ const SWATCH_HUES = [210, 265, 150, 35, 340, 180, 95, 20];
 /** Presets in the color picker: the hues categories are drawn with, at their usual saturation. */
 const PRESET_HUES = [0, 20, 35, 55, 95, 150, 180, 195, 210, 235, 265, 300, 320, 340];
 const PRESET_COLORS = PRESET_HUES.map((hue) => hslToHex(hue));
-const FOLDER_LABELS: Record<SortFolder, string> = { inbox: "Inbox", archive: "Archive", spam: "Spam", trash: "Trash" };
-const KEYS_URL = "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai%2Fapi-keys";
+const FOLDER_HELP: Record<SortFolder, string> = {
+  inbox: "Sort mail that arrives in your Inbox.",
+  archive: "Sort mail your own filters file straight into Archive.",
+  spam: "Sort junk mail too. Off unless you want to watch for false positives.",
+  trash: "Sort mail that lands in Trash. Off by default.",
+};
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-type Connection = { state: "idle" } | { state: "testing" } | { state: "ok" } | { state: "error"; message: string };
-
-/** The gateway model that reads verification codes the on-device rules cannot; the user may swap it. */
-function CodeModelField({
-  ai,
-  onState,
-}: {
-  ai: AiStatus | null;
-  onState: (state: CategoryState) => void;
-}) {
-  const saved = ai?.codeModel ?? DEFAULT_CODE_MODEL;
-  const [model, setModel] = useState(saved);
-  const [saving, setSaving] = useState(false);
-  useEffect(() => setModel(saved), [saved]);
-
-  const trimmed = model.trim();
-  const valid = CODE_MODEL_PATTERN.test(trimmed);
-
-  const save = async (next: string) => {
-    setSaving(true);
-    try {
-      onState(await api.categories.setCodeModel(next));
-      retryMissingCodes();
-      toast.success(next ? `Verification codes will use ${next} when the rules fail.` : "Verification codes: rules only.");
-    } catch (error) {
-      toast.error(errorText(error));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <form
-      className="space-y-2 border-t border-border pt-3"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (valid) void save(trimmed);
-      }}
-    >
-      <h4 className="text-sm font-semibold">Verification code fallback</h4>
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          value={model}
-          onChange={(event) => setModel(event.target.value)}
-          placeholder={DEFAULT_CODE_MODEL}
-          aria-label="Verification code model"
-          aria-invalid={!valid}
-          autoComplete="off"
-          spellCheck={false}
-          className="h-9 min-w-[220px] flex-1 font-mono text-xs"
-        />
-        <Button type="submit" size="sm" disabled={saving || !valid || trimmed === saved}>
-          {saving && <Loader2 className="animate-spin" />}
-          Save
-        </Button>
-        {saved !== DEFAULT_CODE_MODEL && (
-          <Button type="button" size="sm" variant="ghost" disabled={saving} onClick={() => void save(DEFAULT_CODE_MODEL)}>
-            Use {DEFAULT_CODE_MODEL}
-          </Button>
-        )}
-      </div>
-      {!valid && <p className="text-xs text-red-300">Use a gateway model id like &quot;{DEFAULT_CODE_MODEL}&quot;.</p>}
-      {saved === "" && <p className="text-xs text-muted-foreground">Rules only: no email text is sent for codes.</p>}
-      {saved !== "" && !ai?.configured && (
-        <p className="text-xs text-muted-foreground">The fallback starts working once a gateway key is saved.</p>
-      )}
-    </form>
-  );
-}
-
-/** Which folders' newly arrived mail is sorted automatically. Saves as soon as a box is toggled. */
+/** Which folders' newly arrived mail is sorted automatically, as the same colored tiles the notifications use. */
 function SortFoldersField({
   ai,
   onState,
@@ -122,171 +58,113 @@ function SortFoldersField({
   onState: (state: CategoryState) => void;
 }) {
   const saved = ai?.sortFolders ?? ["inbox"];
-  const [saving, setSaving] = useState(false);
+  /** What the tiles show while a save is in flight, so a tile flips at once and nothing is disabled. */
+  const [shown, setShown] = useState<SortFolder[] | null>(null);
+  const inFlight = useRef(0);
+  const current = shown ?? saved;
 
   const toggle = async (folder: SortFolder, on: boolean) => {
-    const next = SORT_FOLDERS.filter((name) => (name === folder ? on : saved.includes(name)));
-    setSaving(true);
+    const next = SORT_FOLDERS.filter((name) => (name === folder ? on : current.includes(name)));
+    setShown(next);
+    inFlight.current += 1;
     try {
       onState(await api.categories.setSortFolders(next));
     } catch (error) {
       toast.error(errorText(error));
     } finally {
-      setSaving(false);
+      inFlight.current -= 1;
+      // Only the last save of a quick run hands the tiles back to the saved value, so they do not jump between answers.
+      if (inFlight.current === 0) setShown(null);
     }
   };
 
   return (
-    <fieldset className="space-y-2 border-t border-border pt-3" disabled={saving}>
-      <legend className="float-left mb-2 w-full text-sm font-semibold">Sort new mail in</legend>
-      <div className="flex flex-wrap gap-x-5 gap-y-2 clear-both">
-        {SORT_FOLDERS.map((folder) => {
-          const checked = saved.includes(folder);
-          return (
-            <label key={folder} className="flex cursor-pointer items-center gap-2 text-sm">
-              <Checkbox
-                checked={checked}
-                onCheckedChange={(value) => void toggle(folder, value === true)}
-              />
-              {FOLDER_LABELS[folder]}
-            </label>
-          );
-        })}
+    <section className="space-y-2 border-t border-border pt-3" aria-label="Folders that are sorted">
+      <div>
+        <h3 className="text-sm font-semibold">Sort new mail in</h3>
+        <p className="text-xs text-muted-foreground">New mail that arrives in the highlighted folders is sorted into your categories.</p>
       </div>
-    </fieldset>
+      <SettingsMultiTileField
+        ariaLabel="Folders that are sorted"
+        values={current}
+        className="justify-center py-4"
+        options={SORT_FOLDERS.map((folder) => {
+          const { label, icon: Icon, active } = FOLDER_STYLE[folder];
+          return {
+            value: folder,
+            label,
+            description: FOLDER_HELP[folder],
+            activeClassName: active,
+            content: <Icon aria-hidden="true" className="size-6" />,
+          };
+        })}
+        onToggle={(folder, on) => void toggle(folder, on)}
+      />
+      {ai?.lastError && (
+        <p role="alert" className="flex items-start gap-1.5 text-xs text-red-300">
+          <CircleAlert className="mt-0.5 size-3.5 shrink-0" /> Last sorting attempt failed: {ai.lastError}
+        </p>
+      )}
+    </section>
   );
 }
 
-/** Where the Vercel AI Gateway key is entered and checked; Jev runs through that gateway. */
-function AiSection({
+/** The part most people never open: the gateway key, once saved, and the sorting model. */
+function AdvancedSection({
   ai,
   onState,
 }: {
   ai: AiStatus | null;
   onState: (state: CategoryState) => void;
 }) {
-  const [key, setKey] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [connection, setConnection] = useState<Connection>({ state: "idle" });
+  const [open, setOpen] = useState(false);
 
-  const test = async () => {
-    setConnection({ state: "testing" });
+  const saveSortModel = async (next: string) => {
     try {
-      await api.categories.testGateway();
-      setConnection({ state: "ok" });
-    } catch (error) {
-      setConnection({ state: "error", message: errorText(error) });
-      noteShownError("The AI key could not be used", errorText(error));
-    }
-  };
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      onState(await api.categories.setGatewayKey(key));
-      setKey("");
-      await test();
-    } catch (error) {
-      setConnection({ state: "error", message: errorText(error) });
-      noteShownError("The AI key could not be used", errorText(error));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const remove = async () => {
-    try {
-      onState(await api.categories.clearGatewayKey());
-      setConnection({ state: "idle" });
+      onState(await api.categories.setSortModel(next));
+      toast.success(`Mail will be sorted with ${next}.`, {
+        description: "Mail already sorted keeps its category until you sort it again.",
+      });
     } catch (error) {
       toast.error(errorText(error));
     }
   };
 
-  const configured = ai?.configured ?? false;
-
   return (
-    <section className="corner-squircle space-y-3 rounded-xl border border-border bg-card/40 p-4">
-      <div className="flex items-center gap-3">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted">
-          <KeyRound className="size-4 text-muted-foreground" />
-        </span>
-        <h3 className="min-w-0 flex-1 text-sm font-semibold">AI sorting with Jev</h3>
-      </div>
+    <section className="space-y-3 border-t border-border pt-3" aria-label="Advanced">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls="categories-advanced"
+        onClick={() => setOpen((value) => !value)}
+        className="flex items-center gap-1.5 rounded-sm text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <ChevronRight className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-90")} />
+        Advanced
+      </button>
 
-      {api.system.demo && (
-        <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-          Browser demo: categories are assigned by simple keyword rules and nothing leaves this page.
-        </p>
-      )}
-
-      {configured ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="flex items-center gap-1.5 text-sm">
-            <CircleCheck className="size-4 text-emerald-400" />
-            Key saved
-          </span>
-          <Button size="sm" variant="outline" onClick={() => void test()} disabled={connection.state === "testing"}>
-            {connection.state === "testing" && <Loader2 className="animate-spin" />}
-            Test connection
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => void remove()}>
-            Remove key
-          </Button>
-          {ai && ai.pending > 0 && (
-            <span className="text-xs text-muted-foreground">Sorting {ai.pending}…</span>
+      {open && (
+        <div id="categories-advanced" className="corner-squircle space-y-5 rounded-xl border border-border bg-card/40 p-4">
+          {api.system.demo && (
+            <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+              Browser demo: categories are assigned by simple keyword rules and nothing leaves this page.
+            </p>
           )}
-        </div>
-      ) : (
-        <form
-          className="flex flex-wrap items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void save();
-          }}
-        >
-          <Input
-            type="password"
-            value={key}
-            onChange={(event) => setKey(event.target.value)}
-            placeholder="Vercel AI Gateway API key"
-            aria-label="Vercel AI Gateway API key"
-            autoComplete="off"
-            spellCheck={false}
-            className="h-9 min-w-[220px] flex-1"
+
+          <GatewayKeyField ai={ai} onState={onState} />
+
+          <ModelField
+            title="Sorting model"
+            help="The model that sorts mail into your categories."
+            purpose="sorting"
+            saved={ai?.model ?? DEFAULT_SORT_MODEL}
+            defaultModel={DEFAULT_SORT_MODEL}
+            allowEmpty={false}
+            ariaLabel="Model for sorting mail"
+            configured={ai?.configured ?? false}
+            onSave={saveSortModel}
           />
-          <Button type="submit" size="sm" disabled={saving || key.trim().length < 8}>
-            {saving && <Loader2 className="animate-spin" />}
-            Save key
-          </Button>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            onClick={() => void api.system.openExternal(KEYS_URL)}
-          >
-            Create a key <ExternalLink className="size-3" />
-          </button>
-        </form>
-      )}
-
-      <SortFoldersField ai={ai} onState={onState} />
-
-      <CodeModelField ai={ai} onState={onState} />
-
-      {connection.state === "ok" && (
-        <p className="flex items-center gap-1.5 text-xs text-emerald-400">
-          <CircleCheck className="size-3.5" /> Connected: Jev answered a test question.
-        </p>
-      )}
-      {connection.state === "error" && (
-        <p role="alert" className="flex items-start gap-1.5 text-xs text-red-300">
-          <CircleAlert className="mt-0.5 size-3.5 shrink-0" /> {connection.message}
-        </p>
-      )}
-      {connection.state !== "error" && ai?.lastError && (
-        <p role="alert" className="flex items-start gap-1.5 text-xs text-red-300">
-          <CircleAlert className="mt-0.5 size-3.5 shrink-0" /> Last sorting attempt failed: {ai.lastError}
-        </p>
+        </div>
       )}
     </section>
   );
@@ -560,9 +438,12 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
     <div className="flex max-w-2xl flex-col gap-4 p-6">
       <SettingsPageHeader title="Categories" />
 
+      <KeyGate
+        ai={ai}
+        onState={onState}
+        intro="MiniMail sorts your mail into categories with TypeSafe AI's Jev, reached through your Vercel AI Gateway key. You can pick another model later under Advanced."
+      >
         <div className="space-y-4">
-          <AiSection ai={ai} onState={onState} />
-
           <section className="space-y-3" aria-label="Category list">
             {draft.length === 0 && (
               <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
@@ -609,6 +490,30 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
                   Restore {missingDefaults.map((c) => c.name.toLowerCase()).join(", ")}
                 </Button>
               )}
+              {ai?.configured && <SortAgainMenu />}
+              <div className="ml-auto flex gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={!dirty || saving}
+                  onClick={() => {
+                    setDraft(categories.map((category) => ({ ...category })));
+                    setEditingId(null);
+                  }}
+                >
+                  Revert
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void save()}
+                  disabled={!dirty || problems.length > 0 || saving}
+                >
+                  {saving && <Loader2 className="animate-spin" />}
+                  Save
+                </Button>
+              </div>
             </div>
 
             {problems.length > 0 && dirty && (
@@ -619,32 +524,12 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
               </ul>
             )}
           </section>
-        </div>
 
-        <div className="flex items-center justify-between gap-2 pt-1">
-          {ai?.configured ? (
-            <SortAgainMenu />
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={!dirty || saving}
-              onClick={() => {
-                setDraft(categories.map((category) => ({ ...category })));
-                setEditingId(null);
-              }}
-            >
-              Revert
-            </Button>
-            <Button type="button" onClick={() => void save()} disabled={!dirty || problems.length > 0 || saving}>
-              {saving && <Loader2 className="animate-spin" />}
-              Save
-            </Button>
-          </div>
+          <SortFoldersField ai={ai} onState={onState} />
+
+          <AdvancedSection ai={ai} onState={onState} />
         </div>
+      </KeyGate>
     </div>
   );
 }

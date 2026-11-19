@@ -1,6 +1,7 @@
 import { categoryProblems, ruleBasedCategoryId } from "@shared/categories";
 import type { Category, CategoryState, MailFolder, MessageSummary, SortFolder, SortProgress } from "@shared/types";
 
+import type { ModelPurpose } from "@shared/ai-models";
 import { DEFAULT_CODE_MODEL } from "@shared/verification-code";
 
 import type { CategoryStore } from "./category-store";
@@ -39,8 +40,12 @@ export interface CategorizerDeps {
   store: CategoryStore;
   keys: KeyStore;
   classify: Classifier;
-  /** The model that reads verification codes; empty means rules only. */
+  /** The model for the AI-enabled features (reading verification codes); empty means rules only. */
   codeModel?: () => string;
+  /** The model that sorts mail into categories; Jev when omitted. */
+  sortModel?: () => string;
+  /** One small call to `model` that rejects when it cannot be used (the test of the AI-enabled features model). */
+  checkCodeModel?: (apiKey: string, model: string) => Promise<void>;
   /** Folders whose newly arrived mail is sorted automatically; the Inbox when omitted. */
   sortFolders?: () => readonly SortFolder[];
   /** Called, debounced, when new answers are stored, so the UI can refresh its list. */
@@ -92,7 +97,7 @@ export class Categorizer {
   private notifyTimer: NodeJS.Timeout | null = null;
   /** Bumped by `reclassify` so answers that were in flight are discarded rather than stored. */
   private generation = 0;
-  /** The "sort all mail again" in progress, and how the last one ended. */
+  /** The "sort mail again" in progress, and how the last one ended. */
   private run: SortRun | null = null;
   private lastRun: SortProgress | null = null;
   /**
@@ -118,7 +123,7 @@ export class Categorizer {
       categories: this.deps.store.categories(),
       ai: {
         configured: Boolean(this.deps.keys.get()),
-        model: JEV_MODEL,
+        model: this.deps.sortModel?.() ?? JEV_MODEL,
         codeModel: this.deps.codeModel?.() ?? DEFAULT_CODE_MODEL,
         sortFolders: [...this.newMailFolders()],
         lastError: this.lastError,
@@ -158,8 +163,26 @@ export class Categorizer {
     return this.state();
   }
 
-  /** One real classification call, so a wrong key or a network problem shows up immediately. */
-  async test(): Promise<void> {
+  /**
+   * One real call to `model` (the one in the settings field, saved or not), so a wrong key, a wrong
+   * model id or a network problem shows up immediately. Testing the saved sorting model also
+   * clears or sets the "last sorting attempt failed" note; testing anything else leaves it alone.
+   */
+  async testModel(purpose: ModelPurpose, model: string): Promise<void> {
+    const key = this.deps.keys.get();
+    if (!key) throw new Error("No Vercel AI Gateway key is set.");
+    if (purpose === "features") {
+      if (!model) throw new Error("No model is set: AI-enabled features are off.");
+      try {
+        await (this.deps.checkCodeModel ?? (async () => {}))(key, model);
+      } catch (error) {
+        throw new Error(describeGatewayError(error));
+      }
+      return;
+    }
+
+    const savedModel = this.deps.sortModel?.() ?? JEV_MODEL;
+    const forSaved = model === savedModel;
     try {
       await this.deps.classify(
         {
@@ -169,13 +192,17 @@ export class Categorizer {
           signal: "notification",
         },
         this.deps.store.categories(),
+        { model },
       );
-      this.lastError = null;
-      this.failures = 0;
-      this.pausedUntil = 0;
+      if (forSaved) {
+        this.lastError = null;
+        this.failures = 0;
+        this.pausedUntil = 0;
+      }
     } catch (error) {
-      this.lastError = describeGatewayError(error);
-      throw new Error(this.lastError);
+      const message = describeGatewayError(error);
+      if (forSaved) this.lastError = message;
+      throw new Error(message);
     }
   }
 
