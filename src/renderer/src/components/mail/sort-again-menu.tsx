@@ -33,7 +33,7 @@ const FOLDERS: { id: SortFolder; label: string }[] = [
 const plural = (count: number) => `${count.toLocaleString()} conversation${count === 1 ? "" : "s"}`;
 
 /**
- * "Sort all mail again": asks how far back to go (everything, or mail since a day picked from
+ * "Sort mail again": asks how far back to go (everything, or mail since a day picked from
  * presets or a calendar), and which of Inbox, Archive, Spam and Trash, then starts the
  * run. Choosing here replaces a confirm prompt. Counts are conversations, the unit Jev sorts.
  */
@@ -84,7 +84,7 @@ export function SortAgainMenu() {
     >
       <PopoverTrigger asChild>
         <Button ref={trigger} type="button" variant="ghost" size="sm">
-          Sort all mail again
+          Sort mail again
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" side="top" container={container} className="w-80 space-y-3 p-3">

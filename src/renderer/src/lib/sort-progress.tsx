@@ -63,7 +63,7 @@ function Bars({ progress, accounts }: { progress: SortProgress; accounts: Accoun
 }
 
 /**
- * Starts "sort all mail again" and keeps one toast up to date with how far it has got, then
+ * Starts "sort mail again" and keeps one toast up to date with how far it has got, then
  * replaces it with the outcome. Each account gets its own bar. A total is what has been queued
  * so far: an account's inbox adds its conversations as it loads, so it can grow while this runs.
  * With `since`, only conversations with mail from that moment on are sorted again; `folders`
