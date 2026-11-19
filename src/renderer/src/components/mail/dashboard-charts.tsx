@@ -267,7 +267,7 @@ export function StatTile({
       title={hint}
       className={cn(
         className,
-        "outline-none transition-colors hover:border-foreground/20 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring",
+        "cursor-pointer outline-none transition-colors hover:border-foreground/20 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring",
       )}
     >
       {body}

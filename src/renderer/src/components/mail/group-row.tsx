@@ -109,7 +109,7 @@ export const GroupRow = memo(function GroupRow({
         aria-selected={selected}
         data-tinted={selected || undefined}
         className={cn(
-          "group relative mx-2 flex h-9 cursor-default items-center gap-2.5 rounded-md px-3 text-[13px]",
+          "group relative mx-2 flex h-9 cursor-pointer items-center gap-2.5 rounded-md px-3 text-[13px]",
           selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
           className,
         )}
@@ -152,7 +152,7 @@ export const GroupRow = memo(function GroupRow({
       aria-selected={selected}
       data-tinted={selected || undefined}
       className={cn(
-        "group corner-squircle relative mx-2 flex h-[52px] cursor-default items-center gap-3 rounded-lg border border-border px-3 text-sm",
+        "group corner-squircle relative mx-2 flex h-[52px] cursor-pointer items-center gap-3 rounded-lg border border-border px-3 text-sm",
         selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "bg-foreground/[0.04] hover:bg-foreground/[0.09] dark:hover:bg-accent/50",
         className,
       )}
@@ -192,7 +192,7 @@ export const GroupRow = memo(function GroupRow({
             <button
               type="button"
               title={chip.count > 1 ? `Open the latest email from ${chip.name}` : `Open email from ${chip.name}`}
-              className={cn("inline-flex h-7 max-w-full shrink-0 cursor-default items-center gap-1.5 rounded-md px-1.5 outline-none transition-colors hover:bg-foreground/[0.14] focus-visible:ring-2 focus-visible:ring-ring", HOVER_ON_TINT)}
+              className={cn("inline-flex h-7 max-w-full shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 outline-none transition-colors hover:bg-foreground/[0.14] focus-visible:ring-2 focus-visible:ring-ring", HOVER_ON_TINT)}
               onClick={(event) => {
                 // Opens this email only; the row's own click would open the whole category.
                 event.stopPropagation();
@@ -259,7 +259,7 @@ export const GroupCard = memo(function GroupCard({
       aria-selected={selected}
       data-tinted={selected || undefined}
       className={cn(
-        "group corner-squircle relative flex min-w-0 cursor-default flex-col rounded-xl border pb-1.5 text-sm shadow-md shadow-black/10 transition-colors dark:shadow-black/40",
+        "group corner-squircle relative flex min-w-0 cursor-pointer flex-col rounded-xl border pb-1.5 text-sm shadow-md shadow-black/10 transition-colors dark:shadow-black/40",
         selected
           ? "border-sidebar-primary/40 bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25"
           : "border-border bg-foreground/[0.04] hover:bg-foreground/[0.09] dark:hover:bg-accent/50",
@@ -307,7 +307,7 @@ export const GroupCard = memo(function GroupCard({
             <button
               type="button"
               title={chip.count > 1 ? `Open the latest email from ${chip.name}` : `Open email from ${chip.name}`}
-              className={cn("flex h-7 min-w-0 flex-1 cursor-default items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-foreground/[0.14] focus-visible:ring-2 focus-visible:ring-ring", HOVER_ON_TINT)}
+              className={cn("flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-foreground/[0.14] focus-visible:ring-2 focus-visible:ring-ring", HOVER_ON_TINT)}
               onClick={(event) => {
                 // Opens this email only; the card's own click would open the whole category.
                 event.stopPropagation();
