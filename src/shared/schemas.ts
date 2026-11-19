@@ -115,6 +115,7 @@ export const listQuerySchema: z.ZodType<ListQuery> = z.object({
   folder: folderSchema,
   limit: z.number().int().min(1).max(MAIL_WINDOW).optional(),
   cacheOnly: z.boolean().optional(),
+  changes: z.boolean().optional(),
 });
 
 const MAX_DRAFT_TEXT = 2_000_000;

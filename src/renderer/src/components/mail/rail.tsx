@@ -74,8 +74,26 @@ interface RailProps {
   aiOff: boolean;
   /** Conversations the AI is still sorting; a spinner above Settings shows while this is above 0. */
   sorting?: number;
+  /**
+   * The servers are still answering a list. `downloading`: nothing is on screen yet, the mail is
+   * being downloaded; `checking`: the copy saved on this computer is shown meanwhile. The same
+   * spinner as sorting, so there is one place to look.
+   */
+  syncing?: "downloading" | "checking";
   /** The Retry that belongs to an event raised by this page, if one is still available. */
   retryFor: (event: AppEvent) => (() => void) | undefined;
+}
+
+const SYNCING_TEXT = {
+  downloading: "Downloading your mail from the server. It will appear here as it arrives.",
+  checking: "Checking the server. What you see is the copy saved on this computer; it updates when the server answers.",
+} as const;
+
+function activityLabel(sorting: number, syncing: "downloading" | "checking" | undefined): string {
+  const parts: string[] = [];
+  if (syncing) parts.push(syncing === "downloading" ? "Downloading your mail" : "Checking for new mail");
+  if (sorting > 0) parts.push(`Sorting ${sorting} new ${sorting === 1 ? "email" : "emails"}`);
+  return parts.join(". ");
 }
 
 /** Slim left navigation: inbox, folder shortcuts, and the settings button. */
@@ -87,6 +105,7 @@ export function Rail({
   onOpenSettings,
   aiOff,
   sorting = 0,
+  syncing,
   retryFor,
 }: RailProps) {
   const isMac = useIsMac();
@@ -129,23 +148,30 @@ export function Rail({
         </div>
 
         <div className="mt-auto flex flex-col items-center gap-3">
-          {sorting > 0 && (
+          {(sorting > 0 || syncing) && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <div
                   role="status"
-                  aria-label={`Sorting ${sorting} new ${sorting === 1 ? "email" : "emails"}`}
+                  aria-label={activityLabel(sorting, syncing)}
                   className="electron-no-drag relative flex size-9 items-center justify-center rounded-full text-sidebar-foreground/70"
                 >
                   <LoaderCircle className="size-5 animate-spin" />
-                  <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-sidebar-primary px-1 text-center text-[10px] font-semibold leading-4 text-sidebar-primary-foreground">
-                    {sorting > 99 ? "99+" : sorting}
-                  </span>
+                  {sorting > 0 && (
+                    <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-sidebar-primary px-1 text-center text-[10px] font-semibold leading-4 text-sidebar-primary-foreground">
+                      {sorting > 99 ? "99+" : sorting}
+                    </span>
+                  )}
                 </div>
               </TooltipTrigger>
-              <TooltipContent side="right">
-                Sorting {sorting} new {sorting === 1 ? "email" : "emails"} into your categories. They will appear
-                there when done.
+              <TooltipContent side="right" className="max-w-64">
+                {syncing && <p>{SYNCING_TEXT[syncing]}</p>}
+                {sorting > 0 && (
+                  <p>
+                    Sorting {sorting} new {sorting === 1 ? "email" : "emails"} into your categories. They will appear
+                    there when done.
+                  </p>
+                )}
               </TooltipContent>
             </Tooltip>
           )}

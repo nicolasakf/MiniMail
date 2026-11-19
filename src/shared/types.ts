@@ -297,6 +297,11 @@ export interface ListQuery {
    * list at once while the live request is still running.
    */
   cacheOnly?: boolean;
+  /**
+   * Also say, per account, how this list differs from the copy kept before it (`ListResult.changes`).
+   * Only the refresh buttons ask: the main process reads the old copy just for them.
+   */
+  changes?: boolean;
 }
 
 /** A file attached to an outgoing message; the content travels as base64. */
@@ -397,7 +402,20 @@ export interface AccountError {
   message: string;
 }
 
+/** What one list changed in one account's copy of a folder (see `ListQuery.changes`). */
+export interface ListChange {
+  accountId: string;
+  /** Conversations not in the copy before: downloaded now. */
+  added: number;
+  /** Conversations whose read or pinned state changed on the server. */
+  updated: number;
+  /** Conversations inside the window that the server no longer has in this folder. */
+  removed: number;
+}
+
 export interface ListResult {
   messages: MessageSummary[];
   errors: AccountError[];
+  /** Present when the query asked for `changes`: one entry per account that answered. */
+  changes?: ListChange[];
 }

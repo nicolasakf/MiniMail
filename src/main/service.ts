@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { MAX_AVATAR_BYTES, normalizeAlias } from "@shared/accounts";
 import { buildContactIndex, type ContactEntry } from "@shared/contacts";
 import { makeMessageId, parseMessageId } from "@shared/ids";
+import { diffList } from "@shared/list-changes";
 import { MAIL_WINDOW } from "@shared/mail-window";
 import { MOVE_DESTINATION } from "@shared/threads";
 import type {
@@ -11,6 +12,7 @@ import type {
   AddAccountInput,
   Draft,
   InvitationResponse,
+  ListChange,
   ListQuery,
   ListResult,
   MailAction,
@@ -231,6 +233,10 @@ export class MailService {
     }
 
     const listStarted = performance.now();
+    // The copy kept before this list, read only for the refresh buttons (see `ListQuery.changes`).
+    const before = query.changes
+      ? accounts.map((account) => this.providerFor(account).cached?.(query.folder) ?? [])
+      : null;
     const settled = await Promise.allSettled(
       accounts.map((account) =>
         perfTime(
@@ -243,9 +249,12 @@ export class MailService {
 
     const messages: MessageSummary[] = [];
     const errors: AccountError[] = [];
+    const changes: ListChange[] = [];
     settled.forEach((outcome, index) => {
-      if (outcome.status === "fulfilled") messages.push(...outcome.value);
-      else {
+      if (outcome.status === "fulfilled") {
+        messages.push(...outcome.value);
+        if (before) changes.push(diffList(accounts[index].id, before[index], outcome.value));
+      } else {
         const message = describeError(outcome.reason);
         reportError("sync", `Could not sync ${accounts[index].provider} (${query.folder})`, message, { accountId: accounts[index].id });
         errors.push({ accountId: accounts[index].id, message });
@@ -257,7 +266,7 @@ export class MailService {
       `list ${query.folder} done`,
       `${Math.round(performance.now() - listStarted)}ms for ${accounts.length} accounts, ${messages.length} messages`,
     );
-    return { messages: categorized, errors };
+    return { messages: categorized, errors, ...(before ? { changes } : {}) };
   }
 
   /**
