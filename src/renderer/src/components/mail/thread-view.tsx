@@ -439,50 +439,43 @@ const SLOW_AFTER_MS = 5_000;
 /** After this long the view stops waiting and offers a retry (the download carries on behind it). */
 const GIVE_UP_AFTER_MS = 60_000;
 
-/** One placeholder card per message while the full conversation downloads. */
-function MessageSkeletons({ thread, slow }: { thread: Thread; slow: boolean }) {
+/** The card standing in for a message that has not downloaded yet; the newest one also hints at its body. */
+function MessagePlaceholder({ last }: { last: boolean }) {
   return (
-    <div className="space-y-3" aria-busy="true">
-      {thread.messages.map((message, index) => {
-        const last = index === thread.messages.length - 1;
-        return (
-          <article
-            key={message.id}
-            className={cn(
-              "corner-squircle rounded-xl border border-border p-4",
-              last ? "bg-card" : "bg-card/40",
-            )}
-          >
-            <div className="flex items-center gap-3">
-              <Skeleton className="size-9 shrink-0 rounded-full" />
-              <div className="min-w-0 flex-1 space-y-2">
-                <Skeleton className="h-3.5 w-[clamp(120px,30%,260px)]" />
-                <Skeleton className="h-3 w-[clamp(80px,18%,160px)]" />
-              </div>
-              <Skeleton className="h-3 w-24 shrink-0" />
-            </div>
-            {last && (
-              <div className="mt-4 space-y-2">
-                <Skeleton className="h-3.5 w-full" />
-                <Skeleton className="h-3.5 w-[92%]" />
-                <Skeleton className="h-3.5 w-[96%]" />
-                <Skeleton className="h-3.5 w-[60%]" />
-              </div>
-            )}
-          </article>
-        );
-      })}
-      <p className="text-xs text-muted-foreground" role="status">
-        {slow ? (
-          <span className="flex items-center gap-2">
-            <Loader2 className="size-3.5 animate-spin" />
-            The mail server is slow to respond. Still waiting for the full message…
-          </span>
-        ) : (
-          <span className="sr-only">Loading the full message…</span>
-        )}
-      </p>
-    </div>
+    <article className={cn("corner-squircle rounded-xl border border-border p-4", last ? "bg-card" : "bg-card/40")}>
+      <div className="flex items-center gap-3">
+        <Skeleton className="size-9 shrink-0 rounded-full" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <Skeleton className="h-3.5 w-[clamp(120px,30%,260px)]" />
+          <Skeleton className="h-3 w-[clamp(80px,18%,160px)]" />
+        </div>
+        <Skeleton className="h-3 w-24 shrink-0" />
+      </div>
+      {last && (
+        <div className="mt-4 space-y-2">
+          <Skeleton className="h-3.5 w-full" />
+          <Skeleton className="h-3.5 w-[92%]" />
+          <Skeleton className="h-3.5 w-[96%]" />
+          <Skeleton className="h-3.5 w-[60%]" />
+        </div>
+      )}
+    </article>
+  );
+}
+
+/** Under the messages while older ones are still downloading. */
+function LoadingNote({ slow }: { slow: boolean }) {
+  return (
+    <p className="text-xs text-muted-foreground" role="status">
+      {slow ? (
+        <span className="flex items-center gap-2">
+          <Loader2 className="size-3.5 animate-spin" />
+          The mail server is slow to respond. Still waiting for the rest of the conversation…
+        </span>
+      ) : (
+        <span className="sr-only">Loading the rest of the conversation…</span>
+      )}
+    </p>
   );
 }
 
@@ -505,7 +498,10 @@ export function ThreadView({
   shortcutsDisabled = false,
   embedded = false,
 }: ThreadViewProps) {
-  const [details, setDetails] = useState<MessageDetail[] | null>(null);
+  /** The messages downloaded so far, by id: the newest arrives first, then each older one. */
+  const [loaded, setLoaded] = useState<ReadonlyMap<string, MessageDetail>>(() => new Map());
+  /** True once every message has been asked for (a failure leaves it false and sets `error`). */
+  const [finished, setFinished] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [slow, setSlow] = useState(false);
   /** Bumped by "Try again" to run the download again. */
@@ -518,35 +514,52 @@ export function ThreadView({
 
   useEffect(() => {
     let cancelled = false;
-    setDetails(null);
+    setLoaded(new Map());
+    setFinished(false);
     setError(null);
-    setSlow(false);
-    const slowTimer = setTimeout(() => setSlow(true), SLOW_AFTER_MS);
+    setExpanded(new Set());
+    // The "slow" notice counts from the last arrival, so it only shows while the server is stuck.
+    let slowTimer: ReturnType<typeof setTimeout> | undefined;
+    const waitForServer = () => {
+      clearTimeout(slowTimer);
+      setSlow(false);
+      slowTimer = setTimeout(() => setSlow(true), SLOW_AFTER_MS);
+    };
+    waitForServer();
     const asked = performance.now();
-    if (import.meta.env.DEV) console.log(`[perf] open conversation: asking for ${thread.messages.length} message(s)`);
-    withTimeout(
-      api.mail.get(thread.messages.map((message) => message.id)),
-      GIVE_UP_AFTER_MS,
-      "The mail server took too long to send this conversation.",
-    )
-      .then((loaded) => {
-        if (import.meta.env.DEV) {
-          console.log(`[perf] open conversation: got ${loaded.length} in ${Math.round(performance.now() - asked)}ms${cancelled ? " (ignored, view moved on)" : ""}`);
+    const newestId = thread.messages[thread.messages.length - 1]?.id;
+    if (import.meta.env.DEV) console.log(`[perf] open conversation: asking for ${thread.messages.length} message(s), newest first`);
+    void (async () => {
+      try {
+        // One message at a time, newest first: each shows as soon as it arrives, the older ones follow.
+        for (const { id } of [...thread.messages].reverse()) {
+          const [detail] = await withTimeout(
+            api.mail.get([id]),
+            GIVE_UP_AFTER_MS,
+            "The mail server took too long to send this conversation.",
+          );
+          if (cancelled) return;
+          waitForServer();
+          if (import.meta.env.DEV) {
+            console.log(`[perf] open conversation: ${detail ? "got" : "no"} message ${Math.round(performance.now() - asked)}ms in`);
+          }
+          if (!detail) continue;
+          setLoaded((known) => new Map(known).set(detail.id, detail));
+          // Open the newest message and anything unread; keep the rest collapsed.
+          if (detail.id === newestId || detail.unread) setExpanded((open) => new Set(open).add(detail.id));
         }
+        clearTimeout(slowTimer);
+        setSlow(false);
+        setFinished(true);
+      } catch (reason: unknown) {
         if (cancelled) return;
-        setDetails(loaded);
-        // Open the newest message and anything unread; keep the rest collapsed.
-        const open = new Set<string>();
-        loaded.forEach((message, index) => {
-          if (index === loaded.length - 1 || message.unread) open.add(message.id);
-        });
-        setExpanded(open);
-      })
-      .catch((reason: unknown) => {
+        clearTimeout(slowTimer);
+        setSlow(false);
         if (import.meta.env.DEV) console.log(`[perf] open conversation: failed after ${Math.round(performance.now() - asked)}ms`);
-        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+        setError(reason instanceof Error ? reason.message : String(reason));
         noteShownError("Could not open the conversation", reason);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
       clearTimeout(slowTimer);
@@ -555,14 +568,23 @@ export function ThreadView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey, attempt]);
 
+  /** What has arrived, in conversation order (oldest first). */
+  const details = useMemo(
+    () => thread.messages.flatMap((message) => loaded.get(message.id) ?? []),
+    // idsKey stands for the message list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [idsKey, loaded],
+  );
+
   // Opening a conversation reads it, once per thread.
   useEffect(() => {
-    if (!details || markedRead.current) return;
+    // The newest message is the one that counts as opened; the older ones follow within moments.
+    if (details.length === 0 || markedRead.current) return;
     markedRead.current = true;
     if (thread.unread && !mailActions.manuallyUnreadSince(thread.id, openedAt.current)) onAction("markRead");
   }, [details, thread.id, thread.unread, onAction, mailActions]);
 
-  const latest = details?.[details.length - 1];
+  const latest = details[details.length - 1];
   const actions = useMemo(() => actionsForThread(folder, thread), [folder, thread]);
   const owner = accountFor(accounts, thread.accountId);
   const blockList = useBlockList();
@@ -653,7 +675,8 @@ export function ThreadView({
   }, [accounts, latest, onCompose, shortcutsDisabled]);
 
   // What the conversation holds, listed in the card beside it.
-  const artifacts = useMemo(() => (details ? collectArtifacts(details) : null), [details]);
+  // Listed once the whole conversation is here, so the card does not grow while older messages arrive.
+  const artifacts = useMemo(() => (finished ? collectArtifacts(details) : null), [finished, details]);
   const expecting = {
     attachments: !error && thread.messages.some((message) => message.hasAttachments),
     invitations: !error && thread.messages.some((message) => message.signal === "invitation"),
@@ -680,7 +703,7 @@ export function ThreadView({
   const respond = async (entry: ThreadInvitation, response: InvitationResponse) => {
     try {
       await api.mail.respondToInvitation(entry.messageId, response);
-      setDetails((previous) => previous && withAnswer(previous, entry.invitation.uid, response));
+      setLoaded((known) => new Map(withAnswer([...known.values()], entry.invitation.uid, response).map((message) => [message.id, message])));
       toast.success({ accepted: "You accepted the invitation", tentative: "You answered maybe", declined: "You declined the invitation" }[response]);
     } catch (failure) {
       const description = failure instanceof Error ? failure.message : String(failure);
@@ -808,10 +831,14 @@ export function ThreadView({
               </div>
             )}
 
-            {!details && !error && <MessageSkeletons thread={thread} slow={slow} />}
-
-            <div className="space-y-3">
-              {details?.map((message) => {
+            <div className="space-y-3" aria-busy={!finished && !error}>
+              {thread.messages.map((summary, index) => {
+                const message = loaded.get(summary.id);
+                if (!message) {
+                  return finished || error ? null : (
+                    <MessagePlaceholder key={summary.id} last={index === thread.messages.length - 1} />
+                  );
+                }
                 const open = expanded.has(message.id);
                 return (
                   <article
@@ -869,6 +896,7 @@ export function ThreadView({
                 );
               })}
             </div>
+            {!finished && !error && <LoadingNote slow={slow} />}
           </div>
           {cardShown && (
             <aside className={embedded ? "w-full" : "sticky top-0 col-start-3 w-max max-w-72 justify-self-end"}>
