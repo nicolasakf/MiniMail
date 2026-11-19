@@ -76,29 +76,59 @@ function commit(next: PriorityList): void {
 }
 
 /**
+ * Clears what stands in the way of marking a sender or domain as priority: a block on it is lifted,
+ * except a sender inside a blocked domain, which is refused (unblock the domain first). False when refused.
+ */
+function clearBlockFor(kind: PriorityKind, value: string): boolean {
+  if (kind === "threads") return true;
+  const blocks = getBlockList();
+  const domain = kind === "senders" ? senderDomain(value) : value.trim().toLowerCase();
+  if (kind === "senders" && isBlockedEntry(blocks, "domains", domain)) {
+    toast.error(`Can't mark ${value} as priority`, { description: `@${domain} is blocked. Unblock it first.` });
+    return false;
+  }
+  if (isBlockedEntry(blocks, kind, value)) {
+    setBlocked(kind, [value], false);
+    toast(`Unblocked ${kind === "domains" ? "@" : ""}${value}`);
+  }
+  return true;
+}
+
+/**
  * Marks or unmarks one conversation id, sender address or domain. Priority and Block exclude each
  * other: marking something that is blocked unblocks it, except a sender inside a blocked domain,
  * which is refused (unblock the domain first).
  */
 export function togglePriority(kind: PriorityKind, value: string): void {
-  if (!isPriorityEntry(current, kind, value) && kind !== "threads") {
-    const blocks = getBlockList();
-    const domain = kind === "senders" ? senderDomain(value) : value.trim().toLowerCase();
-    if (kind === "senders" && isBlockedEntry(blocks, "domains", domain)) {
-      toast.error(`Can't mark ${value} as priority`, { description: `@${domain} is blocked. Unblock it first.` });
-      return;
-    }
-    if (isBlockedEntry(blocks, kind, value)) {
-      setBlocked(kind, [value], false);
-      toast(`Unblocked ${kind === "domains" ? "@" : ""}${value}`);
-    }
+  setPriority(kind, [value], !isPriorityEntry(current, kind, value));
+}
+
+/**
+ * Marks (`on`) or unmarks every one of these conversations, senders or domains that is not already
+ * so, as one action with one Undo. Same rules as `togglePriority` for what is blocked.
+ */
+export function setPriority(kind: PriorityKind, values: readonly string[], on: boolean): void {
+  const applied: string[] = [];
+  for (const value of values) {
+    if (isPriorityEntry(current, kind, value) === on) continue;
+    if (on && !clearBlockFor(kind, value)) continue;
+    commit(togglePriorityEntry(current, kind, value));
+    applied.push(value);
   }
-  const target = countedTargets(kind, 1);
-  const title = isPriorityEntry(current, kind, value) ? `Removed the priority mark from ${target}` : `Marked ${target} as priority`;
+  if (applied.length === 0) return;
+  const target = countedTargets(kind, applied.length);
+  const title = on ? `Marked ${target} as priority` : `Removed the priority mark from ${target}`;
+  const context = applied.join(", ");
   const ref = newUndoRef("priority");
-  recordAction("mail", title, "", { context: value, ref });
-  commit(togglePriorityEntry(current, kind, value));
-  undoStack.push({ ref, label: title, context: value, run: () => commit(togglePriorityEntry(current, kind, value)) });
+  recordAction("mail", title, "", { context, ref });
+  undoStack.push({
+    ref,
+    label: title,
+    context,
+    run: () => {
+      for (const value of applied) if (isPriorityEntry(current, kind, value) === on) commit(togglePriorityEntry(current, kind, value));
+    },
+  });
 }
 
 /**

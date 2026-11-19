@@ -15,7 +15,7 @@ copying it (see `blockChoices` in `lib/blocklist.ts`). If an action cannot apply
 example Sent and Drafts), leave it out of all three the same way.
 
 Current order in the email view toolbar: Pin, read / unread, Category, Priority, Mute, Block, Unsubscribe, a divider,
-Inbox, Archive, Trash, Spam, Delete forever. (The bulk bar has no Priority and follows the same order, with a divider after the selection count and one before the moves;
+Inbox, Archive, Trash, Spam, Delete forever. (The bulk bar follows the same order, Priority included (`PrioritySelectionMenuButton`, `setPriority`), with a divider after the selection count and one before the moves;
 the selection count comes first there, and the context menu lists the everyday commands first, Unsubscribe right after Mute, then the
 discarding ones after a divider.) Unsubscribe is shown whenever at least one selected conversation
 can be unsubscribed from; the others are skipped (`unsubscribeCommand` / `planUnsubscribe` in
@@ -23,6 +23,11 @@ can be unsubscribed from; the others are skipped (`unsubscribeCommand` / `planUn
 everywhere with a tooltip saying so, until a message of that list arrives more than a day later (`STILL_RECEIVING_AFTER_MS`);
 the wording comes from `unsubscribeButton` in `lib/unsubscribe-confirm.ts`, so use it in any new place. It also has a button among the hover buttons of a row, first, before Pin. It cannot be undone, so every
 place asks first with the same card (`unsubscribeConfirm` in `lib/unsubscribe-confirm.ts`).
+
+Block, Mute and Priority that would act on **several** senders or domains ("Block 5 domains…") ask first, in
+`TargetsDialog`: each address or domain has a checkbox (all ticked) and only the ticked ones are acted on. The label ends
+in "…" to say so (`actsOnMany` in `lib/blocklist.ts`). Every place goes through `targetsAsk` (`lib/targets-confirm.ts`),
+so a new place for these commands must too.
 
 ## Undo
 

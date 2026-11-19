@@ -104,6 +104,21 @@ export interface BlockChoice<K extends string = BlockKind> {
   name: string;
   /** Every one of the values is already blocked (or muted): choosing it undoes that. */
   on: boolean;
+  /** The values that are already blocked (or muted, or marked). */
+  active: string[];
+}
+
+/**
+ * Whether a choice acts on several senders or domains at once. Those ask first, in a dialog where the
+ * user ticks the addresses or domains to act on, so their wording ends in "…" (a conversation does not).
+ */
+export function actsOnMany(choice: Pick<BlockChoice<string>, "kind" | "values">): boolean {
+  return choice.kind !== "threads" && choice.values.length > 1;
+}
+
+/** The label of a choice, with the "…" that tells a dialog follows. */
+function choiceText(choice: Pick<BlockChoice<string>, "kind" | "values">, text: string): string {
+  return actsOnMany(choice) ? `${text}…` : text;
 }
 
 type Targets = { senders: string[]; domains: string[] };
@@ -119,9 +134,10 @@ function filterChoices(
 ): BlockChoice[] {
   const choice = (kind: BlockKind, values: string[], one: string, many: string): BlockChoice[] => {
     if (values.length === 0) return [];
-    const on = values.every((value) => isOn(kind, value));
+    const active = values.filter((value) => isOn(kind, value));
+    const on = active.length === values.length;
     const name = values.length === 1 ? one : many;
-    return [{ kind, values, on, name, label: `${on ? verbs.off : verbs.on} ${name}` }];
+    return [{ kind, values, on, active, name, label: choiceText({ kind, values }, `${on ? verbs.off : verbs.on} ${name}`) }];
   };
   const [sender] = targets.senders;
   const [domain] = targets.domains;
@@ -146,7 +162,7 @@ export function muteChoices(isMuted: (kind: MuteKind, value: string) => boolean,
  * while it is muted, so the label carries no verb ("This conversation", "Everything from ana@acme.com").
  */
 export function muteMenuLabel(choice: BlockChoice<MuteKind>): string {
-  return choice.kind === "threads" ? choice.name.charAt(0).toUpperCase() + choice.name.slice(1) : `Everything from ${choice.name}`;
+  return choice.kind === "threads" ? choice.name.charAt(0).toUpperCase() + choice.name.slice(1) : choiceText(choice, `Everything from ${choice.name}`);
 }
 
 /** One block of the Block or Mute menu: a person's own choices (with their `contact`), or the plain choices. */
@@ -180,23 +196,43 @@ export function blockSections(list: BlockList, threads: readonly Thread[], own: 
 }
 
 /**
- * What the Mute command offers: the conversation itself first (as Priority does), then the senders
- * and domains. Muting a conversation needs no sender, so it is offered even when every sender is the user.
+ * What a command that can also act on the conversation itself (Mute, Priority) offers: the
+ * conversation first, then the senders and domains. It is offered even when every sender is the user.
  */
+function conversationSections(
+  isOn: (kind: MuteKind, value: string) => boolean,
+  verbs: { on: string; off: string },
+  threads: readonly Thread[],
+  own: readonly string[],
+): BlockSection<MuteKind>[] {
+  const sections: BlockSection<MuteKind>[] = filterSections((targets) => filterChoices(isOn, targets, verbs), threads, own);
+  if (threads.length === 0) return sections;
+  const ids = threads.map((thread) => thread.id);
+  const active = ids.filter((id) => isOn("threads", id));
+  const on = active.length === ids.length;
+  const name = ids.length === 1 ? "this conversation" : `${ids.length} conversations`;
+  const conversation: BlockChoice<MuteKind> = { kind: "threads", values: ids, on, active, name, label: `${on ? verbs.off : verbs.on} ${name}` };
+  const [first, ...rest] = sections;
+  if (first && !first.contact) return [{ choices: [conversation, ...first.choices] }, ...rest];
+  return [{ choices: [conversation] }, ...sections];
+}
+
+/** What the Mute command offers for these conversations. */
 export function muteSections(
   isMuted: (kind: MuteKind, value: string) => boolean,
   threads: readonly Thread[],
   own: readonly string[],
 ): BlockSection<MuteKind>[] {
-  const sections: BlockSection<MuteKind>[] = filterSections((targets) => muteChoices(isMuted, targets), threads, own);
-  if (threads.length === 0) return sections;
-  const ids = threads.map((thread) => thread.id);
-  const on = ids.every((id) => isMuted("threads", id));
-  const name = ids.length === 1 ? "this conversation" : `${ids.length} conversations`;
-  const conversation: BlockChoice<MuteKind> = { kind: "threads", values: ids, on, name, label: `${on ? "Unmute" : "Mute"} ${name}` };
-  const [first, ...rest] = sections;
-  if (first && !first.contact) return [{ choices: [conversation, ...first.choices] }, ...rest];
-  return [{ choices: [conversation] }, ...sections];
+  return conversationSections(isMuted, { on: "Mute", off: "Unmute" }, threads, own);
+}
+
+/** What the Priority command offers for a selection of conversations (one conversation uses `prioritySections`). */
+export function priorityChoiceSections(
+  isPriority: (kind: MuteKind, value: string) => boolean,
+  threads: readonly Thread[],
+  own: readonly string[],
+): BlockSection<MuteKind>[] {
+  return conversationSections(isPriority, { on: "Mark", off: "Unmark" }, threads, own);
 }
 
 // Another window (a detached composer shares the origin) can change the list.

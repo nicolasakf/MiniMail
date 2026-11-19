@@ -8,7 +8,7 @@ import { isBlockedAddress, type BlockKind } from "@shared/blocklist";
 import { unsubscribeCommand } from "@shared/unsubscribe";
 import { accountLabel, CALENDAR_ACCESS_REQUIRED } from "@shared/accounts";
 import { iconFor } from "@shared/categories";
-import { isPriorityEntry, isPriorityThread } from "@shared/priority";
+import { isPriorityEntry, isPriorityThread, type PriorityKind } from "@shared/priority";
 import { parseMessageId } from "@shared/ids";
 import { logoRequestFor, type LogoRequest } from "@shared/logos";
 import type { Thread } from "@shared/threads";
@@ -35,11 +35,13 @@ import { EMAIL_WIDTH_REM, useAppearance } from "@/lib/appearance";
 import { buildReplySeed, newMessageSeed, type ComposeSeed } from "@/lib/compose";
 import { accountFor, contactLabel, formatFullDate, normalizeSubject } from "@/lib/format";
 import { isTypingTarget } from "@/lib/keyboard";
-import { blockSections, muteMenuLabel, muteSections, useBlockList, type BlockChoice, type BlockSection, type MuteKind } from "@/lib/blocklist";
+import { blockSections, muteMenuLabel, muteSections, priorityChoiceSections, useBlockList, type BlockChoice, type BlockSection, type MuteKind } from "@/lib/blocklist";
 import { mutedCheck } from "@/lib/mute";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
 import { BLOCKED_TEXT, MUTED_TEXT } from "@/lib/highlight";
 import { prioritySections, togglePriority, usePriority } from "@/lib/priority";
+import { targetsAsk, type TargetsAsk, type TargetsCommand } from "@/lib/targets-confirm";
+import { TargetsDialog } from "@/components/mail/targets-dialog";
 import type { MailActions } from "@/lib/mail-actions";
 import { actionsForThread } from "@/lib/row-actions";
 import { DELETE_FOREVER_CONFIRM } from "@/lib/delete-confirm";
@@ -288,6 +290,7 @@ function PriorityMenuButton({ thread, own }: { thread: Thread; own: readonly str
  */
 function FilterMenuButton<K extends string>({
   label,
+  command,
   icon: Icon,
   sections,
   onChoose,
@@ -296,6 +299,8 @@ function FilterMenuButton<K extends string>({
   choiceLabel,
 }: {
   label: string;
+  /** Which command this is, for the dialog that asks before it acts on several senders or domains. */
+  command: TargetsCommand;
   icon: LucideIcon;
   sections: BlockSection<K>[];
   onChoose: (kind: K, values: string[]) => void;
@@ -309,6 +314,7 @@ function FilterMenuButton<K extends string>({
   choiceLabel?: (choice: BlockChoice<K>) => string;
 }) {
   const [open, setOpen] = useState(false);
+  const [ask, setAsk] = useState<TargetsAsk | null>(null);
   const inBar = placement === "bar";
   if (sections.length === 0) return null;
   const on = sections.some((section) => section.choices.some((choice) => choice.on));
@@ -341,6 +347,12 @@ function FilterMenuButton<K extends string>({
             <DropdownMenuItem
               key={choice.kind}
               onSelect={(event) => {
+                // Several senders or domains ask first, in a dialog that lists them.
+                const many = targetsAsk(command, choice, (values) => onChoose(choice.kind, values));
+                if (many) {
+                  setAsk(many);
+                  return;
+                }
                 // Stays open, so the conversation and a sender or domain can be ticked in one go.
                 if (choiceLabel) event.preventDefault();
                 onChoose(choice.kind, choice.values);
@@ -364,6 +376,8 @@ function FilterMenuButton<K extends string>({
           );
         })}
       </DropdownMenuContent>
+      {/* A portal of its own: it stays open after the menu closes. */}
+      <TargetsDialog ask={ask} onClose={() => setAsk(null)} />
     </DropdownMenu>
   );
 }
@@ -390,6 +404,7 @@ export function BlockMenuButton({
   return (
     <FilterMenuButton
       label="Block"
+      command="Block"
       icon={ShieldBan}
       sections={blockSections(list, threads, own)}
       onChoose={onBlock}
@@ -420,12 +435,42 @@ export function MuteMenuButton({
   return (
     <FilterMenuButton
       label="Mute"
+      command="Mute"
       icon={BellOff}
       sections={muteSections(isMuted, threads, own)}
       onChoose={onMute}
       activeClass={MUTED_TEXT}
       choiceLabel={muteMenuLabel}
       placement={placement}
+    />
+  );
+}
+
+/**
+ * The "Priority" dropdown of the selection bar: the same choices as the open conversation's, over
+ * every selected conversation (the conversations themselves, their senders, their domains).
+ */
+export function PrioritySelectionMenuButton({
+  threads,
+  own,
+  onChoose,
+}: {
+  threads: readonly Thread[];
+  /** The user's own addresses, never offered for marking. */
+  own: readonly string[];
+  onChoose: (kind: PriorityKind, values: string[], on: boolean) => void;
+}) {
+  const list = usePriority();
+  return (
+    <FilterMenuButton
+      label="Priority"
+      command="Priority"
+      icon={Zap}
+      sections={priorityChoiceSections((kind, value) => isPriorityEntry(list, kind, value), threads, own)}
+      onChoose={(kind, values) => onChoose(kind, values, !values.every((value) => isPriorityEntry(list, kind, value)))}
+      activeClass="text-amber-600 dark:text-amber-400"
+      choiceLabel={muteMenuLabel}
+      placement="bar"
     />
   );
 }

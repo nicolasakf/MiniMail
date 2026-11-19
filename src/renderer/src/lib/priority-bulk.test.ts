@@ -1,0 +1,81 @@
+import { beforeAll, describe, expect, it, vi } from "vitest";
+
+import { groupThreads } from "@shared/threads";
+import type { MessageSummary } from "@shared/types";
+
+// The lists live in the browser's storage and listen to the window, so give the modules a small one.
+const storage = new Map<string, string>();
+vi.stubGlobal("window", {
+  localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => void storage.set(key, value) },
+  addEventListener: () => undefined,
+  minimail: {},
+});
+
+let counter = 0;
+function mail(email: string, threadId: string): MessageSummary {
+  counter += 1;
+  return {
+    id: `a|inbox|${counter}`,
+    accountId: "a",
+    folder: "inbox",
+    threadId,
+    from: { name: "", email },
+    to: [],
+    subject: "Hi",
+    snippet: "",
+    date: new Date(2026, 10, 1, 9, counter).toISOString(),
+    unread: true,
+    pinned: false,
+    answered: false,
+    hasAttachments: false,
+    signal: "person",
+    categoryId: null,
+  };
+}
+
+const threads = groupThreads([mail("ana@acme.com", "t1"), mail("bob@acme.com", "t2"), mail("cy@other.org", "t3")]);
+
+let lib: typeof import("./priority");
+let sections: typeof import("./blocklist");
+beforeAll(async () => {
+  lib = await import("./priority");
+  sections = await import("./blocklist");
+});
+
+describe("priorityChoiceSections", () => {
+  it("offers the conversations, then the senders and the domains of the whole selection", () => {
+    const [section] = sections.priorityChoiceSections(() => false, threads, []);
+    expect(section!.choices.map((choice) => choice.kind)).toEqual(["threads", "senders", "domains"]);
+    expect(section!.choices[0]!.values).toHaveLength(3);
+    expect(section!.choices[1]!.values.sort()).toEqual(["ana@acme.com", "bob@acme.com", "cy@other.org"]);
+    expect(section!.choices[2]!.values).toHaveLength(2);
+  });
+
+  it("is on only when every value is already marked", () => {
+    const [partly] = sections.priorityChoiceSections((kind, value) => kind === "senders" && value === "ana@acme.com", threads, []);
+    expect(partly!.choices.find((choice) => choice.kind === "senders")!.on).toBe(false);
+    const [all] = sections.priorityChoiceSections(() => true, threads, []);
+    expect(all!.choices.every((choice) => choice.on)).toBe(true);
+  });
+
+  it("leaves the user's own address out", () => {
+    const [section] = sections.priorityChoiceSections(() => false, threads, ["ana@acme.com"]);
+    expect(section!.choices.find((choice) => choice.kind === "senders")!.values).not.toContain("ana@acme.com");
+  });
+});
+
+describe("setPriority", () => {
+  it("marks several senders at once, then takes the marks back", () => {
+    lib.setPriority("senders", ["ana@acme.com", "bob@acme.com"], true);
+    expect(storage.get("minimail.priority")).toContain("ana@acme.com");
+    expect(JSON.parse(storage.get("minimail.priority")!).senders).toEqual(["ana@acme.com", "bob@acme.com"]);
+    lib.setPriority("senders", ["ana@acme.com", "bob@acme.com"], false);
+    expect(JSON.parse(storage.get("minimail.priority")!).senders).toEqual([]);
+  });
+
+  it("skips what is already in the wanted state", () => {
+    lib.setPriority("threads", ["a:t1"], true);
+    lib.setPriority("threads", ["a:t1", "a:t2"], true);
+    expect(JSON.parse(storage.get("minimail.priority")!).threads).toEqual(["a:t1", "a:t2"]);
+  });
+});

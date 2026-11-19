@@ -47,7 +47,7 @@ import {
   type SenderTarget,
 } from "@/components/mail/sender-panel";
 import { AccountErrorToasts, EmptyList, ListSkeleton, NoAccounts } from "@/components/mail/states";
-import { BlockMenuButton, CategoryMenuButton, MuteMenuButton, ThreadView } from "@/components/mail/thread-view";
+import { BlockMenuButton, CategoryMenuButton, MuteMenuButton, PrioritySelectionMenuButton, ThreadView } from "@/components/mail/thread-view";
 import { useIsMac } from "@/hooks/use-platform";
 import { SettingsDialog, type SettingsTab } from "@/components/settings/settings-dialog";
 import { ConfirmPopover } from "@/components/ui/confirm-popover";
@@ -70,12 +70,14 @@ import { isTypingTarget } from "@/lib/keyboard";
 import { DELETE_FOREVER_CONFIRM } from "@/lib/delete-confirm";
 import { unsubscribeButton, unsubscribeConfirm } from "@/lib/unsubscribe-confirm";
 import { recordUnsubscribed, useUnsubscribed } from "@/lib/unsubscribed";
-import { blockSections, blockTargets, emailTargets, muteMenuLabel, muteSections, useBlockList, type MuteKind } from "@/lib/blocklist";
+import { blockSections, blockTargets, emailTargets, muteMenuLabel, muteSections, priorityChoiceSections, useBlockList, type MuteKind } from "@/lib/blocklist";
 import { mutedCheck, withMute } from "@/lib/mute";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
 import { useSwipeBack } from "@/hooks/use-swipe-back";
 import { SwipeBackArrow } from "@/components/mail/swipe-back-arrow";
-import { prioritySections, setBlockedClearingPriority, togglePriority, usePriority } from "@/lib/priority";
+import { TargetsDialog } from "@/components/mail/targets-dialog";
+import { targetsAsk, type TargetsAsk } from "@/lib/targets-confirm";
+import { prioritySections, setBlockedClearingPriority, setPriority, togglePriority, usePriority } from "@/lib/priority";
 import { actionsForThread, DELETE_DRAFT } from "@/lib/row-actions";
 import { cn } from "@/lib/utils";
 import { countedTargets, recordAction, reportError } from "@/lib/events";
@@ -475,6 +477,8 @@ export function MailApp() {
   const [deleteConfirm, setDeleteConfirm] = useState<{ x: number; y: number; thread: Thread } | null>(null);
   /** The card asking before an unsubscribe started from a row or its menu, anchored at the point it was asked from. */
   const [unsubscribeAsk, setUnsubscribeAsk] = useState<{ x: number; y: number; threads: Thread[] } | null>(null);
+  /** Block, Mute or Priority on several senders or domains from a context menu: asks which first (see `TargetsDialog`). */
+  const [targetsAskState, setTargetsAsk] = useState<TargetsAsk | null>(null);
   // Learn who the user writes to as soon as accounts are known, so the composer can suggest at once.
   useEffect(() => {
     if (accountsLoaded && accounts.length > 0) void refreshContacts();
@@ -826,7 +830,11 @@ export function MailApp() {
         description: "Their mail goes to the Trash.",
         action: { label: "Unblock", onClick: () => setBlockedClearingPriority(kind, values, false) },
       });
-      const moving = targets.filter((thread) => threadFolder(thread) !== "trash");
+      const wanted = new Set(values.map((value) => value.trim().toLowerCase()));
+      const fromBlocked = (thread: Thread) =>
+        thread.messages.some((message) => wanted.has(kind === "senders" ? message.from.email.trim().toLowerCase() : domainOf(message.from.email)));
+      // Only the conversations of the ones blocked: a sender left unticked in the dialog keeps its mail.
+      const moving = targets.filter((thread) => threadFolder(thread) !== "trash" && fromBlocked(thread));
       // One ⌘Z takes back the block and the move to the Trash it caused (unblocking first, or the sweep would undo the restore).
       undoStack.group(entry, () => {
         if (moving.length === 1) actOnThread("trash", moving[0]!);
@@ -1470,12 +1478,29 @@ export function MailApp() {
         });
       }
       if (listFolder !== "sent" && listFolder !== "drafts") {
+        // A menu opened on a row inside a multi-selection acts on the whole selection, like the bulk bar's Priority.
+        const selection = checked.has(thread.id) && checked.size > 1 ? threads.filter((t) => checked.has(t.id)) : null;
         entries.push({
           id: "priority",
           label: "Priority",
           icon: Zap,
           run: () => undefined,
-          children: prioritySections(thread, ownAddresses).flatMap((section): MenuEntry[] => {
+          children: selection
+            ? priorityChoiceSections((kind, value) => isPriorityEntry(priority, kind, value), selection, ownAddresses).flatMap((section): MenuEntry[] =>
+                section.choices.map((choice): MenuEntry => {
+                  const many = targetsAsk("Priority", choice, (values) => setPriority(choice.kind, values, !choice.on));
+                  return {
+                    id: `priority:${choice.kind}`,
+                    label: muteMenuLabel(choice),
+                    icon: Zap,
+                    current: choice.on,
+                    // Several senders or domains close the menu and ask first.
+                    keepOpen: !many,
+                    run: () => (many ? setTargetsAsk(many) : setPriority(choice.kind, choice.values, !choice.on)),
+                  };
+                }),
+              )
+            : prioritySections(thread, ownAddresses).flatMap((section): MenuEntry[] => {
             const choices = section.choices.map((choice): MenuEntry => ({
               id: `priority:${choice.kind}:${choice.value}`,
               label: choice.label,
@@ -1506,16 +1531,19 @@ export function MailApp() {
             icon: BellOff,
             run: () => undefined,
             children: sections.flatMap((section): MenuEntry[] => {
-              const choices = section.choices.map((choice): MenuEntry => ({
-                id: `mute:${section.contact?.email ?? ""}:${choice.kind}`,
-                label: muteMenuLabel(choice),
-                icon: BellOff,
-                // Like Priority: a check while muted, and the menu stays open.
-                current: choice.on,
-                keepOpen: true,
-                // Only a person picked from a conversation's menu is named; otherwise the newest senders.
-                run: () => muteThreads(choice.kind, targets, section.contact ? choice.values : undefined),
-              }));
+              const choices = section.choices.map((choice): MenuEntry => {
+                const many = targetsAsk("Mute", choice, (values) => muteThreads(choice.kind, targets, values));
+                return {
+                  id: `mute:${section.contact?.email ?? ""}:${choice.kind}`,
+                  label: muteMenuLabel(choice),
+                  icon: BellOff,
+                  // Like Priority: a check while muted, and the menu stays open (except to ask about several).
+                  current: choice.on,
+                  keepOpen: !many,
+                  // Only a person picked from a conversation's menu is named; otherwise the newest senders.
+                  run: () => (many ? setTargetsAsk(many) : muteThreads(choice.kind, targets, section.contact ? choice.values : undefined)),
+                };
+              });
               // With several people, each opens a menu of their own address and domain.
               if (!section.contact) return choices;
               return [{ id: `mute:person:${section.contact.email}`, label: contactLabel(section.contact), icon: User, run: () => undefined, children: choices }];
@@ -1557,13 +1585,16 @@ export function MailApp() {
             destructive: true,
             run: () => undefined,
             children: sections.flatMap((section): MenuEntry[] => {
-              const choices = section.choices.map((choice): MenuEntry => ({
-                id: `block:${section.contact?.email ?? ""}:${choice.kind}`,
-                label: choice.label,
-                icon: ShieldBan,
-                // Only a person picked from a conversation's menu is named; otherwise the newest senders.
-                run: () => blockThreads(choice.kind, targets, section.contact ? choice.values : undefined),
-              }));
+              const choices = section.choices.map((choice): MenuEntry => {
+                const many = targetsAsk("Block", choice, (values) => blockThreads(choice.kind, targets, values));
+                return {
+                  id: `block:${section.contact?.email ?? ""}:${choice.kind}`,
+                  label: choice.label,
+                  icon: ShieldBan,
+                  // Only a person picked from a conversation's menu is named; otherwise the newest senders.
+                  run: () => (many ? setTargetsAsk(many) : blockThreads(choice.kind, targets, section.contact ? choice.values : undefined)),
+                };
+              });
               // With several people, each opens a menu of their own address and domain.
               if (!section.contact) return choices;
               return [{ id: `block:person:${section.contact.email}`, label: contactLabel(section.contact), icon: User, run: () => undefined, children: choices }];
@@ -2045,7 +2076,7 @@ export function MailApp() {
   // In a selection the tip speaks of lists, not of one list.
   const bulkUnsubscribeTip = unsubscribeButton(bulkUnsubscribe, selectedThreads.length > 1).label;
 
-  // Same order as the email view's toolbar: Pin, read / unread, Category, Mute, Block, Unsubscribe, a divider, then the moves.
+  // Same order as the email view's toolbar: Pin, read / unread, Category, Priority, Mute, Block, Unsubscribe, a divider, then the moves.
   const bulkButton = ({ action, label, icon: Icon }: (typeof bulkActions)[number]) => (
     <Tooltip key={action}>
       <TooltipTrigger asChild>
@@ -2076,6 +2107,14 @@ export function MailApp() {
         )}
         {listFolder !== "sent" && listFolder !== "drafts" && (
           <>
+            <PrioritySelectionMenuButton
+              threads={selectedThreads}
+              own={ownAddresses}
+              onChoose={(kind, values, on) => {
+                setPriority(kind, values, on);
+                setChecked(new Set());
+              }}
+            />
             <MuteMenuButton
               placement="bar"
               threads={selectedThreads}
@@ -2527,6 +2566,7 @@ export function MailApp() {
         </ConfirmPopover>
       )}
 
+      <TargetsDialog ask={targetsAskState} onClose={() => setTargetsAsk(null)} />
       {unsubscribeAsk && (
         <ConfirmPopover
           {...unsubscribeConfirm(planUnsubscribe(unsubscribeAsk.threads, unsubscribedLists).entries.length)}
