@@ -73,6 +73,8 @@ import { recordUnsubscribed, useUnsubscribed } from "@/lib/unsubscribed";
 import { blockSections, blockTargets, emailTargets, muteMenuLabel, muteSections, useBlockList, type MuteKind } from "@/lib/blocklist";
 import { mutedCheck, withMute } from "@/lib/mute";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
+import { useSwipeBack } from "@/hooks/use-swipe-back";
+import { SwipeBackArrow } from "@/components/mail/swipe-back-arrow";
 import { prioritySections, setBlockedClearingPriority, togglePriority, usePriority } from "@/lib/priority";
 import { actionsForThread, DELETE_DRAFT } from "@/lib/row-actions";
 import { cn } from "@/lib/utils";
@@ -2270,6 +2272,12 @@ export function MailApp() {
     </section>
   ) : null;
 
+  /** What a swipe to the left goes back to, as Escape does; null when there is nothing to go back to. */
+  const swipeBack =
+    fullOpen && openThread ? () => setOpenThreadId(null) : openGroup ? closeGroup : inDrill ? closeDrill : null;
+  const mainRef = useRef<HTMLElement>(null);
+  useSwipeBack(mainRef, swipeBack);
+
   return (
     <div className="flex h-full w-full bg-background text-foreground">
       <Rail
@@ -2292,7 +2300,8 @@ export function MailApp() {
         <SenderPanel {...senderPanelProps} underToolbar={false} />
       )}
 
-      <main className="relative flex min-w-0 flex-1 flex-col">
+      <main ref={mainRef} className="relative flex min-w-0 flex-1 flex-col">
+        <SwipeBackArrow />
         {onDashboard && showNoAccounts ? (
           <NoAccounts demo={api.system.demo} onAdd={() => openAccounts(true)} />
         ) : onDashboard && !drill ? (
