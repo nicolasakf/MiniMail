@@ -33,3 +33,23 @@ describe("buildFlatList", () => {
     expect(keys(buildFlatList([threads[0]], NOW, { pinnedSection: { collapsed: false } }))).not.toContain(PINNED_SECTION);
   });
 });
+
+describe("collapsible date sections", () => {
+  const threads = [
+    thread("today", "2026-11-16T10:00:00.000Z"),
+    thread("last", "2026-11-10T10:00:00.000Z"),
+    thread("oct", "2026-10-10T10:00:00.000Z"),
+  ];
+
+  it("makes every date heading collapsible and lists them newest first", () => {
+    const sections = buildFlatList(threads, NOW).filter((item) => item.type === "section");
+    expect(sections.map((item) => item.key)).toEqual(["section:today", "section:last-week", "section:month-2026-9"]);
+    for (const section of sections) expect(section).toMatchObject({ collapsible: { collapsed: false, count: 1 } });
+  });
+
+  it("keeps a folded heading, with the count it hides, and drops only its conversations", () => {
+    const items = buildFlatList(threads, NOW, { collapsedSections: new Set(["section:last-week"]) });
+    expect(keys(items)).toEqual(["section:today", "today", "section:last-week", "section:month-2026-9", "oct"]);
+    expect(items[2]).toMatchObject({ collapsible: { collapsed: true, count: 1 } });
+  });
+});

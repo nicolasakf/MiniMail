@@ -46,7 +46,7 @@ export type ListItem =
       type: "section";
       key: string;
       label: string;
-      /** Set on the Pinned and Minimized headings: clicking one hides or shows what is under it. */
+      /** Set on the Pinned, Minimized and date headings: clicking one hides or shows what is under it. */
       collapsible?: { collapsed: boolean; count: number };
       /** On the Minimized heading: the minimized categories, drawn as icons on the heading while it is folded. */
       docked?: readonly GroupListItem[];
@@ -80,6 +80,8 @@ export interface FocusedListOptions {
   categories: readonly Category[];
   /** Hide the conversations under the Pinned heading, leaving only the heading. */
   pinnedCollapsed?: boolean;
+  /** Keys of the date headings (`section:today`, ...) whose conversations are hidden. */
+  collapsedSections?: ReadonlySet<string>;
 }
 
 interface Section {
@@ -96,29 +98,59 @@ function startOfDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
+/** Local midnight of the Sunday that starts the calendar week containing `date`, shifted back `weeksAgo` weeks. */
+function startOfWeek(date: Date, weeksAgo = 0): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - date.getDay() - 7 * weeksAgo).getTime();
+}
+
 /**
- * Maps a date to Spark's list sections: Today, Yesterday, Last Week, then one
- * section per month. Future-dated mail is treated as Today.
+ * Maps a date to the list sections: Today, Yesterday, This Week, Last Week (calendar weeks, Sunday
+ * to Saturday), then one section per month of the current year, then one per earlier year.
+ * Future-dated mail is treated as Today.
  */
 export function sectionFor(iso: string, now: Date): Section {
   const date = new Date(iso);
   const days = Math.round((startOfDay(now) - startOfDay(date)) / DAY_MS);
   if (days <= 0) return { key: "today", label: "Today", order: 0 };
   if (days === 1) return { key: "yesterday", label: "Yesterday", order: 1 };
-  if (days <= 7) return { key: "last-week", label: "Last Week", order: 2 };
 
-  const monthsAgo =
-    now.getFullYear() * 12 + now.getMonth() - (date.getFullYear() * 12 + date.getMonth());
-  const sameYear = date.getFullYear() === now.getFullYear();
-  const label = new Intl.DateTimeFormat("en-US", {
-    month: "long",
-    ...(sameYear ? {} : { year: "numeric" }),
-  }).format(date);
+  const day = startOfDay(date);
+  if (day >= startOfWeek(now)) return { key: "this-week", label: "This Week", order: 2 };
+  if (day >= startOfWeek(now, 1)) return { key: "last-week", label: "Last Week", order: 3 };
+
+  const year = date.getFullYear();
+  if (year < now.getFullYear()) {
+    return { key: `year-${year}`, label: String(year), order: 100 + (now.getFullYear() - year) };
+  }
+  const monthsAgo = now.getMonth() - date.getMonth();
   return {
-    key: `month-${date.getFullYear()}-${date.getMonth()}`,
-    label,
+    key: `month-${year}-${date.getMonth()}`,
+    label: new Intl.DateTimeFormat("en-US", { month: "long" }).format(date),
     order: 10 + Math.max(0, monthsAgo),
   };
+}
+
+/**
+ * Appends the date sections to `result`, newest first. A heading whose key is in `collapsed`
+ * stays (with the count of what it hides) and its conversations are left out.
+ */
+function pushDateSections(
+  result: ListItem[],
+  sections: ReadonlyMap<string, { section: Section; items: ListItem[] }>,
+  collapsed: ReadonlySet<string> | undefined,
+): void {
+  const ordered = [...sections.values()].sort((a, b) => a.section.order - b.section.order);
+  for (const { section, items } of ordered) {
+    const key = `section:${section.key}`;
+    const folded = collapsed?.has(key) ?? false;
+    result.push({
+      type: "section",
+      key,
+      label: section.label,
+      collapsible: { collapsed: folded, count: items.length },
+    });
+    if (!folded) result.push(...items);
+  }
 }
 
 /** One chip per distinct sender, most recent sender first. */
@@ -151,15 +183,15 @@ function buildChips(threads: readonly Thread[]): SenderChip[] {
 
 /**
  * Plain date-sectioned list used for every folder except the Inbox: no grouping,
- * just threads newest first under Today / Yesterday / Last Week / month headers.
+ * just threads newest first under Today / Yesterday / This Week / Last Week / month / year headers.
  */
 export function buildFlatList(
   threads: readonly Thread[],
   now: Date,
   /** Set to put pinned conversations under a collapsible "Pinned" heading before the date sections. */
-  options: { pinnedSection?: { collapsed: boolean } } = {},
+  options: { pinnedSection?: { collapsed: boolean }; collapsedSections?: ReadonlySet<string> } = {},
 ): ListItem[] {
-  const { pinnedSection } = options;
+  const { pinnedSection, collapsedSections } = options;
   const pinned = pinnedSection ? threads.filter((thread) => thread.pinned) : [];
   const sections = new Map<string, { section: Section; items: ListItem[] }>();
   for (const thread of pinnedSection ? threads.filter((thread) => !thread.pinned) : threads) {
@@ -184,11 +216,7 @@ export function buildFlatList(
       for (const thread of pinned) result.push({ type: "thread", key: thread.id, thread });
     }
   }
-  const ordered = [...sections.values()].sort((a, b) => a.section.order - b.section.order);
-  for (const { section, items } of ordered) {
-    result.push({ type: "section", key: `section:${section.key}`, label: section.label });
-    result.push(...items);
-  }
+  pushDateSections(result, sections, collapsedSections);
   return result;
 }
 
@@ -207,7 +235,7 @@ export function buildFocusedList(
   threads: readonly Thread[],
   options: FocusedListOptions,
 ): ListItem[] {
-  const { now, categories, pinnedCollapsed = false } = options;
+  const { now, categories, pinnedCollapsed = false, collapsedSections } = options;
   const known = new Set(categories.map((category) => category.id));
 
   const groups = new Map<GroupKind, Thread[]>();
@@ -269,11 +297,7 @@ export function buildFocusedList(
     bucketFor(thread.latest.date).items.push({ type: "thread", key: thread.id, thread });
   }
 
-  const ordered = [...sections.values()].sort((a, b) => a.section.order - b.section.order);
-  for (const { section, items } of ordered) {
-    result.push({ type: "section", key: `section:${section.key}`, label: section.label });
-    result.push(...items);
-  }
+  pushDateSections(result, sections, collapsedSections);
   return result;
 }
 

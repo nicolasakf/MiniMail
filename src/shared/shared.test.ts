@@ -195,7 +195,51 @@ describe("sectionFor", () => {
     expect(sectionFor(new Date(2026, 10, 8, 23).toISOString(), NOW).label).toBe("Yesterday");
     expect(sectionFor(new Date(2026, 10, 4).toISOString(), NOW).label).toBe("Last Week");
     expect(sectionFor(new Date(2026, 9, 5).toISOString(), NOW).label).toBe("October");
-    expect(sectionFor(new Date(2025, 9, 5).toISOString(), NOW).label).toBe("October 2025");
+    expect(sectionFor(new Date(2025, 9, 5).toISOString(), NOW).label).toBe("2025");
+  });
+
+  // Wednesday 18 November 2026: this week started Sunday the 15th, last week on Sunday the 8th.
+  const WED = new Date(2026, 10, 18, 12);
+  const labelOf = (year: number, month: number, day: number) =>
+    sectionFor(new Date(year, month, day, 9).toISOString(), WED).label;
+
+  it("puts the earlier days of the calendar week under This Week", () => {
+    expect(labelOf(2026, 10, 18)).toBe("Today");
+    expect(labelOf(2026, 10, 17)).toBe("Yesterday");
+    expect(labelOf(2026, 10, 16)).toBe("This Week");
+    expect(labelOf(2026, 10, 15)).toBe("This Week");
+  });
+
+  it("puts the whole previous calendar week under Last Week, not under its month", () => {
+    expect(labelOf(2026, 10, 14)).toBe("Last Week");
+    expect(labelOf(2026, 10, 10)).toBe("Last Week");
+    expect(labelOf(2026, 10, 8)).toBe("Last Week");
+    expect(labelOf(2026, 10, 7)).toBe("November");
+    expect(labelOf(2026, 9, 31)).toBe("October");
+  });
+
+  it("lets Yesterday win on a Sunday, when yesterday (Saturday) belongs to last week", () => {
+    const sunday = new Date(2026, 10, 15, 12);
+    expect(sectionFor(new Date(2026, 10, 14, 9).toISOString(), sunday).label).toBe("Yesterday");
+    expect(sectionFor(new Date(2026, 10, 13, 9).toISOString(), sunday).label).toBe("Last Week");
+  });
+
+  it("lists a last week that crosses the new year before the older years, and years newest first", () => {
+    const jan = new Date(2027, 0, 5, 12);
+    expect(sectionFor(new Date(2026, 11, 29, 9).toISOString(), jan).label).toBe("Last Week");
+    expect(sectionFor(new Date(2026, 11, 20, 9).toISOString(), jan).label).toBe("2026");
+    const orders = [
+      sectionFor(new Date(2026, 10, 18).toISOString(), WED),
+      sectionFor(new Date(2026, 10, 17).toISOString(), WED),
+      sectionFor(new Date(2026, 10, 16).toISOString(), WED),
+      sectionFor(new Date(2026, 10, 10).toISOString(), WED),
+      sectionFor(new Date(2026, 9, 10).toISOString(), WED),
+      sectionFor(new Date(2026, 0, 10).toISOString(), WED),
+      sectionFor(new Date(2025, 11, 10).toISOString(), WED),
+      sectionFor(new Date(2024, 0, 10).toISOString(), WED),
+    ].map((section) => section.order);
+    expect(orders).toEqual([...orders].sort((a, b) => a - b));
+    expect(new Set(orders).size).toBe(orders.length);
   });
 });
 
