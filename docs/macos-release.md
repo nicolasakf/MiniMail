@@ -22,7 +22,7 @@ app and disk image.
 ## Browser sign-in
 
 Create MiniMail's production OAuth registrations using the platform and
-redirect settings in the [README](../README.md#oauth-for-local-development).
+redirect settings in the [guide](guide.md#oauth-for-local-development).
 Configure Google for external users and complete Google's
 [restricted scope verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification)
 for the [full Gmail scope required by IMAP and SMTP](https://developers.google.com/workspace/gmail/imap/xoauth2-protocol).
