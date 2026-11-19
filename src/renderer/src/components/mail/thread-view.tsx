@@ -501,6 +501,11 @@ export function ThreadView({
   /** Whether the messages before the last `FOLD_KEEP` are listed, or folded into one row. */
   const [showEarlier, setShowEarlier] = useState(false);
   const markedRead = useRef(false);
+  /** The scrolling column and the list of messages inside it, to keep the newest message centered. */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  /** Set once the reader scrolls or clicks: from then on the view is theirs and is not moved again. */
+  const userMoved = useRef(false);
   const openedAt = useRef(mailActions.manualVersion);
 
   const idsKey = thread.messages.map((message) => message.id).join(",");
@@ -562,6 +567,40 @@ export function ThreadView({
     // idsKey captures the message list; thread identity alone would miss new replies.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey, attempt]);
+
+  // Opening a conversation puts the newest message in the middle of the screen. Older messages arrive
+  // above it and images load, which pushes it around, so the view is re-centered on every size change
+  // until the reader scrolls or clicks.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    const list = listRef.current;
+    if (!scroller || !list) return;
+    userMoved.current = false;
+    const center = () => {
+      const last = list.lastElementChild;
+      if (userMoved.current || !last) return;
+      const box = scroller.getBoundingClientRect();
+      const rect = last.getBoundingClientRect();
+      const top = rect.top - box.top + scroller.scrollTop;
+      // A message taller than the screen starts at the top instead: its beginning must stay visible.
+      const offset = rect.height < box.height ? (box.height - rect.height) / 2 : 16;
+      scroller.scrollTop = Math.max(0, top - offset);
+    };
+    const observer = new ResizeObserver(center);
+    observer.observe(list);
+    observer.observe(scroller);
+    const stop = () => {
+      userMoved.current = true;
+    };
+    const events = ["wheel", "touchstart", "pointerdown", "keydown"] as const;
+    for (const name of events) scroller.addEventListener(name, stop, { passive: true });
+    return () => {
+      observer.disconnect();
+      for (const name of events) scroller.removeEventListener(name, stop);
+    };
+    // idsKey stands for the message list: a new conversation is centered again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idsKey]);
 
   /** What has arrived, in conversation order (oldest first). */
   const details = useMemo(
@@ -798,7 +837,7 @@ export function ThreadView({
         </div>
       </header>
 
-      <div className={cn("min-h-0 flex-1 overflow-y-auto pb-16", embedded ? "px-6 pt-4" : cardShown ? "pl-8 pr-3" : "px-8")}>
+      <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto pb-[45vh]", embedded ? "px-6 pt-4" : cardShown ? "pl-8 pr-3" : "px-8")}>
         <div
           className={cn(
             "gap-8",
@@ -828,11 +867,11 @@ export function ThreadView({
               </div>
             )}
 
-            <div className="space-y-3" aria-busy={!finished && !error}>
+            <div ref={listRef} className="space-y-3" aria-busy={!finished && !error}>
               {foldedCount > 0 && (
                 <button
                   type="button"
-                  className="corner-squircle flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card/40 p-3 text-sm text-muted-foreground hover:bg-card/70"
+                  className="flex w-full cursor-pointer items-center justify-center gap-2 py-1 text-sm text-muted-foreground hover:text-foreground"
                   onClick={() => setShowEarlier(true)}
                 >
                   <ChevronDown className="size-4" />
