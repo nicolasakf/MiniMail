@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Account, MailFolder } from "@shared/types";
 
@@ -27,6 +27,10 @@ const server = vi.hoisted(() => ({
   /** The mailbox lock: one holder at a time, first come first served. */
   lockTail: Promise.resolve(),
   connects: 0,
+  /** The next this many mailbox locks fail as if the connection had just been lost. */
+  dropLocks: 0,
+  /** Connections closed by the app after they failed. */
+  closed: 0,
 }));
 
 vi.mock("imapflow", () => {
@@ -41,12 +45,21 @@ vi.mock("imapflow", () => {
     }
     async connect() {}
     async logout() {}
+    close() {
+      this.usable = false;
+      server.closed += 1;
+    }
     async list() {
       return server.gmailFolders
         ? [{ path: "INBOX" }, { path: "[Gmail]/All Mail", specialUse: "\\All" }]
         : [{ path: "INBOX" }, { path: "Archive", specialUse: "\\Archive" }];
     }
     async getMailboxLock() {
+      if (server.dropLocks > 0) {
+        server.dropLocks -= 1;
+        this.usable = false;
+        throw Object.assign(new Error("Connection not available"), { code: "NoConnection", reason: "Server closed connection" });
+      }
       const previous = server.lockTail;
       let release!: () => void;
       server.lockTail = new Promise<void>((resolve) => (release = resolve));
@@ -127,6 +140,7 @@ vi.mock("imapflow", () => {
 });
 
 import { ImapProvider, isArchivedInGmail, nextBatchSize } from "./providers/imap";
+import { describeError } from "./providers/types";
 import { nativeIdOf, patchSummaries, type CachedFolder, type SummaryStore } from "./providers/summary-cache";
 
 const account: Account = {
@@ -155,6 +169,8 @@ beforeEach(() => {
   server.uidValidity = 1n;
   server.gmailFolders = false;
   server.connects = 0;
+  server.dropLocks = 0;
+  server.closed = 0;
   server.previewRequests = [];
   server.fullFetches = [];
   server.events = [];
@@ -166,6 +182,45 @@ beforeEach(() => {
     subject: `Message ${uid}`,
     date: new Date(Date.UTC(2026, 10, uid)),
   }));
+});
+
+describe("ImapProvider when the connection drops", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Runs a list while the clock is advanced past every pause between attempts. */
+  const listThroughPauses = async (provider: ReturnType<typeof launch>) => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    const listing = provider.list("inbox", 100);
+    // Observed here so a failure is not reported as unhandled while the clock runs.
+    const settled = listing.then(
+      (rows) => ({ rows }),
+      (error: unknown) => ({ error }),
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    return settled;
+  };
+
+  it("connects again, and again, when the connection is lost twice in a row", async () => {
+    server.dropLocks = 2;
+    const outcome = await listThroughPauses(launch());
+    expect(outcome).toHaveProperty("rows");
+    expect((outcome as { rows: unknown[] }).rows).toHaveLength(3);
+    expect(server.connects).toBe(3);
+    // Each lost connection was closed, so none lingers on the server's side.
+    expect(server.closed).toBe(2);
+  });
+
+  it("gives up after the first try and three retries, and says what the server said", async () => {
+    server.dropLocks = 4;
+    const outcome = await listThroughPauses(launch());
+    expect(outcome).toHaveProperty("error");
+    expect(describeError((outcome as { error: unknown }).error)).toBe(
+      "Connection not available (the server said: Server closed connection)",
+    );
+    expect(server.connects).toBe(4);
+  });
 });
 
 describe("ImapProvider saved copy", () => {

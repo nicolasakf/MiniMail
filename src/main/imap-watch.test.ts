@@ -48,6 +48,10 @@ vi.mock("imapflow", () => {
   return { ImapFlow: FakeImapFlow };
 });
 
+import type { EventReport } from "@shared/events";
+
+import type { EventJournal } from "./event-journal";
+import { installJournal } from "./events";
 import { ImapWatcher } from "./providers/imap";
 
 const flush = () => vi.advanceTimersByTimeAsync(0);
@@ -55,6 +59,8 @@ const current = () => fake.clients[fake.clients.length - 1];
 
 let changes: number;
 let watcher: ImapWatcher;
+/** What the watcher recorded, in order. */
+let recorded: EventReport[];
 const getAuth = vi.fn(async () => ({ pass: "secret" }));
 
 beforeEach(() => {
@@ -62,6 +68,8 @@ beforeEach(() => {
   fake.clients.length = 0;
   fake.failConnect = false;
   changes = 0;
+  recorded = [];
+  installJournal({ record: (report: EventReport) => (recorded.push(report), null) } as unknown as EventJournal);
   getAuth.mockClear();
   watcher = new ImapWatcher(
     { host: "imap.example.com", port: 993, security: "tls", username: "me@example.com" },
@@ -72,6 +80,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await watcher.stop();
+  installJournal(null);
   vi.useRealTimers();
 });
 
@@ -145,6 +154,64 @@ describe("ImapWatcher", () => {
     fake.failConnect = false;
     await vi.advanceTimersByTimeAsync(31_000);
     expect(watcher.connected).toBe(true);
+  });
+
+  it("records the first failed tries as information and an error once the server stays unreachable", async () => {
+    fake.failConnect = true;
+    watcher.start();
+    await flush();
+    await vi.advanceTimersByTimeAsync(2_100);
+    expect(recorded.map((report) => report.level)).toEqual(["info", "info"]);
+
+    await vi.advanceTimersByTimeAsync(10_100);
+    expect(recorded.map((report) => report.level)).toEqual(["info", "info", "error"]);
+    expect(recorded[2]).toMatchObject({
+      title: "Could not keep a live connection to the mail server",
+      detail: "imap.example.com: connection refused",
+    });
+
+    await vi.advanceTimersByTimeAsync(30_100);
+    expect(recorded.map((report) => report.level)).toEqual(["info", "info", "error", "error"]);
+  });
+
+  it("shows no error for a drop that is back after one failed try", async () => {
+    watcher.start();
+    await flush();
+    current().usable = false;
+    current().emit("close");
+
+    fake.failConnect = true;
+    await vi.advanceTimersByTimeAsync(2_100);
+    fake.failConnect = false;
+    await vi.advanceTimersByTimeAsync(10_100);
+
+    expect(watcher.connected).toBe(true);
+    expect(recorded.map((report) => report.level)).toEqual(["info"]);
+    expect(recorded[0]?.detail).toBe("imap.example.com: connection refused");
+  });
+
+  it("says when the connection is back once an error had been shown", async () => {
+    fake.failConnect = true;
+    watcher.start();
+    await flush();
+    await vi.advanceTimersByTimeAsync(12_300);
+    expect(recorded.at(-1)?.level).toBe("error");
+
+    fake.failConnect = false;
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(watcher.connected).toBe(true);
+    expect(recorded.at(-1)).toMatchObject({ level: "info", title: "The live connection to the mail server is back" });
+  });
+
+  it("does not announce a recovery for a connection that never showed an error", async () => {
+    watcher.start();
+    await flush();
+    current().usable = false;
+    current().emit("close");
+    await vi.advanceTimersByTimeAsync(2_100);
+
+    expect(watcher.connected).toBe(true);
+    expect(recorded).toEqual([]);
   });
 
   it("does not schedule two reconnects when an error and a close both arrive", async () => {

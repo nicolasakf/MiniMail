@@ -34,7 +34,7 @@ import type {
 import { perfLog } from "../perf";
 import { nativeIdOf, patchSummaries, type SummaryStore } from "./summary-cache";
 import { describeError, makeSnippet, type AttachmentFile, type MailAuth, type MailProvider } from "./types";
-import { reportError } from "../events";
+import { recordInfo, reportError } from "../events";
 
 /** Bytes of each message fetched for the list view (enough for headers + a preview). */
 const PREVIEW_BYTES = 24 * 1024;
@@ -187,9 +187,22 @@ function isDroppedConnection(error: unknown): boolean {
   return code === "NoConnection" || code === "ECONNRESET" || code === "EPIPE" || code === "ETIMEDOUT";
 }
 
+/** A connection reset while connecting fails at once, so asking again is cheap (a timeout is not retried: it already waited). */
+function isResetWhileConnecting(error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
+  return code === "ECONNRESET" || code === "EPIPE" || (error instanceof Error && /Unexpected close/i.test(error.message));
+}
+
+/**
+ * Pauses before each new attempt of one operation whose connection dropped: at once, then a little
+ * later, then later still. A network that has just come back (after sleep, or a Wi-Fi change) is
+ * often not ready for the first attempt, and the last pause gives it a few seconds.
+ */
+const RECONNECT_PAUSES_MS = [0, 1_500, 4_000];
+
 /**
  * Owns one long-lived IMAP connection and reconnects (with a fresh token) when it
- * drops. Operations go through `use`, which retries once after a reconnect.
+ * drops. Operations go through `use`, which tries again on a new connection when one drops.
  */
 class ImapConnection {
   private client: ImapFlow | null = null;
@@ -227,19 +240,35 @@ class ImapConnection {
   }
 
   async use<T>(task: (client: ImapFlow) => Promise<T>, retry = true): Promise<T> {
-    let used: ImapFlow | null = null;
-    try {
-      used = await this.connect();
-      return await task(used);
-    } catch (error) {
-      // One retry covers a connection the server closed while we were idle. The close listener
-      // clears `this.client` as soon as the socket drops, so judge the client this call used,
-      // not the field: otherwise the retry never runs and "Connection not available" surfaces.
-      if (retry && used && (isDroppedConnection(error) || !used.usable)) {
-        if (this.client === used) this.client = null;
-        return task(await this.connect());
+    for (let attempt = 0; ; attempt += 1) {
+      let used: ImapFlow | null = null;
+      try {
+        used = await this.connect();
+        return await task(used);
+      } catch (error) {
+        // A connection the server closed while we were idle, or that died with the network, is
+        // replaced and the operation run again. The close listener clears `this.client` as soon as
+        // the socket drops, so judge the client this call used, not the field: otherwise the retry
+        // never runs and "Connection not available" surfaces.
+        const dropped = used ? isDroppedConnection(error) || !used.usable : isResetWhileConnecting(error);
+        if (!retry || !dropped || attempt >= RECONNECT_PAUSES_MS.length) throw error;
+        if (used) {
+          if (this.client === used) this.client = null;
+          // The server counts a half-dead socket against its limit on connections until it times out.
+          this.discard(used);
+        }
+        const pause = RECONNECT_PAUSES_MS[attempt];
+        if (pause > 0) await new Promise((resolve) => setTimeout(resolve, pause));
       }
-      throw error;
+    }
+  }
+
+  /** Closes a connection that has failed, so it cannot linger on the server. */
+  private discard(client: ImapFlow): void {
+    try {
+      client.close();
+    } catch {
+      // expected: the connection is already gone, which is what closing it was for.
     }
   }
 
@@ -252,6 +281,13 @@ class ImapConnection {
 
 /** Waits before reconnecting a dropped watcher, growing with each failure in a row. */
 const WATCH_BACKOFF_MS = [2_000, 10_000, 30_000, 120_000];
+/**
+ * The attempt to reconnect from which a failure is an error. Before that it is recorded as
+ * information: the first tries after a drop often fail only because the network is still
+ * settling (after sleep, or a Wi-Fi change), and the next one answers. A connection that stays
+ * down past the first pauses is a failure.
+ */
+const WATCH_ERROR_FROM_ATTEMPT = 3;
 /** Gmail labels of mail that is not archived: still in the Inbox, sent by the user, or a draft. */
 const NOT_ARCHIVED_LABELS = new Set(["\\inbox", "\\sent", "\\draft"]);
 /** How far back an All Mail scan reads, in multiples of the window, looking for archived mail. */
@@ -343,11 +379,21 @@ export class ImapWatcher {
         return;
       }
       this.live = true;
+      // An error was shown for the tries before this one, so say that it is over.
+      if (this.failures >= WATCH_ERROR_FROM_ATTEMPT) {
+        recordInfo("sync", "The live connection to the mail server is back", this.server.host);
+      }
       this.failures = 0;
       if (this.everConnected) this.changed();
       this.everConnected = true;
     } catch (error) {
-      reportError("sync", "Could not keep a live connection to the mail server", `${this.server.host}: ${describeError(error)}`);
+      const detail = `${this.server.host}: ${describeError(error)}`;
+      // `failures` counts the drop that started this too, so the first failed try is already attempt 2 after one.
+      if (this.failures + 1 < WATCH_ERROR_FROM_ATTEMPT) {
+        recordInfo("sync", "Could not reach the mail server yet; trying again", detail);
+      } else {
+        reportError("sync", "Could not keep a live connection to the mail server", detail);
+      }
       if (client) this.dropped(client);
     }
   }
@@ -1100,9 +1146,12 @@ export class ImapProvider implements MailProvider {
       email: envelope?.from?.[0]?.address ?? "",
     };
     const subject = envelope?.subject ?? "(no subject)";
+    // Read from the raw header block, not from `parsed.headers`: mailparser folds every `List-*`
+    // header into one `list` entry, so `headers.get("list-unsubscribe")` is always undefined.
+    const rawHeaders = message.source ? message.source.toString("latin1", 0, 32 * 1024) : "";
     const headers: Record<string, string | undefined> = {};
     for (const name of ["list-unsubscribe", "list-unsubscribe-post", "list-id", "precedence", "auto-submitted"]) {
-      headers[name] = parsed ? headerString(parsed, name) : undefined;
+      headers[name] = firstHeader(rawHeaders, name) ?? (parsed ? headerString(parsed, name) : undefined);
     }
 
     const references = parsed ? normalizeReferences(parsed.references) : [];
@@ -1138,7 +1187,7 @@ export class ImapProvider implements MailProvider {
             from.email,
           )
         : undefined,
-      unsubscribe: parsed ? parseUnsubscribe(headers["list-unsubscribe"], headers["list-unsubscribe-post"], headers["list-id"]) : undefined,
+      unsubscribe: message.source ? parseUnsubscribe(headers["list-unsubscribe"], headers["list-unsubscribe-post"], headers["list-id"]) : undefined,
       categoryId: null,
       signal: classifyMessage({
         fromEmail: from.email,

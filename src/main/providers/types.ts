@@ -49,12 +49,16 @@ export interface MailAuth {
 /** Turns an unknown thrown value into a message fit for the UI. */
 export function describeError(error: unknown): string {
   if (error && typeof error === "object") {
-    const candidate = error as { responseText?: unknown; message?: unknown };
+    const candidate = error as { responseText?: unknown; message?: unknown; reason?: unknown };
     if (typeof candidate.responseText === "string" && candidate.responseText) {
       return candidate.responseText;
     }
     if (typeof candidate.message === "string" && candidate.message) {
-      return candidate.message;
+      // imapflow's "Connection not available" says nothing of why; the server's goodbye does
+      // (for example "Too many simultaneous connections").
+      return typeof candidate.reason === "string" && candidate.reason
+        ? `${candidate.message} (the server said: ${candidate.reason})`
+        : candidate.message;
     }
   }
   return String(error);
