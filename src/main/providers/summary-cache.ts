@@ -1,6 +1,16 @@
 import { parseMessageId } from "@shared/ids";
 import type { MailAction, MailFolder, MessageSummary } from "@shared/types";
 
+/** Where an Outlook folder stands in Graph's change feed (delta query), so a launch can resume from it. */
+export interface DeltaState {
+  /** The `@odata.deltaLink` that returns what changed since it was issued. */
+  link: string;
+  /** Oldest `receivedDateTime` the feed covers, or null when it covers the whole folder. */
+  since: string | null;
+  /** When the folder was last downloaded in full (ms since the epoch). */
+  syncedAt: number;
+}
+
 /** What was last seen in one folder, kept between launches so the list can paint at once. */
 export interface CachedFolder {
   /**
@@ -9,6 +19,8 @@ export interface CachedFolder {
    */
   uidValidity: string;
   messages: MessageSummary[];
+  /** Outlook only: the feed `messages` is kept up to date from. Absent until the folder has one. */
+  delta?: DeltaState;
 }
 
 /** Where one account's folder copies live. Optional: without it the provider caches in memory only. */

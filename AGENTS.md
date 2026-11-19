@@ -35,6 +35,23 @@ its 6-second window. `undoStack.group` folds follow-up actions into one entry (b
 moves mail to the Trash). Not undoable, so leave them out: sending, unsubscribing, deleting forever.
 The stack is in memory: after a restart old Log rows have no Undo (refs carry a per-launch tag).
 
+## Files on the user's computer: change the format, write the migration
+
+Whenever a change alters what is stored on the user's computer (the mail cache, categories,
+drafts, settings, the event journal, any file under userData), ship a migration **in the same
+change**, with a test that feeds it a file in the old format. No exceptions, and no "bump the
+version and let it rebuild": a version the code does not recognise is never a reason to throw
+data away.
+
+- Keep each file's `version`, and upgrade older versions step by step (v1 to v2 to v3) when it is read.
+- Fill new fields from what is already on disk. If something truly cannot be derived locally
+  (a header never downloaded), keep the row, mark the field as unknown and fetch only that in the background.
+- Whenever the app does have to download mail again (a new folder, a changed server numbering),
+  the person must see it: reuse the sorting indicator (spinner in the rail, with a count) and never
+  show an empty list as if the mail were gone.
+- The one allowed discard is a file that is corrupt or cannot be decrypted; it is reported (`reportError`)
+  and the rebuild shows the same indicator.
+
 ## Nothing fails silently
 
 Every failure, whatever it is, must reach **both** `main.log` and the Log popover. There

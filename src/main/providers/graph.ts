@@ -4,6 +4,7 @@ import { CALENDAR_ACCESS_REQUIRED } from "@shared/accounts";
 import { classifyMessage } from "@shared/classify";
 import { makeMessageId, parseMessageId } from "@shared/ids";
 import { isAuthenticated } from "@shared/logos";
+import { MAIL_WINDOW } from "@shared/mail-window";
 import { parseUnsubscribe } from "@shared/unsubscribe";
 import { MAX_ATTACHMENT_BYTES, MAX_INLINE_IMAGE_BYTES } from "@shared/types";
 import type {
@@ -22,7 +23,7 @@ import type {
 import { logEvent } from "../log";
 import { reportError } from "../events";
 import { RequestGate, type Lane } from "./request-gate";
-import { patchSummaries, type SummaryStore } from "./summary-cache";
+import { patchSummaries, type DeltaState, type SummaryStore } from "./summary-cache";
 import { describeError, makeSnippet, type AttachmentFile, type MailProvider } from "./types";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -111,6 +112,23 @@ const listSchema = z.object({
   "@odata.nextLink": z.string().nullish(),
 });
 
+/** One entry of a folder's change feed: what changed, or that the message left the folder. */
+const changeSchema = z.object({
+  id: z.string(),
+  isRead: z.boolean().nullish(),
+  flag: z.object({ flagStatus: z.string().nullish() }).nullish(),
+  "@removed": z.object({ reason: z.string().nullish() }).nullish(),
+});
+
+const changesSchema = z.object({
+  value: z.array(changeSchema),
+  "@odata.nextLink": z.string().nullish(),
+  /** Only on the last page: where to continue from next time. */
+  "@odata.deltaLink": z.string().nullish(),
+});
+
+type Change = z.infer<typeof changeSchema>;
+
 /** Graph's largest page of messages. */
 const PAGE_MAX = 100;
 
@@ -190,6 +208,41 @@ class GraphError extends Error {
   }
 }
 
+/** Folders with a change feed. Pinned is a filter over the inbox, and a draft changes under it. */
+type FeedFolder = Exclude<MailFolder, "pinned" | "drafts">;
+
+const hasFeed = (folder: MailFolder): folder is FeedFolder => folder !== "pinned" && folder !== "drafts";
+
+/** A folder kept up to date from its change feed. */
+interface Tracked extends DeltaState {
+  /** Empty until the feed's first round has been read. */
+  link: string;
+  /** The folder's rows by Graph id, the newest `TRACKED_MAX` at most. */
+  rows: Map<string, MessageSummary>;
+  /** Changed since it was last saved. */
+  dirty: boolean;
+  savedAt: number;
+}
+
+/** The id Graph knows a row by. */
+const nativeOf = (row: MessageSummary): string => parseMessageId(row.id)?.nativeId ?? row.id;
+
+const byId = (rows: readonly MessageSummary[]): Map<string, MessageSummary> =>
+  new Map(rows.map((row) => [nativeOf(row), row]));
+
+/** A row's date as a filter value: whole seconds, rounded down so the row itself is included. */
+const feedTime = (date: string): string => date.replace(/\.\d+Z$/, "Z");
+
+/** The feed's link is no longer good (it expired, or Graph lost its state): start a new feed. */
+function isStaleFeed(error: unknown): boolean {
+  return error instanceof GraphError && (error.status === 410 || (error.status === 400 && /delta|sync/i.test(error.message)));
+}
+
+/** Graph does not offer this feed (or this way of asking for it); asking again would fail the same way. */
+function isRefusedFeed(error: unknown): boolean {
+  return error instanceof GraphError && [400, 404, 501].includes(error.status);
+}
+
 /** Graph ids are stable until a message moves, so the saved copy never needs invalidating. */
 const CACHE_VALIDITY = "graph";
 /** Extra attempts after Graph throttles (429). */
@@ -202,6 +255,19 @@ const MAX_RETRY_WAIT_MS = 8000;
  */
 const MAX_SERVER_FAULT_RETRIES = 2;
 const SERVER_FAULT_BUDGET_MS = 12_000;
+/**
+ * Rows kept per folder by the change feed: the list window and room for mail that is moved or
+ * deleted before the folder is next downloaded in full.
+ */
+const TRACKED_MAX = MAIL_WINDOW + 100;
+/** More new messages than this since the last answer are cheaper to download as a list than one by one. */
+const MAX_NEW_BY_ID = 20;
+/** A folder is downloaded in full at least this often: the feed does not carry a reply made in another app. */
+const FULL_REFRESH_MS = 24 * 60 * 60_000;
+/** The feed's position is saved this often when nothing changed; a change saves it at once. */
+const SAVE_FEED_EVERY_MS = 5 * 60_000;
+/** Ask for large pages of the feed: its default is small, and a first round covers a whole window. */
+const FEED_PAGE = { Prefer: "odata.maxpagesize=100" };
 /** One request that has not answered by now is abandoned, so nothing waits on it indefinitely. */
 const REQUEST_TIMEOUT_MS = 20_000;
 /** Messages of one conversation downloaded at a time. */
@@ -236,6 +302,14 @@ export class GraphProvider implements MailProvider {
    * book); they share one download instead of each making their own.
    */
   private readonly listing = new Map<string, Promise<MessageSummary[]>>();
+  /** Folders kept up to date from Graph's change feed, by folder. */
+  private readonly tracked = new Map<MailFolder, Tracked>();
+  /** Folders whose feed Graph refused this session; they are downloaded in full each time. */
+  private readonly feedOff = new Set<MailFolder>();
+  /** The work queued per folder: one at a time, so a feed is never read twice at once. */
+  private readonly queue = new Map<MailFolder, Promise<void>>();
+  /** Counts finished writes, so a feed read that overlapped one can be read again. */
+  private writeEpoch = 0;
 
   constructor(
     private readonly account: Account,
@@ -265,7 +339,242 @@ export class GraphProvider implements MailProvider {
     }
   }
 
-  private async download(folder: MailFolder, limit: number): Promise<MessageSummary[]> {
+  /**
+   * The newest `limit` messages of a folder. A folder with a change feed (every one but Pinned
+   * and Drafts) is downloaded in full once and then only asked what changed since; see `synced`.
+   */
+  private download(folder: MailFolder, limit: number): Promise<MessageSummary[]> {
+    return this.serialized(folder, () => this.synced(folder, limit));
+  }
+
+  /** One folder's work at a time, so a second list of it starts from what the first learned. */
+  private serialized<T>(folder: MailFolder, task: () => Promise<T>): Promise<T> {
+    const previous = this.queue.get(folder) ?? Promise.resolve();
+    const run = previous.then(task, task);
+    // expected: whoever asked for `run` receives (and reports) its failure; the queue only needs to know it ended.
+    this.queue.set(folder, run.then(() => undefined, () => undefined));
+    return run;
+  }
+
+  /**
+   * Lists a folder from its change feed when it has one. The first list of a full window downloads
+   * it (`begin`); after that each list reads only what changed (`advance`), which is one small
+   * request instead of the whole window. Anything the feed cannot answer falls back to a full download.
+   */
+  private async synced(folder: MailFolder, limit: number): Promise<MessageSummary[]> {
+    if (!hasFeed(folder) || this.feedOff.has(folder)) return this.downloadFull(folder, limit);
+
+    const state = this.trackedOf(folder);
+    if (state) {
+      // A write that finished while the feed was being read may be missing from what it said, so
+      // that answer is read once more.
+      for (let pass = 0; pass < 2; pass += 1) {
+        const epoch = this.writeEpoch;
+        if (!(await this.advance(folder, state))) {
+          this.tracked.delete(folder);
+          return this.begin(folder, limit);
+        }
+        if (epoch === this.writeEpoch) break;
+      }
+      // Mail left until less than a window remains: refill it now rather than show a short list.
+      if (this.needsFullDownload(state)) {
+        this.tracked.delete(folder);
+        return this.begin(folder, limit);
+      }
+      return this.publish(folder, state, limit);
+    }
+    // A small peek (the notifier, a first page) never starts a feed; the whole window does.
+    if (limit < MAIL_WINDOW) return this.downloadFull(folder, limit);
+    return this.begin(folder, limit);
+  }
+
+  /** Downloads the folder in full and starts its change feed from there. */
+  private async begin(folder: FeedFolder, limit: number): Promise<MessageSummary[]> {
+    const rows = await this.fetchRows(folder, TRACKED_MAX);
+    const state: Tracked = {
+      link: "",
+      // A full window means older mail may exist beyond it; fewer rows mean the folder is all here.
+      since: rows.length >= TRACKED_MAX ? feedTime(rows[rows.length - 1].date) : null,
+      syncedAt: Date.now(),
+      savedAt: 0,
+      dirty: true,
+      rows: byId(rows),
+    };
+    this.tracked.set(folder, state);
+    try {
+      // So much arrived while the list downloaded that it is already out of date: it is shown as
+      // it is, and the next list starts again.
+      if (!(await this.catchUp(folder, state))) this.tracked.delete(folder);
+    } catch (error) {
+      // expected: the list itself succeeded and is shown; the feed's failure is recorded in `noteFeedFailure`.
+      this.noteFeedFailure(folder, error);
+    }
+    if (this.tracked.get(folder) === state) return this.publish(folder, state, limit);
+    return this.show(folder, this.newest(state), limit);
+  }
+
+  /**
+   * Brings a folder up to date from its change feed. False means the feed cannot carry on (it
+   * expired, too much arrived, or the window needs refilling) and the folder is downloaded in full.
+   */
+  private async advance(folder: FeedFolder, state: Tracked): Promise<boolean> {
+    if (this.needsFullDownload(state)) return false;
+    try {
+      return await this.catchUp(folder, state);
+    } catch (error) {
+      if (!isStaleFeed(error)) throw error;
+      logEvent("graph", `The change feed of ${folder} expired; downloading it in full`, "info");
+      return false;
+    }
+  }
+
+  private needsFullDownload(state: Tracked): boolean {
+    if (Date.now() - state.syncedAt > FULL_REFRESH_MS) return true;
+    // Mail was moved or deleted until less than a window is left, and older mail still exists.
+    return state.since !== null && state.rows.size < MAIL_WINDOW;
+  }
+
+  /**
+   * Reads the feed to its end and applies it to `state`: rows that left the folder go, read and
+   * flag changes are copied over, and messages not seen before are downloaded by id.
+   * False when more than `MAX_NEW_BY_ID` messages are new, or the link is not Graph's.
+   */
+  private async catchUp(folder: FeedFolder, state: Tracked): Promise<boolean> {
+    const first = state.link === "";
+    let next: string | null = first ? this.feedStart(folder, state.since) : this.relativeLink(state.link);
+    if (next === null) return false;
+
+    const changes = new Map<string, Change>();
+    const gone = new Set<string>();
+    let link: string | null = null;
+    while (next !== null) {
+      const page = changesSchema.parse(await this.request("GET", next, undefined, FEED_PAGE, "background"));
+      for (const item of page.value) {
+        if (item["@removed"]) {
+          gone.add(item.id);
+          changes.delete(item.id);
+        } else {
+          gone.delete(item.id);
+          changes.set(item.id, item);
+        }
+      }
+      link = page["@odata.deltaLink"] ?? link;
+      next = this.relativeLink(page["@odata.nextLink"]);
+    }
+    if (link === null) throw new Error("Graph ended the change feed without a link to carry on from.");
+
+    let dirty = first;
+    for (const id of gone) if (state.rows.delete(id)) dirty = true;
+    // The first round lists everything the feed covers, so a row missing from it has left the folder.
+    if (first) {
+      for (const id of [...state.rows.keys()]) if (!changes.has(id)) state.rows.delete(id);
+    }
+    const unknown: string[] = [];
+    for (const [id, change] of changes) {
+      const row = state.rows.get(id);
+      if (!row) {
+        unknown.push(id);
+        continue;
+      }
+      const unread = change.isRead == null ? row.unread : !change.isRead;
+      const pinned = change.flag?.flagStatus == null ? row.pinned : change.flag.flagStatus === "flagged";
+      if (unread !== row.unread || pinned !== row.pinned) {
+        state.rows.set(id, { ...row, unread, pinned });
+        dirty = true;
+      }
+    }
+    if (unknown.length > MAX_NEW_BY_ID) return false;
+
+    const arrived = await Promise.all(unknown.map((id) => this.fetchSummary(folder, id)));
+    for (const row of arrived) {
+      if (!row) continue;
+      state.rows.set(nativeOf(row), row);
+      dirty = true;
+    }
+    state.link = link;
+    state.dirty ||= dirty;
+    return true;
+  }
+
+  /** The first request of a feed: only the fields that change, and only the part of the folder we keep. */
+  private feedStart(folder: FeedFolder, since: string | null): string {
+    const filter = since ? `&$filter=${encodeURIComponent(`receivedDateTime ge ${since}`)}` : "";
+    return `/me/mailFolders/${WELL_KNOWN[folder]}/messages/delta?$select=id,isRead,flag${filter}`;
+  }
+
+  /** One message as the list shows it, or null when it is gone again by the time it is asked for. */
+  private async fetchSummary(folder: FeedFolder, nativeId: string): Promise<MessageSummary | null> {
+    try {
+      const raw = await this.request(
+        "GET",
+        `/me/messages/${encodeURIComponent(nativeId)}?$select=${LIST_FIELDS}&$expand=${EXPAND_LAST_VERB}`,
+        undefined,
+        {},
+        "background",
+      );
+      return this.summarize(messageSchema.parse(raw), folder);
+    } catch (error) {
+      // Moved or deleted again since the feed named it: the request was recorded, and the next feed round says so.
+      if (error instanceof GraphError && error.status === 404) return null;
+      throw error;
+    }
+  }
+
+  /** What to do when a feed could not be started or read in `begin`. */
+  private noteFeedFailure(folder: FeedFolder, error: unknown): void {
+    if (isRefusedFeed(error)) {
+      this.feedOff.add(folder);
+      this.tracked.delete(folder);
+      logEvent("graph", `Outlook did not accept a change feed for ${folder}; it is downloaded in full each time`, "info");
+    }
+    // A failed request was recorded where it happened; anything else (a timeout, an odd answer) is recorded here.
+    if (!(error instanceof GraphError)) reportError("sync", `Could not read the change feed of ${folder}`, error);
+  }
+
+  /** The feed of a folder: this session's, else the one saved by a previous launch. */
+  private trackedOf(folder: MailFolder): Tracked | undefined {
+    const known = this.tracked.get(folder);
+    if (known) return known;
+    const saved = this.persist?.load(folder);
+    if (!saved?.delta || saved.uidValidity !== CACHE_VALIDITY) return undefined;
+    const state: Tracked = { ...saved.delta, savedAt: Date.now(), dirty: false, rows: byId(saved.messages) };
+    this.tracked.set(folder, state);
+    return state;
+  }
+
+  /** What a folder shows: the newest rows of the feed, with the feed trimmed to what it keeps. */
+  private publish(folder: MailFolder, state: Tracked, limit: number): MessageSummary[] {
+    const kept = this.newest(state);
+    state.rows = byId(kept);
+    const view = kept.slice(0, MAIL_WINDOW);
+    if (state.dirty || Date.now() - state.savedAt > SAVE_FEED_EVERY_MS) {
+      state.dirty = false;
+      state.savedAt = Date.now();
+      this.remember(folder, view);
+    } else {
+      this.cache.set(folder, view);
+    }
+    return view.slice(0, limit);
+  }
+
+  private show(folder: MailFolder, rows: MessageSummary[], limit: number): MessageSummary[] {
+    const view = rows.slice(0, MAIL_WINDOW);
+    this.remember(folder, view);
+    return view.slice(0, limit);
+  }
+
+  private newest(state: Tracked): MessageSummary[] {
+    return [...state.rows.values()].sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).slice(0, TRACKED_MAX);
+  }
+
+  private async downloadFull(folder: MailFolder, limit: number): Promise<MessageSummary[]> {
+    const rows = await this.fetchRows(folder, limit);
+    this.remember(folder, rows);
+    return rows;
+  }
+
+  /** The newest `limit` messages of a folder, newest first, read page by page. */
+  private async fetchRows(folder: MailFolder, limit: number): Promise<MessageSummary[]> {
     const wellKnown = WELL_KNOWN[folder === "pinned" ? "inbox" : folder];
     const top = Math.min(limit, PAGE_MAX);
     // Graph rejects $orderby combined with a $filter on a different property.
@@ -284,12 +593,10 @@ export class GraphProvider implements MailProvider {
       value.push(...page.value);
       next = this.relativeLink(page["@odata.nextLink"]);
     }
-    const rows = value
+    return value
       .slice(0, limit)
       .map((message) => this.summarize(message, folder))
       .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
-    this.remember(folder, rows);
-    return rows;
   }
 
   /**
@@ -303,7 +610,7 @@ export class GraphProvider implements MailProvider {
 
   /** The last list for this folder: this session's, else the copy from a previous launch. */
   cached(folder: MailFolder): MessageSummary[] {
-    return this.cache.get(folder) ?? this.persist?.load(folder)?.messages ?? [];
+    return (this.cache.get(folder) ?? this.persist?.load(folder)?.messages ?? []).slice(0, MAIL_WINDOW);
   }
 
   async get(folder: MailFolder, nativeIds: string[]): Promise<MessageDetail[]> {
@@ -601,26 +908,36 @@ export class GraphProvider implements MailProvider {
 
   /** Shows the reply mark at once instead of waiting for the next refresh. */
   private markAnswered(nativeId: string): void {
+    const match = (row: MessageSummary) => nativeOf(row) === nativeId;
     for (const [folder, rows] of this.cache) {
-      if (!rows.some((row) => parseMessageId(row.id)?.nativeId === nativeId)) continue;
-      this.remember(
-        folder,
-        rows.map((row) =>
-          parseMessageId(row.id)?.nativeId === nativeId ? { ...row, answered: true } : row,
-        ),
-      );
+      if (!rows.some(match)) continue;
+      this.revise(folder, (all) => all.map((row) => (match(row) ? { ...row, answered: true } : row)));
     }
   }
 
   private remember(folder: MailFolder, rows: MessageSummary[]): void {
     this.cache.set(folder, rows);
-    this.persist?.save(folder, { uidValidity: CACHE_VALIDITY, messages: rows });
+    const state = this.tracked.get(folder);
+    // A folder with a feed is saved with every row the feed tracks, not only the window shown, so
+    // a later launch resumes with the same rows the feed's position belongs to.
+    this.persist?.save(folder, {
+      uidValidity: CACHE_VALIDITY,
+      messages: state ? this.newest(state) : rows,
+      delta: state && state.link !== "" ? { link: state.link, since: state.since, syncedAt: state.syncedAt } : undefined,
+    });
+  }
+
+  /** Applies `change` to every copy of a folder's rows: the window shown and the rows its feed tracks. */
+  private revise(folder: MailFolder, change: (rows: MessageSummary[]) => MessageSummary[]): void {
+    const state = this.tracked.get(folder);
+    if (state) state.rows = byId(change([...state.rows.values()]));
+    const rows = this.cache.get(folder) ?? this.persist?.load(folder)?.messages;
+    if (rows) this.remember(folder, change(rows));
   }
 
   /** Applies a finished action to the saved lists, so a moved message cannot reappear on launch. */
   private patchCache(action: MailAction, folder: MailFolder, nativeIds: ReadonlySet<string>): void {
-    const rows = this.cache.get(folder) ?? this.persist?.load(folder)?.messages;
-    if (rows) this.remember(folder, patchSummaries(rows, action, folder, nativeIds));
+    this.revise(folder, (rows) => patchSummaries(rows, action, folder, nativeIds));
   }
 
   async close(): Promise<void> {
@@ -721,7 +1038,10 @@ export class GraphProvider implements MailProvider {
     } finally {
       // A write changes what a folder holds, so a list begun before it must not be handed to one
       // asked for after it.
-      if (method !== "GET") this.listing.clear();
+      if (method !== "GET") {
+        this.listing.clear();
+        this.writeEpoch += 1;
+      }
     }
   }
 
