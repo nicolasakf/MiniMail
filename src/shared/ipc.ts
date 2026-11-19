@@ -21,6 +21,7 @@ export const IPC = {
   mailRespond: "mail:respond-to-invitation",
   mailVerificationCodes: "mail:verification-codes",
   mailChanged: "mail:changed",
+  mailOpenConversation: "mail:open-conversation",
   categoriesGet: "categories:get",
   categoriesSave: "categories:save",
   categoriesSetKey: "categories:set-key",
@@ -59,6 +60,7 @@ export const IPC = {
   openExternal: "system:open-external",
   eventsList: "events:list",
   eventsMarkDone: "events:markDone",
+  eventsOpenLog: "events:openLog",
   /** One-way (`send`): the page reports and never waits. */
   eventsReport: "events:report",
   eventsChanged: "events:changed",

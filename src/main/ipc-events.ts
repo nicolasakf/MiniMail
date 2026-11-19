@@ -64,6 +64,7 @@ const FAILED: Record<string, string> = {
   [IPC.openExternal]: "Could not open the link",
   [IPC.eventsList]: "Could not read the event history",
   [IPC.eventsMarkDone]: "Could not mark the errors as done",
+  [IPC.eventsOpenLog]: "Could not open the log file",
 };
 
 /**

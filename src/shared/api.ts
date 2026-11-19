@@ -24,7 +24,7 @@ import type {
 import type { ContactEntry } from "./contacts";
 import type { AppEvent, EventReport } from "./events";
 import type { LogoRequest, LogoSettings } from "./logos";
-import type { NotificationSettings } from "./notifications";
+import type { NotificationSettings, OpenConversationRequest } from "./notifications";
 
 /** Which sign-in methods this build can offer (OAuth needs client ids at build time). */
 export interface AccountCapabilities {
@@ -78,6 +78,8 @@ export interface MiniMailApi {
     contacts(): Promise<ContactEntry[]>;
     /** Fires when the main process thinks the mailbox changed (server push, poll tick, window focus). */
     onChanged(listener: () => void): () => void;
+    /** Fires when the user clicks a notification about one message: the page should open that conversation. */
+    onOpenConversation(listener: (request: OpenConversationRequest) => void): () => void;
   };
   categories: {
     /** Categories plus the state of the AI classifier. */
@@ -162,6 +164,8 @@ export interface MiniMailApi {
     list(): Promise<AppEvent[]>;
     /** Marks every error so far as done: "Errors only" stops showing them; they stay listed until they age out. */
     markDone(): Promise<void>;
+    /** Opens main.log with the computer's default app for it. Rejects when there is no log file to open. */
+    openLog(): Promise<void>;
     /** Tells the journal something happened in the page. Fire and forget: never waits, never throws. */
     report(report: EventReport): void;
     /** New or changed events, batched; returns the way to stop listening. */

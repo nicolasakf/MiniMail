@@ -1,13 +1,17 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { CircleAlert, Info, MousePointerClick, ScrollText, Undo2 } from "lucide-react";
+import { Check, CircleAlert, ExternalLink, Info, Maximize2, Minimize2, MousePointerClick, ScrollText, Undo2 } from "lucide-react";
 
 import { EVENT_RETENTION_MS, type AppEvent } from "@shared/events";
 
+import { ToolButton } from "@/components/mail/composer-ui";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEventJournal } from "@/hooks/use-event-journal";
 import { buildRows, eventText, latestErrorId, type EventRow } from "@/lib/event-list";
+import { api } from "@/lib/api";
+import { FOLDER_STYLE } from "@/lib/folder-style";
 import { toast } from "@/lib/toast";
 import { undoStack, useUndoVersion } from "@/lib/undo-stack";
 import { cn } from "@/lib/utils";
@@ -120,10 +124,12 @@ interface ListProps {
   rows: EventRow[];
   retryFor: (event: AppEvent) => (() => void) | undefined;
   onRetry: () => void;
+  /** Fills the room its parent gives it, instead of stopping at a fixed height. */
+  expanded?: boolean;
 }
 
 /** Only the rows in view are drawn, so thirty days of history costs no more than a handful. */
-function VirtualEventList({ rows, retryFor, onRetry }: ListProps) {
+function VirtualEventList({ rows, retryFor, onRetry, expanded }: ListProps) {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -133,7 +139,7 @@ function VirtualEventList({ rows, retryFor, onRetry }: ListProps) {
     overscan: 6,
   });
   return (
-    <div ref={setScroller} className="overflow-y-auto" style={{ maxHeight: MAX_LIST_HEIGHT }}>
+    <div ref={setScroller} className={cn("overflow-y-auto", expanded && "min-h-0 flex-1")} style={expanded ? undefined : { maxHeight: MAX_LIST_HEIGHT }}>
       <div role="list" className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((item) => {
           const row = rows[item.index]!;
@@ -164,6 +170,31 @@ interface Props {
   retryFor: (event: AppEvent) => (() => void) | undefined;
 }
 
+/** The Log at the composer's expanded size: Escape closes it, like the composer. */
+function ExpandedPanel({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const panel = useRef<HTMLElement>(null);
+  useEffect(() => panel.current?.focus(), []);
+  return (
+    <section
+      ref={panel}
+      role="dialog"
+      aria-modal="false"
+      aria-label="Log"
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && !event.defaultPrevented) {
+          event.preventDefault();
+          onClose();
+        }
+      }}
+      // electron-no-drag: it sits over the app's window-drag headers, which would swallow clicks on its buttons.
+      className="corner-squircle electron-no-drag fixed inset-x-6 bottom-6 top-6 z-50 mx-auto flex max-w-[1040px] flex-col overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-[0_24px_70px_-12px_rgb(0_0_0/0.55)] outline-none duration-200 animate-in fade-in-0 slide-in-from-bottom-3"
+    >
+      {children}
+    </section>
+  );
+}
+
 /**
  * The Log button and its list: every error from the last 30 days, and with the filter off, what the user
  * and the app did as well. It owns the journal's feed, so a new event re-renders only this.
@@ -173,6 +204,7 @@ export function LogPopover({ retryFor }: Props) {
   useUndoVersion(); // rows re-draw as actions are taken back, so their Undo goes away
   const [open, setOpen] = useState(false);
   const [errorsOnly, setErrorsOnly] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [, rerender] = useState(0);
   const [seen, setSeen] = useState<number | null>(readSeen);
 
@@ -201,6 +233,84 @@ export function LogPopover({ retryFor }: Props) {
   const hasOpenErrors = useMemo(() => events.some((event) => event.level === "error" && !event.done), [events]);
   const errorCount = useMemo(() => (open ? events.reduce((count, event) => count + (event.level === "error" ? 1 : 0), 0) : 0), [open, events]);
 
+  const content = (
+    <>
+      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h2 className="text-sm font-semibold">Log</h2>
+          <span className="truncate text-xs text-muted-foreground">
+            {errorCount === 1 ? "1 error" : `${errorCount} errors`} · last {Math.round(EVENT_RETENTION_MS / 86_400_000)} days
+          </span>
+          {expanded && (
+            <button
+              type="button"
+              onClick={() => void api.events.openLog().catch(() => undefined /* expected: recorded by the main process */)}
+              className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ExternalLink className="size-3.5" />
+              Open log file
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            aria-pressed={errorsOnly}
+            onClick={() => setErrorsOnly((current) => !current)}
+            className={cn(
+              "corner-squircle whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+              errorsOnly
+                ? FOLDER_STYLE.trash.active
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+            )}
+          >
+            Errors only
+          </button>
+          {hasOpenErrors && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={markDone}
+                  aria-label="Mark all as done"
+                  className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Check className="size-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Mark all as done</TooltipContent>
+            </Tooltip>
+          )}
+          <ToolButton
+            label={expanded ? "Compact view" : "Expand"}
+            className="size-6 rounded-md"
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          </ToolButton>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <div className="space-y-2 px-4 py-5 text-sm text-muted-foreground">
+          <p>
+            {!loaded
+              ? "Loading…"
+              : errorsOnly
+                ? "No new errors in the last 30 days."
+                : "Nothing recorded yet."}
+          </p>
+        </div>
+      ) : (
+        <VirtualEventList
+          rows={rows}
+          retryFor={retryFor}
+          onRetry={() => rerender((count) => count + 1)}
+          expanded={expanded}
+        />
+      )}
+    </>
+  );
+
   return (
     <Popover
       open={open}
@@ -226,59 +336,21 @@ export function LogPopover({ retryFor }: Props) {
         </TooltipTrigger>
         <TooltipContent side="right">Log</TooltipContent>
       </Tooltip>
-      <PopoverContent side="right" align="end" sideOffset={12} aria-label="Log" className="w-96 p-0">
-        <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
-          <div className="flex min-w-0 items-baseline gap-2">
-            <h2 className="text-sm font-semibold">Log</h2>
-            <span className="truncate text-xs text-muted-foreground">
-              {errorCount === 1 ? "1 error" : `${errorCount} errors`} · last {Math.round(EVENT_RETENTION_MS / 86_400_000)} days
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              aria-pressed={errorsOnly}
-              onClick={() => setErrorsOnly((current) => !current)}
-              className={cn(
-                "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors",
-                errorsOnly
-                  ? "border-destructive/40 bg-destructive/10 text-destructive"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Errors only
-            </button>
-            {hasOpenErrors && (
-              <button
-                type="button"
-                onClick={markDone}
-                title="Hide these errors from the Errors only view. They stay in the list and in main.log."
-                className="text-xs text-muted-foreground hover:text-foreground"
-              >
-                Mark all as done
-              </button>
-            )}
-          </div>
-        </div>
-        {rows.length === 0 ? (
-          <div className="space-y-2 px-4 py-5 text-sm text-muted-foreground">
-            <p>
-              {!loaded
-                ? "Loading…"
-                : errorsOnly
-                  ? "No new errors in the last 30 days."
-                  : "Nothing recorded yet."}
-            </p>
-            {loaded && errorsOnly && events.length > 0 && (
-              <button type="button" onClick={() => setErrorsOnly(false)} className="text-xs font-medium text-primary hover:underline">
-                Show all activity
-              </button>
-            )}
-          </div>
-        ) : (
-          <VirtualEventList rows={rows} retryFor={retryFor} onRetry={() => rerender((count) => count + 1)} />
+      {!expanded && (
+        <PopoverContent side="right" align="end" sideOffset={12} aria-label="Log" className="w-96 p-0">
+          {content}
+        </PopoverContent>
+      )}
+      {/*
+        Expanded, it is the composer's size (see its expanded panel). It is a fixed panel of its own because the
+        popover is placed with a transform, which would make "fixed" mean "relative to the popover".
+      */}
+      {open &&
+        expanded &&
+        createPortal(
+          <ExpandedPanel onClose={() => { setOpen(false); markSeen(); }}>{content}</ExpandedPanel>,
+          document.body,
         )}
-      </PopoverContent>
     </Popover>
   );
 }

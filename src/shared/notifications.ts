@@ -12,6 +12,15 @@ import type { MessageSummary } from "./types";
 export const NOTIFY_FOLDERS = ["inbox", "archive", "spam", "trash"] as const;
 export type NotifyFolder = (typeof NOTIFY_FOLDERS)[number];
 
+/** The conversation a clicked notification asks the page to open. */
+export interface OpenConversationRequest {
+  accountId: string;
+  /** The provider's thread id (`MessageSummary.threadId`), not the page's `${accountId}:${threadId}`. */
+  threadId: string;
+  /** The folder the message arrived in. */
+  folder: NotifyFolder;
+}
+
 /** Stands for mail that sits in no category, in the category filter. */
 export const NO_CATEGORY = "__none__";
 

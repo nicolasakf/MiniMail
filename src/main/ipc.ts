@@ -82,8 +82,9 @@ export function registerIpc(options: {
   oauthConfig: OAuthConfig;
   rendererUrl: string | undefined;
   openExternal: (url: string) => Promise<void>;
+  openLog: () => Promise<void>;
 }): void {
-  const { service, attachmentFiles, notifier, notificationSettings, categorizer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, journal, oauthConfig, rendererUrl, openExternal } = options;
+  const { service, attachmentFiles, notifier, notificationSettings, categorizer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, journal, oauthConfig, rendererUrl, openExternal, openLog } = options;
 
   /**
    * Registers a handler. Whatever it throws is recorded (so no failure goes unseen, even one nobody
@@ -225,6 +226,7 @@ export function registerIpc(options: {
 
   handle(IPC.eventsList, () => journal.list());
   handle(IPC.eventsMarkDone, () => journal.markErrorsDone());
+  handle(IPC.eventsOpenLog, () => openLog());
   // One-way: the page reports and moves on. A malformed report is itself worth knowing about.
   ipcMain.on(IPC.eventsReport, (event, report: unknown) => {
     try {

@@ -640,6 +640,9 @@ function demoEvents(): MiniMailApi["events"] {
     async markDone() {
       events = events.map((event) => (event.level === "error" ? { ...event, done: true } : event));
     },
+    async openLog() {
+      // The demo has no log file; a click on the button does nothing.
+    },
     report(report) {
       const event: AppEvent = { id: ++serial, at: Date.now(), lastAt: Date.now(), repeats: 1, detail: "", ...report };
       events = [event, ...events];
@@ -959,6 +962,7 @@ export function createDemoApi(): MiniMailApi {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
+      onOpenConversation() { return () => {}; },
     },
     senders: {
       async trusted() {

@@ -7,6 +7,7 @@ import {
   type AccountNotificationSettings,
   type NotificationSettings,
   type NotifyFolder,
+  type OpenConversationRequest,
 } from "@shared/notifications";
 import type { ListResult, MessageSummary } from "@shared/types";
 import { reportError } from "./events";
@@ -15,6 +16,8 @@ export interface ShownNotification {
   title: string;
   body: string;
   silent: boolean;
+  /** The conversation to open when the notification is clicked; absent for a group or a sample. */
+  open?: OpenConversationRequest;
 }
 
 export interface NotifierDeps {
@@ -73,13 +76,27 @@ export class Notifier {
     this.userMovedMail = true;
   }
 
-  /** Shows a sample so the user can see how notifications look and that the system allows them. */
-  test(): void {
+  /**
+   * Shows a sample so the user can see how notifications look and that the system allows them.
+   * Clicking it opens the newest Inbox conversation, so that click can be tried out too.
+   */
+  async test(): Promise<void> {
     const { content, sound } = this.deps.settings();
+    let open: OpenConversationRequest | undefined;
+    try {
+      const newest = (await this.deps.list("inbox")).messages.reduce<MessageSummary | undefined>(
+        (best, message) => (!best || Date.parse(message.date) > Date.parse(best.date) ? message : best),
+        undefined,
+      );
+      if (newest) open = { accountId: newest.accountId, threadId: newest.threadId, folder: "inbox" };
+    } catch (error) {
+      reportError("notifications", "Could not find a conversation for the sample notification to open", error);
+    }
     this.deps.show({
       title: content === "hidden" ? "New mail" : "MiniMail",
       body: "This is how a notification will look.",
       silent: !sound,
+      ...(open ? { open } : {}),
     });
   }
 
@@ -222,12 +239,17 @@ export class Notifier {
 
   private describe(message: MessageSummary, settings: NotificationSettings): Omit<ShownNotification, "silent"> {
     const { content } = settingsForAccount(settings, message.accountId);
+    const open: OpenConversationRequest = {
+      accountId: message.accountId,
+      threadId: message.threadId,
+      folder: message.folder as NotifyFolder,
+    };
     const place = message.folder === "inbox" ? "" : `${FOLDER_NAMES[message.folder as NotifyFolder]} · `;
-    if (content === "hidden") return { title: `${place}New mail`, body: "" };
+    if (content === "hidden") return { title: `${place}New mail`, body: "", open };
     const title = `${place}${senderName(message)}`;
-    if (content === "sender") return { title, body: "New message" };
+    if (content === "sender") return { title, body: "New message", open };
     const subject = message.subject.trim() || "(no subject)";
     const preview = message.snippet.trim();
-    return { title, body: preview ? `${subject}\n${preview}` : subject };
+    return { title, body: preview ? `${subject}\n${preview}` : subject, open };
   }
 }

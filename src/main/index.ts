@@ -3,10 +3,11 @@ import { join } from "node:path";
 
 import { promises as dns } from "node:dns";
 
-import { app, BrowserWindow, dialog, Notification, safeStorage, shell } from "electron";
+import { app, BrowserWindow, dialog, net, Notification, powerMonitor, safeStorage, shell } from "electron";
 
 import { senderDomain } from "@shared/categories";
 import { IPC } from "@shared/ipc";
+import type { OpenConversationRequest } from "@shared/notifications";
 
 import { AiSettingsStore } from "./ai-settings";
 import { AttachmentFiles } from "./attachment-files";
@@ -20,7 +21,7 @@ import { EventJournal } from "./event-journal";
 import { installJournal, recordInfo, reportError } from "./events";
 import { createJevClassifier } from "./jev";
 import type { OAuthConfig } from "./oauth";
-import { flushLog, initLog, logEvent, writeLogLine } from "./log";
+import { flushLog, initLog, logEvent, logPath, writeLogLine } from "./log";
 import { perfLog } from "./perf";
 import { findGravatar, findSiteIcon } from "./logos/icon-finder";
 import { LogoCache } from "./logos/logo-cache";
@@ -33,6 +34,7 @@ import { ComposeLibraryStore } from "./compose-library";
 import { DraftStore } from "./draft-store";
 import { NotificationSettingsStore } from "./notification-settings";
 import { Notifier } from "./notifier";
+import { POLL_INTERVAL_MS, Polling } from "./polling";
 import { UiPrefsStore } from "./ui-prefs";
 import { TrustedSenders } from "./trusted-senders";
 import { MailCache } from "./mail-cache";
@@ -41,13 +43,13 @@ import { AccountStore } from "./store";
 
 perfLog("main bundle loaded");
 
-/**
- * Accounts that cannot be pushed to (Outlook), or whose push connection is down, are polled this
- * often. The rest rely on the server and only get the slow safety refresh below.
- */
-const POLL_INTERVAL_MS = 15_000;
-/** Refresh at least this often even when every account is pushing, in case a push was missed. */
-const SAFETY_POLL_MS = 5 * 60_000;
+/** When MiniMail asks the accounts for new mail on its own; see `polling.ts`. */
+const polling = new Polling(Date.now, (online) =>
+  recordInfo(
+    "sync",
+    online ? "The network is back; checking for mail again" : "No network; checking for mail is paused until it is back",
+  ),
+);
 
 const oauthConfig: OAuthConfig = {
   googleClientId: import.meta.env.MAIN_VITE_GOOGLE_CLIENT_ID,
@@ -92,6 +94,15 @@ let attachmentFiles: AttachmentFiles | null = null;
 const liveNotifications = new Set<Notification>();
 
 /** Opens http(s) and mailto links in the user's default handler; ignores everything else. */
+/** Opens main.log with the computer's default app for it, after writing what is still waiting to be written. */
+async function openLog(): Promise<void> {
+  flushLog();
+  const file = logPath();
+  if (!file) throw new Error("The log file is not set up yet");
+  const failure = await shell.openPath(file);
+  if (failure) throw new Error(failure);
+}
+
 async function openExternalSafely(url: string): Promise<void> {
   let protocol: string;
   try {
@@ -156,7 +167,9 @@ function createWindow(): void {
   });
   window.webContents.on("unresponsive", () => reportError("app", "The window stopped responding"));
   window.webContents.on("responsive", () => recordInfo("app", "The window responds again"));
-  window.on("focus", () => window.webContents.send(IPC.mailChanged));
+  window.on("focus", () => {
+    if (polling.focused(net.isOnline())) window.webContents.send(IPC.mailChanged);
+  });
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
   });
@@ -176,8 +189,8 @@ function setDockBadge(count: number): void {
   else app.setBadgeCount(count);
 }
 
-/** Shows an operating-system notification; clicking it brings MiniMail to the front. */
-function showNotification({ title, body, silent }: { title: string; body: string; silent: boolean }): void {
+/** Shows an operating-system notification; clicking it brings MiniMail to the front and opens the message it is about. */
+function showNotification({ title, body, silent, open }: { title: string; body: string; silent: boolean; open?: OpenConversationRequest }): void {
   if (!Notification.isSupported()) {
     reportError("notifications", "Notifications are not supported on this system");
     return;
@@ -197,21 +210,22 @@ function showNotification({ title, body, silent }: { title: string; body: string
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
+    if (open) mainWindow.webContents.send(IPC.mailOpenConversation, open);
   });
   notification.show();
 }
 
 function startPolling(): void {
-  let lastRefresh = Date.now();
   const refresh = (): void => {
-    lastRefresh = Date.now();
+    polling.refreshed();
     mainWindow?.webContents.send(IPC.mailChanged);
     void notifier?.check();
   };
   // Server pushes (IMAP IDLE) refresh at once; the timer below covers the rest.
   service?.watch(refresh);
+  powerMonitor.on("resume", () => polling.resumed());
   pollTimer = setInterval(() => {
-    if (!service?.allPushing() || Date.now() - lastRefresh >= SAFETY_POLL_MS) refresh();
+    if (polling.tick(net.isOnline(), service?.allPushing() ?? false)) refresh();
   }, POLL_INTERVAL_MS);
 }
 
@@ -342,6 +356,7 @@ if (!app.requestSingleInstanceLock()) {
       oauthConfig,
       rendererUrl,
       openExternal: openExternalSafely,
+      openLog,
     });
 
     registerComposerWindows(() => mainWindow, rendererUrl, protectNavigation);

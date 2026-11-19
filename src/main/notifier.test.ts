@@ -77,7 +77,14 @@ describe("Notifier", () => {
 
     t.folders.inbox = [message("2"), message("1")];
     await t.check();
-    expect(t.shown).toEqual([{ title: "Sender 2", body: "Subject 2\nPreview 2", silent: false }]);
+    expect(t.shown).toEqual([
+      {
+        title: "Sender 2",
+        body: "Subject 2\nPreview 2",
+        silent: false,
+        open: { accountId: "a1", threadId: expect.any(String), folder: "inbox" },
+      },
+    ]);
 
     await t.check();
     expect(t.shown).toHaveLength(1); // The same message never notifies twice.
@@ -184,13 +191,13 @@ describe("Notifier", () => {
     await t.check();
     t.folders.inbox = [message("12")];
     await t.check();
-    expect(t.shown).toEqual([{ title: "New mail", body: "", silent: true }]);
+    expect(t.shown).toEqual([{ title: "New mail", body: "", silent: true, open: expect.objectContaining({ accountId: "a1" }) }]);
 
     const s = setup({ content: "sender" });
     await s.check();
     s.folders.inbox = [message("13")];
     await s.check();
-    expect(s.shown).toEqual([{ title: "Sender 13", body: "New message", silent: false }]);
+    expect(s.shown).toEqual([{ title: "Sender 13", body: "New message", silent: false, open: expect.objectContaining({ accountId: "a1" }) }]);
   });
 
   it("keeps the Dock badge at the unread Inbox count, excluding silenced accounts", async () => {
@@ -222,10 +229,16 @@ describe("Notifier", () => {
     expect(t.shown).toHaveLength(0);
   });
 
-  it("sends a sample notification", () => {
+  it("sends a sample notification that opens the newest Inbox conversation", async () => {
     const t = setup({ sound: false });
-    t.notifier.test();
+    await t.notifier.test();
     expect(t.shown).toEqual([{ title: "MiniMail", body: "This is how a notification will look.", silent: true }]);
+
+    const newer = { ...message("2"), date: new Date(NOW.getTime()).toISOString() };
+    t.folders.inbox = [message("1"), newer];
+    t.shown.length = 0;
+    await t.notifier.test();
+    expect(t.shown[0].open).toEqual({ accountId: "a1", threadId: newer.threadId, folder: "inbox" });
   });
 });
 
@@ -267,6 +280,6 @@ describe("NotificationSettingsStore", () => {
     await t.check();
     t.folders.inbox = [message("1")];
     await t.check();
-    expect(t.shown).toEqual([{ title: "New mail", body: "", silent: true }]);
+    expect(t.shown).toEqual([{ title: "New mail", body: "", silent: true, open: expect.objectContaining({ accountId: "a1" }) }]);
   });
 });

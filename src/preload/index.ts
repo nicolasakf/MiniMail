@@ -50,6 +50,11 @@ const api: MiniMailApi = {
       ipcRenderer.on(IPC.mailChanged, handler);
       return () => ipcRenderer.removeListener(IPC.mailChanged, handler);
     },
+    onOpenConversation: (listener) => {
+      const handler = (_event: unknown, request: Parameters<typeof listener>[0]) => listener(request);
+      ipcRenderer.on(IPC.mailOpenConversation, handler);
+      return () => ipcRenderer.removeListener(IPC.mailOpenConversation, handler);
+    },
   },
   categories: {
     get: () => invoke(IPC.categoriesGet),
@@ -115,6 +120,7 @@ const api: MiniMailApi = {
   events: {
     list: () => invoke(IPC.eventsList),
     markDone: () => invoke(IPC.eventsMarkDone),
+    openLog: () => invoke(IPC.eventsOpenLog),
     // One-way on purpose: nothing waits for the journal, and reporting can never fail the caller.
     report: (report) => {
       try {
