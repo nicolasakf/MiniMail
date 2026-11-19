@@ -205,27 +205,27 @@ export function FocusedList({
           );
         }
         // Looks like the date headings; only the chevron (and the count while hidden) tell it folds.
+        // The padding sits on a wrapper, so only the text and chevron are clickable, not the whole width.
         return (
-          <button
-            type="button"
-            aria-expanded={!collapsible.collapsed}
-            onClick={() => onToggleSection(item.key)}
-            className={cn(
-              heading,
-              "flex w-full items-center gap-1 text-left outline-none transition-colors hover:text-foreground focus-visible:text-foreground",
-            )}
-          >
-            {item.label}
-            {collapsible.collapsed && (
-              <span className="font-normal">{collapsible.count}</span>
-            )}
-            <ChevronDown
-              className={cn(
-                "size-3.5 transition-transform",
-                collapsible.collapsed && "-rotate-90",
+          <div className={heading}>
+            <button
+              type="button"
+              aria-expanded={!collapsible.collapsed}
+              onClick={() => onToggleSection(item.key)}
+              className="flex items-center gap-1 text-left outline-none transition-colors hover:text-foreground focus-visible:text-foreground"
+            >
+              {item.label}
+              {collapsible.collapsed && (
+                <span className="font-normal">{collapsible.count}</span>
               )}
-            />
-          </button>
+              <ChevronDown
+                className={cn(
+                  "size-3.5 transition-transform",
+                  collapsible.collapsed && "-rotate-90",
+                )}
+              />
+            </button>
+          </div>
         );
       }
       case "group":
