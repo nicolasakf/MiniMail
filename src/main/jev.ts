@@ -1,9 +1,13 @@
 import { NO_CATEGORY_NAME } from "@shared/categories";
 import { DEFAULT_SORT_MODEL } from "@shared/ai-models";
+import { DEFAULT_SORT_MODELS, PROVIDER_LABELS, type AiProvider } from "@shared/ai-providers";
 import type { Category, Contact, SmartCategory } from "@shared/types";
 
+import { callSystemOne } from "./ai-provider";
+
 /**
- * Jev (TypeSafe AI's System One model) reached through the Vercel AI Gateway. It answers a
+ * Jev (TypeSafe AI's System One model), reached through the Vercel AI Gateway, OpenRouter or TypeSafe's
+ * own API, whichever the person chose. It answers a
  * typed Choice question with a probability for every option, which is exactly what sorting
  * mail into the user's categories needs, and it is far cheaper and faster than a chat model.
  */
@@ -123,47 +127,76 @@ export function readClassification(
   return { categoryId, probability };
 }
 
-/** Maps the gateway's failures to something a person can act on. */
-export function describeGatewayError(error: unknown): string {
+/** An error whose text is already fit for a person (it names its provider), so it is shown as it is. */
+export class DescribedError extends Error {}
+
+/** How a provider is named at the start of a sentence. */
+function subject(provider: AiProvider): string {
+  return provider === "openrouter" ? PROVIDER_LABELS.openrouter : `The ${PROVIDER_LABELS[provider]}`;
+}
+
+/** Maps a provider's failures to something a person can act on. */
+export function describeAiError(error: unknown, provider: AiProvider = "vercel"): string {
+  if (error instanceof DescribedError) return error.message;
   const raw = error instanceof Error ? error.message : String(error);
   const status =
     typeof error === "object" && error !== null && "statusCode" in error
       ? Number((error as { statusCode?: unknown }).statusCode)
       : undefined;
+  const who = subject(provider);
   if (status === 401 || /unauthenticated|invalid api key|no authentication/i.test(raw)) {
-    return "The Vercel AI Gateway rejected the API key. Check it and save it again.";
+    return `${who} rejected the API key. Check it and save it again.`;
   }
   if (status === 402 || /credit|billing|payment/i.test(raw)) {
-    return "The Vercel AI Gateway says this key has no credit left.";
+    return `${who} says this key has no credit left.`;
   }
   if (status === 429 || /rate limit/i.test(raw)) {
-    return "The Vercel AI Gateway is rate limiting requests; MiniMail will retry shortly.";
+    return `${who} is rate limiting requests; MiniMail will retry shortly.`;
   }
   if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network/i.test(raw)) {
-    return "Could not reach the Vercel AI Gateway. Check your connection.";
+    return `Could not reach ${who.replace(/^The /, "the ")}. Check your connection.`;
   }
   return raw.length > 240 ? `${raw.slice(0, 240)}…` : raw;
 }
 
-/** The real classifier: one call per conversation to the sorting model (Jev unless changed) through the Vercel AI Gateway. */
+/**
+ * The real classifier: one call per conversation to the sorting model (Jev unless changed), through the
+ * provider the person chose: the Vercel AI Gateway, OpenRouter or TypeSafe's own API.
+ */
 export function createJevClassifier(
-  getKey: () => string | undefined,
-  getModel: () => string = () => JEV_MODEL,
+  getProvider: () => AiProvider,
+  getKey: (provider: AiProvider) => string | undefined,
+  getModel: () => string = () => DEFAULT_SORT_MODELS[getProvider()],
 ): Classifier {
   return async (input, categories, options) => {
-    const apiKey = getKey();
-    if (!apiKey) throw new Error("No Vercel AI Gateway key is set.");
+    const provider = getProvider();
+    const apiKey = getKey(provider);
+    if (!apiKey) throw new DescribedError(`No ${PROVIDER_LABELS[provider]} key is set.`);
 
-    // Loaded on demand: the SDK is large and most launches never classify anything.
-    const { createGateway, experimental_decide: decide } = await import("ai");
     const request = buildClassificationRequest(input, categories);
-    const result = await decide({
-      model: createGateway({ apiKey }).decisionModel(options?.model || getModel()),
-      state: request.state,
-      questions: request.questions,
-      maxRetries: 1,
-      abortSignal: AbortSignal.timeout(20_000),
-    });
-    return readClassification(result.answers.category, request.optionToId);
+    const model = options?.model || getModel();
+
+    if (provider === "vercel") {
+      // Loaded on demand: the SDK is large and most launches never classify anything.
+      const { createGateway, experimental_decide: decide } = await import("ai");
+      const result = await decide({
+        model: createGateway({ apiKey }).decisionModel(model),
+        state: request.state,
+        questions: request.questions,
+        maxRetries: 1,
+        abortSignal: AbortSignal.timeout(20_000),
+      });
+      return readClassification(result.answers.category, request.optionToId);
+    }
+
+    const answers = await callSystemOne(
+      provider,
+      apiKey,
+      { model, state: request.state, questions: request.questions },
+      AbortSignal.timeout(20_000),
+    );
+    const answer = answers.category;
+    if (!answer?.choice) throw new DescribedError(`${subject(provider)} did not answer the sorting question.`);
+    return readClassification({ choice: answer.choice, probabilities: answer.probabilities }, request.optionToId);
   };
 }

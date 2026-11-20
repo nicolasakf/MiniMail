@@ -235,6 +235,10 @@ body,
 .mail-editor img.ProseMirror-selectednode { outline: 2px solid hsl(var(--ring)); }
 .mail-editor mark { color: #171717; }
 
+/* Matches of the conversation's ⌘F; the message frames get the same look from lib/thread-find.ts. */
+::highlight(find-match) { background-color: #fde68a; color: #1f2328; }
+::highlight(find-current) { background-color: #fb923c; color: #1f2328; }
+
 .mail-format-docked { position: sticky; top: 0; z-index: 1; padding: .35rem .75rem; background: hsl(var(--background)); }
 .mail-format-bar {
   position: relative;

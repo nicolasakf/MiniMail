@@ -147,19 +147,33 @@ describe("AiSettingsStore", () => {
     expect(upgraded.sortModel()).toBe(DEFAULT_SORT_MODEL);
 
     upgraded.setSortModel("other/sorter");
-    expect(JSON.parse(readFileSync(file, "utf8")).version).toBe(2);
+    expect(JSON.parse(readFileSync(file, "utf8")).version).toBe(3);
     const again = new AiSettingsStore(file);
     expect(again.codeModel()).toBe("mine/own");
     expect(again.sortModel()).toBe("other/sorter");
   });
 
-  it("sorts only the Inbox by default and remembers the chosen folders in a fixed order", () => {
+  it("sorts every folder by default and remembers the chosen folders in a fixed order", () => {
     const file = join(mkdtempSync(join(tmpdir(), "minimail-ai-")), "ai-settings.json");
-    expect(new AiSettingsStore(file).sortFolders()).toEqual(["inbox"]);
+    expect(new AiSettingsStore(file).sortFolders()).toEqual(["inbox", "archive", "trash", "spam"]);
     new AiSettingsStore(file).setSortFolders(["trash", "inbox"]);
     expect(new AiSettingsStore(file).sortFolders()).toEqual(["inbox", "trash"]);
     expect(new AiSettingsStore(file).codeModel()).toBe(DEFAULT_CODE_MODEL);
     new AiSettingsStore(file).setSortFolders([]);
     expect(new AiSettingsStore(file).sortFolders()).toEqual([]);
+  });
+
+  it("keeps sorting only the Inbox for an install that already has a key but no settings file", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "minimail-ai-")), "ai-settings.json");
+    expect(new AiSettingsStore(file, { keyAlreadySet: true }).sortFolders()).toEqual(["inbox"]);
+    // It was written down, so it stays that way on the next launch, with or without the key.
+    expect(JSON.parse(readFileSync(file, "utf8"))).toMatchObject({ version: 3, sortFolders: ["inbox"] });
+    expect(new AiSettingsStore(file).sortFolders()).toEqual(["inbox"]);
+  });
+
+  it("reads a saved file with no folder choice as the Inbox only, which is what it meant", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "minimail-ai-")), "ai-settings.json");
+    writeFileSync(file, JSON.stringify({ version: 2, codeModel: "mine/own", sortModel: DEFAULT_SORT_MODEL }));
+    expect(new AiSettingsStore(file).sortFolders()).toEqual(["inbox"]);
   });
 });

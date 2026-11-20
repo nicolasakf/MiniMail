@@ -14,7 +14,7 @@ import {
 
 import { accountLabel } from "@shared/accounts";
 import type { GroupDef } from "@shared/focus-list";
-import type { Account, MailView, ShownFolder } from "@shared/types";
+import type { Account, Category, MailView, ShownFolder } from "@shared/types";
 
 import { Input } from "@/components/ui/input";
 import {
@@ -32,11 +32,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { SHOWN_FOLDERS, type AccountScope } from "@/hooks/use-mailbox";
+import type { HiddenFolderMatches } from "@/lib/hidden-folder-matches";
 import { FOLDER_STYLE } from "@/lib/folder-style";
 import { cn } from "@/lib/utils";
 
 import { AccountMark } from "./account-mark";
 import { GroupTile } from "./group-row";
+import { SearchBox } from "./search-box";
 
 /**
  * How the mail of a folder is laid out: `category` (the "Smart" tab) collapses each category into one row (on the
@@ -76,6 +78,7 @@ function HeaderIconButton({
   pressed,
   activeClassName,
   className,
+  badge,
   onClick,
   children,
 }: {
@@ -90,6 +93,8 @@ function HeaderIconButton({
   activeClassName?: string;
   /** Extra classes, e.g. to size the button down inside a group. */
   className?: string;
+  /** A small number on the corner of the button (matches waiting behind it). */
+  badge?: number;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -110,6 +115,14 @@ function HeaderIconButton({
           )}
         >
           {children}
+          {badge ? (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-sidebar-primary px-1 text-[10px] font-semibold leading-none text-sidebar-primary-foreground tabular-nums"
+            >
+              {badge > 99 ? "99+" : badge}
+            </span>
+          ) : null}
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
@@ -321,12 +334,17 @@ interface HeaderActionsProps {
   /** The folders checked in the Inbox list; null when this list cannot show other folders. */
   shownFolders: readonly ShownFolder[] | null;
   onToggleFolder: (folder: ShownFolder) => void;
+  /** Conversations matching the search in the folders that are off; shown as a number on their buttons. */
+  hiddenMatches?: HiddenFolderMatches;
   searchOpen: boolean;
   onSearchOpenChange: (open: boolean) => void;
   query: string;
   onQueryChange: (query: string) => void;
   /** Down in the search box: the keyboard moves on to the first item of the list. */
   onEnterList: () => void;
+  /** What the search box can suggest for `category:` and `account:`. */
+  searchCategories: readonly Category[];
+  searchAccounts: readonly Account[];
   onCompose: () => void;
 }
 
@@ -337,9 +355,12 @@ interface HeaderActionsProps {
 export function FolderFilterGroup({
   shownFolders,
   onToggleFolder,
+  hiddenMatches,
 }: {
   shownFolders: readonly ShownFolder[];
   onToggleFolder: (folder: ShownFolder) => void;
+  /** While searching: how many conversations match in each folder that is off. */
+  hiddenMatches?: HiddenFolderMatches;
 }) {
   return (
     <div
@@ -350,11 +371,18 @@ export function FolderFilterGroup({
       {SHOWN_FOLDERS.map((folder) => {
         const { label, icon: Icon, active } = FOLDER_STYLE[folder];
         const on = shownFolders.includes(folder);
+        const matches = on ? 0 : (hiddenMatches?.[folder] ?? 0);
+        const matchText = matches === 0 ? "" : ` (${matches} ${matches === 1 ? "match" : "matches"})`;
         return (
           <HeaderIconButton
             key={folder}
-            label={`${on ? "Hide" : "Show"} ${label.toLowerCase()}`}
-            tooltip={on ? `Hide ${label.toLowerCase()} mail` : `Show ${label.toLowerCase()} mail`}
+            label={`${on ? "Hide" : "Show"} ${label.toLowerCase()}${matchText}`}
+            tooltip={
+              on
+                ? `Hide ${label.toLowerCase()} mail`
+                : `Show ${label.toLowerCase()} mail${matches === 0 ? "" : `: ${matches} ${matches === 1 ? "match" : "matches"} for this search`}`
+            }
+            badge={matches}
             pressed={on}
             activeClassName={active}
             className="size-8 rounded-md"
@@ -378,9 +406,10 @@ function FilterGroup({
   onUnreadOnlyChange,
   shownFolders,
   onToggleFolder,
+  hiddenMatches,
 }: Pick<
   HeaderActionsProps,
-  "unreadOnly" | "onUnreadOnlyChange" | "shownFolders" | "onToggleFolder"
+  "unreadOnly" | "onUnreadOnlyChange" | "shownFolders" | "onToggleFolder" | "hiddenMatches"
 >) {
   return (
     <>
@@ -403,6 +432,7 @@ function FilterGroup({
         <FolderFilterGroup
           shownFolders={shownFolders}
           onToggleFolder={onToggleFolder}
+          hiddenMatches={hiddenMatches}
         />
       )}
     </>
@@ -418,11 +448,14 @@ function HeaderActions({
   onUnreadOnlyChange,
   shownFolders,
   onToggleFolder,
+  hiddenMatches,
   searchOpen,
   onSearchOpenChange,
   query,
   onQueryChange,
   onEnterList,
+  searchCategories,
+  searchAccounts,
   onCompose,
 }: HeaderActionsProps) {
   const searchRef = useRef<HTMLInputElement>(null);
@@ -455,42 +488,21 @@ function HeaderActions({
         onUnreadOnlyChange={onUnreadOnlyChange}
         shownFolders={shownFolders}
         onToggleFolder={onToggleFolder}
+        hiddenMatches={hiddenMatches}
       />
       {searchOpen ? (
-        <div className="electron-no-drag relative">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            ref={searchRef}
-            value={query}
-            placeholder="Search mail"
-            aria-label="Search mail"
-            className="h-9 w-72 pl-8 pr-8"
-            onChange={(event) => onQueryChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.stopPropagation();
-                onQueryChange("");
-                onSearchOpenChange(false);
-              } else if (event.key === "ArrowDown" && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
-                // Leave the box (the search stays open and filtered) for the first row.
-                event.preventDefault();
-                event.currentTarget.blur();
-                onEnterList();
-              }
-            }}
-          />
-          <button
-            type="button"
-            aria-label="Close search"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              onQueryChange("");
-              onSearchOpenChange(false);
-            }}
-          >
-            <X className="size-4" />
-          </button>
-        </div>
+        <SearchBox
+          inputRef={searchRef}
+          query={query}
+          onQueryChange={onQueryChange}
+          onClose={() => {
+            onQueryChange("");
+            onSearchOpenChange(false);
+          }}
+          onEnterList={onEnterList}
+          categories={searchCategories}
+          accounts={searchAccounts}
+        />
       ) : (
         <>
           <HeaderIconButton

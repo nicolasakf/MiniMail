@@ -1,7 +1,11 @@
 import { z } from "zod";
 
+import type { ChatProvider } from "@shared/ai-providers";
 import { textForModel, type CodeSource } from "@shared/verification-code";
 import type { Contact } from "@shared/types";
+
+import { chatModel } from "./ai-provider";
+import { DescribedError, describeAiError } from "./jev";
 
 /** Reads a code out of an email the rules could not make sense of; null when there is none. */
 export type CodeFallback = (input: CodeSource & { from: Contact }) => Promise<string | null>;
@@ -25,10 +29,10 @@ export function buildCodePrompt(input: CodeSource & { from: Contact }): string {
 }
 
 /** One small call to `modelId` that rejects when it cannot be used; the answer itself does not matter. */
-export async function checkCodeModel(apiKey: string, modelId: string): Promise<void> {
-  const { createGateway, generateText } = await import("ai");
+export async function checkCodeModel(provider: ChatProvider, apiKey: string, modelId: string): Promise<void> {
+  const { generateText } = await import("ai");
   await generateText({
-    model: createGateway({ apiKey })(modelId),
+    model: await chatModel(provider, apiKey, modelId),
     prompt: "Reply with the single word: ok",
     temperature: 0,
     maxOutputTokens: 16,
@@ -38,22 +42,28 @@ export async function checkCodeModel(apiKey: string, modelId: string): Promise<v
 }
 
 /**
- * The fallback: one small chat model call through the Vercel AI Gateway, the same key as sorting.
- * The caller checks the answer against the email, so a wrong answer here is harmless.
+ * The fallback: one small chat model call through the chosen provider (the Vercel AI Gateway or
+ * OpenRouter), with that provider's key. The caller checks the answer against the email, so a wrong
+ * answer here is harmless.
  */
-export function createCodeFallback(apiKey: string, modelId: string): CodeFallback {
+export function createCodeFallback(provider: ChatProvider, apiKey: string, modelId: string): CodeFallback {
   return async (input) => {
-    // Loaded on demand: the SDK is large and most launches never need it.
-    const { createGateway, generateText, Output } = await import("ai");
-    const result = await generateText({
-      model: createGateway({ apiKey })(modelId),
-      output: Output.object({ schema: answerSchema }),
-      system: SYSTEM,
-      prompt: buildCodePrompt(input),
-      temperature: 0,
-      maxRetries: 1,
-      abortSignal: AbortSignal.timeout(20_000),
-    });
-    return result.output.code;
+    try {
+      // Loaded on demand: the SDK is large and most launches never need it.
+      const { generateText, Output } = await import("ai");
+      const result = await generateText({
+        model: await chatModel(provider, apiKey, modelId),
+        output: Output.object({ schema: answerSchema }),
+        system: SYSTEM,
+        prompt: buildCodePrompt(input),
+        temperature: 0,
+        maxRetries: 1,
+        abortSignal: AbortSignal.timeout(20_000),
+      });
+      return result.output.code;
+    } catch (error) {
+      // Said with the provider's name here, because the caller no longer knows which one it was.
+      throw new DescribedError(describeAiError(error, provider));
+    }
   };
 }

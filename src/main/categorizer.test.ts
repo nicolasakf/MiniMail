@@ -5,17 +5,18 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LEGACY_DEFAULT_IDS, defaultCategories } from "@shared/categories";
+import type { AiProvider } from "@shared/ai-providers";
 import type { MessageSummary } from "@shared/types";
 
 import { Categorizer } from "./categorizer";
 import type { EventJournal } from "./event-journal";
 import { installJournal } from "./events";
 import type { EventReport } from "@shared/events";
-import { CategoryStore, GatewayKeyStore, type Cipher } from "./category-store";
+import { AiKeyStore, CategoryStore, type Cipher } from "./category-store";
 import { TrustedSenders } from "./trusted-senders";
 import {
   buildClassificationRequest,
-  describeGatewayError,
+  describeAiError,
   MIN_PROBABILITY,
   readClassification,
   redactForClassification,
@@ -108,14 +109,23 @@ describe("Jev request", () => {
   });
 });
 
-describe("describeGatewayError", () => {
+describe("describeAiError", () => {
   it("explains the failures people can fix", () => {
-    expect(describeGatewayError(Object.assign(new Error("Invalid API key or token."), { statusCode: 401 }))).toMatch(
+    expect(describeAiError(Object.assign(new Error("Invalid API key or token."), { statusCode: 401 }))).toMatch(
       /rejected the API key/,
     );
-    expect(describeGatewayError(Object.assign(new Error("x"), { statusCode: 402 }))).toMatch(/no credit/);
-    expect(describeGatewayError(new Error("fetch failed"))).toMatch(/Could not reach/);
-    expect(describeGatewayError(new Error("something else"))).toBe("something else");
+    expect(describeAiError(Object.assign(new Error("x"), { statusCode: 402 }))).toMatch(/no credit/);
+    expect(describeAiError(new Error("fetch failed"))).toMatch(/Could not reach/);
+    expect(describeAiError(new Error("something else"))).toBe("something else");
+  });
+
+  it("names the provider that failed", () => {
+    const denied = Object.assign(new Error("denied"), { statusCode: 401 });
+    expect(describeAiError(denied)).toBe("The Vercel AI Gateway rejected the API key. Check it and save it again.");
+    expect(describeAiError(denied, "openrouter")).toBe("OpenRouter rejected the API key. Check it and save it again.");
+    expect(describeAiError(denied, "typesafe")).toBe("The TypeSafe API rejected the API key. Check it and save it again.");
+    expect(describeAiError(new Error("fetch failed"), "openrouter")).toBe("Could not reach OpenRouter. Check your connection.");
+    expect(describeAiError(new Error("fetch failed"), "typesafe")).toBe("Could not reach the TypeSafe API. Check your connection.");
   });
 });
 
@@ -230,18 +240,45 @@ describe("stores", () => {
     expect(new TrustedSenders(join(dir, "b.json"), fakeCipher).list()).toEqual([]);
   });
 
-  it("stores the gateway key encrypted and refuses to store it without encryption", () => {
+  it("stores each provider's key encrypted and refuses to store one without encryption", () => {
     const path = join(dir, "ai.json");
-    const keys = new GatewayKeyStore(path, fakeCipher);
-    keys.set("vck_secret_value");
-    expect(readFileSync(path, "utf8")).not.toContain("vck_secret_value");
-    expect(new GatewayKeyStore(path, fakeCipher).get()).toBe("vck_secret_value");
+    const keys = new AiKeyStore(path, fakeCipher);
+    keys.set("vercel", "vck_secret_value");
+    keys.set("openrouter", "sk-or-secret");
+    expect(readFileSync(path, "utf8")).not.toMatch(/vck_secret_value|sk-or-secret/);
+    const reopened = new AiKeyStore(path, fakeCipher);
+    expect(reopened.get("vercel")).toBe("vck_secret_value");
+    expect(reopened.get("openrouter")).toBe("sk-or-secret");
+    expect(reopened.saved()).toEqual({ vercel: true, openrouter: true, typesafe: false });
 
-    keys.clear();
-    expect(new GatewayKeyStore(path, fakeCipher).get()).toBeUndefined();
+    keys.clear("vercel");
+    const afterClear = new AiKeyStore(path, fakeCipher);
+    expect(afterClear.get("vercel")).toBeUndefined();
+    expect(afterClear.get("openrouter")).toBe("sk-or-secret");
 
-    const locked = new GatewayKeyStore(join(dir, "other.json"), { ...fakeCipher, isEncryptionAvailable: () => false });
-    expect(() => locked.set("vck_secret_value")).toThrow(/Secure storage is unavailable/);
+    const locked = new AiKeyStore(join(dir, "other.json"), { ...fakeCipher, isEncryptionAvailable: () => false });
+    expect(() => locked.set("vercel", "vck_secret_value")).toThrow(/Secure storage is unavailable/);
+  });
+
+  it("reads a key file from before providers existed as the Vercel key, and keeps it when another key is added", () => {
+    const path = join(dir, "old-ai.json");
+    writeFileSync(path, JSON.stringify({ version: 1, key: fakeCipher.encryptString("vck_old_key").toString("base64") }));
+    const keys = new AiKeyStore(path, fakeCipher);
+    expect(keys.get("vercel")).toBe("vck_old_key");
+    expect(keys.any()).toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(1); // reading does not rewrite the file
+
+    keys.set("typesafe", "ts_new_key");
+    expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(2);
+    const reopened = new AiKeyStore(path, fakeCipher);
+    expect(reopened.get("vercel")).toBe("vck_old_key");
+    expect(reopened.get("typesafe")).toBe("ts_new_key");
+  });
+
+  it("reads a version 1 file with no key as no key at all", () => {
+    const path = join(dir, "empty-ai.json");
+    writeFileSync(path, JSON.stringify({ version: 1, key: "" }));
+    expect(new AiKeyStore(path, fakeCipher).any()).toBe(false);
   });
 });
 
@@ -256,13 +293,14 @@ describe("Categorizer", () => {
   let recorded: EventReport[];
 
   const keys = {
-    get: () => key,
-    set: (value: string) => {
+    get: (_provider: AiProvider) => key,
+    set: (_provider: AiProvider, value: string) => {
       key = value;
     },
-    clear: () => {
+    clear: (_provider: AiProvider) => {
       key = undefined;
     },
+    saved: () => ({ vercel: Boolean(key), openrouter: false, typesafe: false }),
   };
 
   beforeEach(() => {
@@ -398,6 +436,35 @@ describe("Categorizer", () => {
     await settle();
     expect(classify).toHaveBeenCalledTimes(2);
     expect(categorizer.apply([msg({ id: "1" })], "inbox")[0].categoryId).toBe("notifications");
+  });
+
+  describe("saving with orphans: none", () => {
+    it("files a deleted category's mail under no category and does not ask the model", async () => {
+      categorizer.apply([msg({ id: "1" })], "inbox");
+      await settle();
+      expect(store.classification("a1:1")?.categoryId).toBe("newsletters");
+      const remaining = store.categories().filter((c) => c.id !== "newsletters");
+      expect(categorizer.countDeleted(remaining)).toBe(1);
+
+      categorizer.saveCategories(remaining, { orphans: "none" });
+      expect(store.classification("a1:1")?.categoryId).toBeNull();
+      expect(categorizer.apply([msg({ id: "1" })], "inbox")[0].categoryId).toBeNull();
+      await settle();
+      expect(classify).toHaveBeenCalledTimes(1);
+    });
+
+    it("moves hand-filed conversations too, and keeps them hand-filed", () => {
+      categorizer.assign(["a1:1"], "notifications");
+      categorizer.saveCategories(store.categories().filter((c) => c.id !== "notifications"), { orphans: "none" });
+      expect(store.classification("a1:1")).toMatchObject({ categoryId: null, manual: true });
+    });
+
+    it("leaves mail in categories that still exist alone", async () => {
+      categorizer.apply([msg({ id: "1" })], "inbox");
+      await settle();
+      categorizer.saveCategories(store.categories().filter((c) => c.id !== "ads"), { orphans: "none" });
+      expect(store.classification("a1:1")?.categoryId).toBe("newsletters");
+    });
   });
 
   it("reports progress of a sort-again run and finishes when nothing is left waiting", async () => {
@@ -685,7 +752,7 @@ describe("Categorizer", () => {
     const checkCodeModel = vi.fn(async () => {});
     const withCheck = new Categorizer({ store, keys, classify, checkCodeModel, onUpdated: updated });
     await withCheck.testModel("features", "reflection/beam");
-    expect(checkCodeModel).toHaveBeenCalledWith(key, "reflection/beam");
+    expect(checkCodeModel).toHaveBeenCalledWith("vercel", key, "reflection/beam");
 
     checkCodeModel.mockRejectedValueOnce(Object.assign(new Error("denied"), { statusCode: 401 }));
     await expect(withCheck.testModel("features", "reflection/beam")).rejects.toThrow(/rejected the API key/);
@@ -700,7 +767,29 @@ describe("Categorizer", () => {
 
   it("setting a key turns AI on and clearing it turns it off", () => {
     key = undefined;
-    expect(categorizer.setKey("vck_new_key").ai.configured).toBe(true);
-    expect(categorizer.clearKey().ai.configured).toBe(false);
+    expect(categorizer.setKey("vercel", "vck_new_key").ai.configured).toBe(true);
+    expect(categorizer.clearKey("vercel").ai.configured).toBe(false);
+  });
+
+  it("looks for the key of the provider that is chosen, and names it when it is missing", async () => {
+    const byProvider: Partial<Record<AiProvider, string>> = { vercel: "vck_key" };
+    const perProvider = {
+      get: (provider: AiProvider) => byProvider[provider],
+      set: (provider: AiProvider, value: string) => void (byProvider[provider] = value),
+      clear: (provider: AiProvider) => void delete byProvider[provider],
+      saved: () => ({ vercel: "vercel" in byProvider, openrouter: "openrouter" in byProvider, typesafe: "typesafe" in byProvider }),
+    };
+    let sorting: AiProvider = "openrouter";
+    const routed = new Categorizer({ store, keys: perProvider, classify, sortProvider: () => sorting, onUpdated: updated });
+
+    expect(routed.state().ai).toMatchObject({ sortProvider: "openrouter", configured: false, codeConfigured: true });
+    await expect(routed.testModel("sorting", "typesafe/jev-1.13")).rejects.toThrow("No OpenRouter key is set.");
+    routed.apply([msg({ id: "9" })], "inbox");
+    await settle();
+    expect(classify).not.toHaveBeenCalled(); // no key for the chosen provider: rules only
+
+    expect(routed.setKey("openrouter", "sk-or-key").ai.configured).toBe(true);
+    sorting = "vercel";
+    expect(routed.sortProviderChanged().ai).toMatchObject({ sortProvider: "vercel", configured: true });
   });
 });

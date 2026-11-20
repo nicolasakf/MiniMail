@@ -11,7 +11,8 @@ import {
   MAX_CRITERIA_LENGTH,
   MAX_NAME_LENGTH,
 } from "@shared/categories";
-import { DEFAULT_SORT_MODEL } from "@shared/ai-models";
+import { SORT_MODEL_PATTERN } from "@shared/ai-models";
+import { DEFAULT_SORT_MODELS } from "@shared/ai-providers";
 import { SORT_FOLDERS, type AiStatus, type Category, type CategoryState, type SortFolder } from "@shared/types";
 
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { hexToHue, hslToHex } from "@/lib/color";
 import { FOLDER_STYLE } from "@/lib/folder-style";
-import { sortMailAgain } from "@/lib/sort-progress";
+import { categoryChanges, needsResort } from "@/lib/category-changes";
 import { cn } from "@/lib/utils";
 
 import { SettingsPageHeader } from "../settings/fields";
@@ -29,8 +30,9 @@ import { SettingsMultiTileField } from "../settings/visual-fields";
 
 import { CategoryIcon } from "./category-icon";
 import { IconPicker } from "./icon-picker";
-import { GatewayKeyField, KeyGate } from "./key-gate";
+import { AiProviderField, KeyGate } from "./key-gate";
 import { ModelField } from "./model-field";
+import { ResortDialog, type ResortChoice } from "./resort-dialog";
 import { SortAgainMenu } from "./sort-again-menu";
 import { noteShownError } from "@/lib/events";
 
@@ -41,8 +43,8 @@ const PRESET_COLORS = PRESET_HUES.map((hue) => hslToHex(hue));
 const FOLDER_HELP: Record<SortFolder, string> = {
   inbox: "Sort mail that arrives in your Inbox.",
   archive: "Sort mail your own filters file straight into Archive.",
-  spam: "Sort junk mail too. Off unless you want to watch for false positives.",
-  trash: "Sort mail that lands in Trash. Off by default.",
+  trash: "Sort mail that lands in Trash.",
+  spam: "Sort junk mail too. Turn it off to save calls, or if you only want to watch for false positives.",
 };
 
 function errorText(error: unknown): string {
@@ -57,7 +59,7 @@ function SortFoldersField({
   ai: AiStatus | null;
   onState: (state: CategoryState) => void;
 }) {
-  const saved = ai?.sortFolders ?? ["inbox"];
+  const saved = ai?.sortFolders ?? [...SORT_FOLDERS];
   /** What the tiles show while a save is in flight, so a tile flips at once and nothing is disabled. */
   const [shown, setShown] = useState<SortFolder[] | null>(null);
   const inFlight = useRef(0);
@@ -109,7 +111,7 @@ function SortFoldersField({
   );
 }
 
-/** The part most people never open: the gateway key, once saved, and the sorting model. */
+/** The part most people never open: the provider and its key, and the sorting model. */
 function AdvancedSection({
   ai,
   onState,
@@ -151,15 +153,16 @@ function AdvancedSection({
             </p>
           )}
 
-          <GatewayKeyField ai={ai} onState={onState} />
+          <AiProviderField ai={ai} onState={onState} purpose="sorting" />
 
           <ModelField
             title="Sorting model"
             help="The model that sorts mail into your categories."
             purpose="sorting"
-            saved={ai?.model ?? DEFAULT_SORT_MODEL}
-            defaultModel={DEFAULT_SORT_MODEL}
+            saved={ai?.model ?? DEFAULT_SORT_MODELS.vercel}
+            defaultModel={DEFAULT_SORT_MODELS[ai?.sortProvider ?? "vercel"]}
             allowEmpty={false}
+            pattern={SORT_MODEL_PATTERN}
             ariaLabel="Model for sorting mail"
             configured={ai?.configured ?? false}
             onSave={saveSortModel}
@@ -370,6 +373,9 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
+  /** Set while the "sort again?" dialog waits for an answer to Save. */
+  const [asking, setAsking] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
 
   const problems = useMemo(() => categoryProblems(draft), [draft]);
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(categories), [draft, categories]);
@@ -406,27 +412,22 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
     ]);
   };
 
-  const resort = () => void sortMailAgain();
+  const changes = useMemo(() => categoryChanges(categories, draft), [categories, draft]);
 
-  const save = async () => {
+  /** Without a key nothing can be sorted, so there is nothing to advise. */
+  const onSave = () => {
+    if (ai?.configured && needsResort(changes)) setAsking(true);
+    else void save("keep");
+  };
+
+  const save = async (choice: ResortChoice) => {
     setSaving(true);
     try {
-      const criteriaChanged = draft.some((category) => {
-        const before = categories.find((candidate) => candidate.id === category.id);
-        return before !== undefined && before.criteria.trim() !== category.criteria.trim();
-      });
-      onState(await api.categories.save(draft));
+      onState(await api.categories.save(draft, choice === "none" ? { orphans: "none" } : undefined));
       setEditingId(null);
-      toast.success("Categories saved", {
-        description:
-          criteriaChanged && ai?.configured
-            ? "Mail already sorted keeps its category until you sort it again."
-            : undefined,
-        action:
-          criteriaChanged && ai?.configured
-            ? { label: "Sort mail again", onClick: resort }
-            : undefined,
-      });
+      setAsking(false);
+      toast.success("Categories saved");
+      if (choice === "sort") setSortOpen(true);
     } catch (error) {
       toast.error(errorText(error));
     } finally {
@@ -441,7 +442,8 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
       <KeyGate
         ai={ai}
         onState={onState}
-        intro="MiniMail sorts your mail into categories with TypeSafe AI's Jev, reached through your Vercel AI Gateway key. You can pick another model later under Advanced."
+        purpose="sorting"
+        intro="MiniMail sorts your mail into categories with TypeSafe AI's Jev, reached through the Vercel AI Gateway, OpenRouter or TypeSafe's own API: pick one and add its key. You can pick another model later under Advanced."
       >
         <div className="space-y-4">
           <section className="space-y-3" aria-label="Category list">
@@ -490,7 +492,7 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
                   Restore {missingDefaults.map((c) => c.name.toLowerCase()).join(", ")}
                 </Button>
               )}
-              {ai?.configured && <SortAgainMenu />}
+              {ai?.configured && <SortAgainMenu open={sortOpen} onOpenChange={setSortOpen} />}
               <div className="ml-auto flex gap-2">
                 <Button
                   type="button"
@@ -507,7 +509,7 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
                 <Button
                   type="button"
                   size="sm"
-                  onClick={() => void save()}
+                  onClick={onSave}
                   disabled={!dirty || problems.length > 0 || saving}
                 >
                   {saving && <Loader2 className="animate-spin" />}
@@ -524,6 +526,13 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
               </ul>
             )}
           </section>
+
+          <ResortDialog
+            changes={asking ? changes : null}
+            saving={saving}
+            onChoose={(choice) => void save(choice)}
+            onCancel={() => setAsking(false)}
+          />
 
           <SortFoldersField ai={ai} onState={onState} />
 

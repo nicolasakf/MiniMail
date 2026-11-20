@@ -1,7 +1,8 @@
-import { DEFAULT_CODE_MODEL } from "@shared/verification-code";
+import { DEFAULT_CODE_MODELS } from "@shared/ai-providers";
+import { CODE_MODEL_PATTERN } from "@shared/verification-code";
 import type { AiStatus, CategoryState } from "@shared/types";
 
-import { KeyGate } from "@/components/mail/key-gate";
+import { AiProviderField, KeyGate } from "@/components/mail/key-gate";
 import { ModelField } from "@/components/mail/model-field";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -33,17 +34,20 @@ export function AiFeaturesTab({ ai, onState }: AiFeaturesTabProps) {
       <KeyGate
         ai={ai}
         onState={onState}
-        intro="AI features, such as finding a verification code the rules could not, run on your Vercel AI Gateway key. You can pick the model once it is connected."
+        purpose="features"
+        intro="AI features, such as finding a verification code the rules could not, run on a chat model from the Vercel AI Gateway or OpenRouter: pick one and add its key. You can pick the model once it is connected."
       >
+        <AiProviderField ai={ai} onState={onState} purpose="features" />
         <ModelField
           title="Verification codes"
           help="When the on-device rules cannot find a verification code in an email, this model reads the start of it. Leave it empty to use rules only."
           purpose="features"
-          saved={ai?.codeModel ?? DEFAULT_CODE_MODEL}
-          defaultModel={DEFAULT_CODE_MODEL}
+          saved={ai?.codeModel ?? DEFAULT_CODE_MODELS.vercel}
+          defaultModel={DEFAULT_CODE_MODELS[ai?.codeProvider ?? "vercel"]}
           allowEmpty
+          pattern={CODE_MODEL_PATTERN}
           ariaLabel="Model for AI-enabled features"
-          configured={ai?.configured ?? false}
+          configured={ai?.codeConfigured ?? false}
           onSave={save}
           emptyNote="Rules only: no email text is sent to a model."
         />

@@ -5,6 +5,7 @@ import { toast } from "@/lib/toast";
 import { FIRST_PAGE, MAIL_WINDOW } from "@shared/mail-window";
 import { dropFolderDuplicates } from "@shared/dashboard";
 import { refreshSummary } from "@shared/list-changes";
+import { isEmptySearch, matchesSearch, parseSearch, type SearchLookups } from "@shared/search-query";
 import { groupThreads, type Thread } from "@shared/threads";
 import type {
   Account,
@@ -41,25 +42,29 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** True when a message matches every word of the search query. */
-export function matchesQuery(message: MessageSummary, words: string[]): boolean {
-  const haystack = [
-    message.subject,
-    message.from.name,
-    message.from.email,
-    message.snippet,
-    ...message.to.map((contact) => `${contact.name} ${contact.email}`),
-  ]
-    .join(" ")
-    .toLowerCase();
-  return words.every((word) => haystack.includes(word));
+/** The lookups the search box's filters need: the given ones, plus `account:` answered from the accounts. */
+export function searchLookupsFor(
+  accounts: readonly Account[],
+  given: Pick<SearchLookups, "categoryName" | "isPriority"> = {},
+): SearchLookups {
+  return {
+    ...given,
+    accountNames: (accountId) => {
+      const account = accounts.find((item) => item.id === accountId);
+      return account ? `${account.alias ?? ""} ${account.email}` : "";
+    },
+  };
 }
 
 /**
  * Loads accounts and the messages for the current folder/account scope, keeps them
  * fresh, and exposes actions that update the list optimistically.
  */
-export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
+export function useMailbox(
+  shownFolders: readonly ShownFolder[] = ["inbox"],
+  /** What the search box's `category:` and `is:priority` need; `account:` is answered from the accounts loaded here. */
+  searchLookups: Pick<SearchLookups, "categoryName" | "isPriority"> = {},
+) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountsLoaded, setAccountsLoaded] = useState(false);
   const [scope, setScope] = useState<AccountScope>("all");
@@ -394,8 +399,10 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
     [changeCategory],
   );
 
+  const lookups = useMemo(() => searchLookupsFor(accounts, searchLookups), [accounts, searchLookups]);
+
   const visibleMessages = useMemo(() => {
-    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const search = parseSearch(query);
     // The Inbox list holds only the folders checked; a message moved elsewhere stays out of sight.
     // Duplicates go first so a message that is in the inbox is not shown again from Archive.
     const inFolders =
@@ -405,8 +412,8 @@ export function useMailbox(shownFolders: readonly ShownFolder[] = ["inbox"]) {
               !m.sorting && (!SHOWN_FOLDERS.includes(m.folder as ShownFolder) || shownKey.split(",").includes(m.folder)),
           )
         : projected;
-    return words.length === 0 ? inFolders : inFolders.filter((m) => matchesQuery(m, words));
-  }, [projected, query, folder, shownKey]);
+    return isEmptySearch(search) ? inFolders : inFolders.filter((m) => matchesSearch(m, search, lookups));
+  }, [projected, query, folder, shownKey, lookups]);
 
   const threads: Thread[] = useMemo(() => groupThreads(visibleMessages), [visibleMessages]);
 

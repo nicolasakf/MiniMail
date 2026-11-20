@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 
 import { ArrowLeft, Ban, BellOff, Check, ChevronDown, Forward, FolderInput, ListX, Loader2, Paperclip, Pencil, Reply, ReplyAll, ShieldBan, User, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -35,6 +35,10 @@ import { EMAIL_WIDTH_REM, useAppearance } from "@/lib/appearance";
 import { buildReplySeed, newMessageSeed, type ComposeSeed } from "@/lib/compose";
 import { accountFor, contactLabel, formatFullDate, normalizeSubject } from "@/lib/format";
 import { isTypingTarget } from "@/lib/keyboard";
+import { useIsMac } from "@/hooks/use-platform";
+import { useThreadFind } from "@/hooks/use-thread-find";
+import { containsText } from "@shared/find-text";
+import { messageText } from "@/lib/thread-find";
 import { blockSections, muteMenuLabel, muteSections, priorityChoiceSections, useBlockList, type BlockChoice, type BlockSection, type MuteKind } from "@/lib/blocklist";
 import { mutedCheck } from "@/lib/mute";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
@@ -53,6 +57,7 @@ import { cn } from "@/lib/utils";
 import { categoryMenuIcon } from "./category-icon";
 import { ContactCard } from "./contact-card";
 import { MessageBody } from "./message-body";
+import { FindBar } from "./find-bar";
 import { FolderBadge } from "./folder-badge";
 import { ThreadCard } from "./thread-card";
 import { AccountMark } from "./account-mark";
@@ -516,6 +521,11 @@ function LoadingNote({ slow }: { slow: boolean }) {
 /** In a long conversation, only this many of the newest messages are listed; the rest fold into one row. */
 const FOLD_KEEP = 5;
 
+/** How many of the oldest messages are folded into the "Show earlier" row. */
+function foldedCountFor(total: number, showEarlier: boolean): number {
+  return showEarlier ? 0 : Math.max(0, total - FOLD_KEEP);
+}
+
 /** Full conversation: toolbar, subject, and each message (older ones collapsed). */
 export function ThreadView({
   mailActions,
@@ -553,6 +563,11 @@ export function ThreadView({
   /** Set once the reader scrolls or clicks: from then on the view is theirs and is not moved again. */
   const userMoved = useRef(false);
   const openedAt = useRef(mailActions.manualVersion);
+  const isMac = useIsMac();
+  /** ⌘F: the bar that finds words in this conversation, and what it looks for. */
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const findInput = useRef<HTMLInputElement>(null);
 
   const idsKey = thread.messages.map((message) => message.id).join(",");
 
@@ -648,6 +663,61 @@ export function ThreadView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idsKey]);
 
+  // Scrolling to a match is the reader's own move: the view stops re-centering the newest message.
+  const stopCentering = useCallback(() => {
+    userMoved.current = true;
+  }, []);
+  const { count: findCount, index: findIndex, step } = useThreadFind({
+    open: findOpen,
+    query: findQuery,
+    listRef,
+    scrollRef,
+    contentKey: `${loaded.size}:${[...expanded].join(",")}:${showEarlier}`,
+    onReveal: stopCentering,
+  });
+
+  // A conversation has its own search: opening another one closes the bar.
+  useEffect(() => {
+    setFindOpen(false);
+  }, [thread.id]);
+
+  // ⌘F (Ctrl+F elsewhere) opens the bar, or puts the cursor back in it; ⌘G / ⇧⌘G step through the matches.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (shortcutsDisabled || event.altKey) return;
+      if (!(isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
+      const key = event.key.toLowerCase();
+      if (key === "f" && !event.shiftKey) {
+        event.preventDefault();
+        if (findOpen) {
+          findInput.current?.focus();
+          findInput.current?.select();
+        } else setFindOpen(true);
+      } else if (key === "g" && findOpen) {
+        event.preventDefault();
+        step(event.shiftKey ? -1 : 1);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMac, shortcutsDisabled, findOpen, step]);
+
+  // Looking for a word opens the messages that hold it, so there is something to find.
+  useEffect(() => {
+    if (!findOpen || findQuery.trim() === "") return;
+    const holding = [...loaded.values()].filter((message) => containsText(messageText(message), findQuery)).map((message) => message.id);
+    setExpanded((previous) => (holding.every((id) => previous.has(id)) ? previous : new Set([...previous, ...holding])));
+    // Folded-away older messages are shown too when one of them holds the word.
+    if (holding.some((id) => thread.messages.findIndex((message) => message.id === id) < foldedCountFor(thread.messages.length, showEarlier))) {
+      setShowEarlier(true);
+    }
+  }, [findOpen, findQuery, loaded, showEarlier, thread.messages]);
+
+  const closeFind = () => {
+    setFindOpen(false);
+    setFindQuery("");
+  };
+
   /** What has arrived, in conversation order (oldest first). */
   const details = useMemo(
     () => thread.messages.flatMap((message) => loaded.get(message.id) ?? []),
@@ -665,7 +735,7 @@ export function ThreadView({
   }, [details, thread.id, thread.unread, onAction, mailActions]);
 
   /** How many of the oldest messages are folded into the "Show earlier" row. */
-  const foldedCount = showEarlier ? 0 : Math.max(0, thread.messages.length - FOLD_KEEP);
+  const foldedCount = foldedCountFor(thread.messages.length, showEarlier);
   const latest = details[details.length - 1];
   const actions = useMemo(() => actionsForThread(folder, thread), [folder, thread]);
   const owner = accountFor(accounts, thread.accountId);
@@ -817,7 +887,7 @@ export function ThreadView({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <header
         className={cn(
           "flex shrink-0 items-center justify-between [container-type:inline-size]",
@@ -887,6 +957,20 @@ export function ThreadView({
           </ToolbarButton>
         </div>
       </header>
+
+      {/* Floats over the conversation, so opening it does not move the page. */}
+      {findOpen && (
+        <FindBar
+          inputRef={findInput}
+          query={findQuery}
+          onQueryChange={setFindQuery}
+          count={findCount}
+          index={findIndex}
+          onStep={step}
+          onClose={closeFind}
+          className={cn("absolute right-6 z-20 shadow-lg", embedded ? "top-12" : "top-[4.25rem]")}
+        />
+      )}
 
       <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto pb-[45vh]", embedded ? "px-6 pt-4" : cardShown ? "pl-8 pr-3" : "px-8")}>
         <div

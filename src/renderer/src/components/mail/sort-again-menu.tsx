@@ -9,7 +9,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { sortMailAgain } from "@/lib/sort-progress";
-import type { SortCounts, SortFolder } from "@shared/types";
+import { SORT_FOLDERS, type SortCounts, type SortFolder } from "@shared/types";
 
 type Range = "all" | "since";
 
@@ -37,15 +37,31 @@ const plural = (count: number) => `${count.toLocaleString()} conversation${count
  * presets or a calendar), and which of Inbox, Archive, Spam and Trash, then starts the
  * run. Choosing here replaces a confirm prompt. Counts are conversations, the unit Jev sorts.
  */
-export function SortAgainMenu() {
-  const [open, setOpen] = useState(false);
+export function SortAgainMenu({
+  open: controlledOpen,
+  onOpenChange,
+}: {
+  /** Lets the page open the popover itself, for instance right after saving categories. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+} = {}) {
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = controlledOpen ?? ownOpen;
+  const setOpen = (next: boolean) => {
+    setOwnOpen(next);
+    onOpenChange?.(next);
+  };
   const [range, setRange] = useState<Range>("all");
   const [day, setDay] = useState(() => format(PRESETS[1].start(), DAY));
-  const [chosen, setChosen] = useState<SortFolder[]>(["inbox"]);
+  const [chosen, setChosen] = useState<SortFolder[]>([...SORT_FOLDERS]);
   const [counts, setCounts] = useState<SortCounts | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   // Inside a dialog the overlays have to live in it, or the dialog's focus trap steals the keyboard.
   const [container, setContainer] = useState<HTMLElement | undefined>(undefined);
+
+  useEffect(() => {
+    if (open) setContainer(trigger.current?.closest<HTMLElement>('[role="dialog"]') ?? undefined);
+  }, [open]);
 
   const today = format(startOfToday(), DAY);
   const since = parseISO(day);
@@ -75,70 +91,85 @@ export function SortAgainMenu() {
   };
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        if (next) setContainer(trigger.current?.closest<HTMLElement>('[role="dialog"]') ?? undefined);
-        setOpen(next);
-      }}
-    >
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button ref={trigger} type="button" variant="ghost" size="sm">
           Sort mail again
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" side="top" container={container} className="w-80 space-y-3 p-3">
-        <div className="space-y-1.5">
-          <label htmlFor="sort-again-range" className="text-xs font-medium text-muted-foreground">
-            Mail to sort again
-          </label>
-          <Select value={range} onValueChange={(value) => setRange(value as Range)}>
-            <SelectTrigger id="sort-again-range" className="h-8">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent container={container}>
-              <SelectItem value="all">All time</SelectItem>
-              <SelectItem value="since">Since a date</SelectItem>
-            </SelectContent>
-          </Select>
+      {/*
+        The calendar makes it tall. Inside a dialog (which clips what overflows it) the room is what the
+        dialog leaves, so the form scrolls and the button under it stays in view.
+      */}
+      <PopoverContent
+        align="start"
+        side="top"
+        container={container}
+        collisionBoundary={container}
+        collisionPadding={8}
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-80 flex-col p-0"
+      >
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+          <div className="space-y-1.5">
+            <label htmlFor="sort-again-range" className="text-xs font-medium text-muted-foreground">
+              Mail to sort again
+            </label>
+            <Select value={range} onValueChange={(value) => setRange(value as Range)}>
+              <SelectTrigger id="sort-again-range" className="h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent container={container}>
+                <SelectItem value="all">All time</SelectItem>
+                <SelectItem value="since">Since a date</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {range === "since" && (
+            <Calendar
+              value={day}
+              onChange={setDay}
+              max={today}
+              container={container}
+              presets={PRESETS.map((preset) => ({ label: preset.label, value: format(preset.start(), DAY) }))}
+            />
+          )}
+
+          <fieldset className="space-y-1.5">
+            <legend className="text-xs font-medium text-muted-foreground">Folders to sort</legend>
+            {FOLDERS.map(({ id, label }) => (
+              <div key={id} className="flex items-center justify-between text-sm">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <Checkbox
+                    checked={chosen.includes(id)}
+                    onCheckedChange={(checked) => toggle(id, checked === true)}
+                  />
+                  {label}
+                </label>
+                <span className="text-xs text-muted-foreground">{counts ? plural(counts[id]) : "…"}</span>
+              </div>
+            ))}
+          </fieldset>
         </div>
 
-        {range === "since" && (
-          <Calendar
-            value={day}
-            onChange={setDay}
-            max={today}
-            container={container}
-            presets={PRESETS.map((preset) => ({ label: preset.label, value: format(preset.start(), DAY) }))}
-          />
-        )}
-
-        <fieldset className="space-y-1.5">
-          <legend className="text-xs font-medium text-muted-foreground">Folders to sort</legend>
-          {FOLDERS.map(({ id, label }) => (
-            <div key={id} className="flex items-center justify-between text-sm">
-              <label className="flex cursor-pointer items-center gap-2">
-                <Checkbox
-                  checked={chosen.includes(id)}
-                  onCheckedChange={(checked) => toggle(id, checked === true)}
-                />
-                {label}
-              </label>
-              <span className="text-xs text-muted-foreground">{counts ? plural(counts[id]) : "…"}</span>
-            </div>
-          ))}
-        </fieldset>
-
-        <p className="text-xs text-muted-foreground" aria-live="polite">
-          {chosen.length === 0
-            ? "Choose at least one folder."
-            : total === null
-              ? "Counting…"
-              : `${plural(total)} will be sent to Jev once more.`}
-        </p>
-        <Button type="button" size="sm" className="w-full" onClick={start} disabled={chosen.length === 0 || (range === "since" && !sinceValid)}>
-          Sort again
-        </Button>
+        <div className="space-y-2 border-t p-3">
+          <p className="text-xs text-muted-foreground" aria-live="polite">
+            {chosen.length === 0
+              ? "Choose at least one folder."
+              : total === null
+                ? "Counting…"
+                : `${plural(total)} will be sorted.`}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            className="w-full"
+            onClick={start}
+            disabled={chosen.length === 0 || (range === "since" && !sinceValid)}
+          >
+            Sort again
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   );

@@ -1,19 +1,34 @@
 import { categoryProblems, ruleBasedCategoryId } from "@shared/categories";
-import type { Category, CategoryState, MailFolder, MessageSummary, SortFolder, SortProgress } from "@shared/types";
+import type {
+  Category,
+  CategoryState,
+  MailFolder,
+  MessageSummary,
+  SaveCategoriesOptions,
+  SortFolder,
+  SortProgress,
+} from "@shared/types";
 
 import type { ModelPurpose } from "@shared/ai-models";
-import { DEFAULT_CODE_MODEL } from "@shared/verification-code";
+import {
+  DEFAULT_CODE_MODELS,
+  DEFAULT_SORT_MODELS,
+  PROVIDER_LABELS,
+  type AiProvider,
+  type ChatProvider,
+  type ProviderKeys,
+} from "@shared/ai-providers";
 
 import type { CategoryStore } from "./category-store";
 import { recordInfo, reportError } from "./events";
-import { describeGatewayError, JEV_MODEL, type Classifier } from "./jev";
+import { describeAiError, type Classifier } from "./jev";
 
-/** Classification calls running at once; the gateway handles more, but a mailbox sync should stay gentle. */
+/** Classification calls running at once; the provider handles more, but a mailbox sync should stay gentle. */
 const CONCURRENCY = 4;
 /** Conversations waiting at most; the rest are picked up by the next refresh. */
 const MAX_QUEUE = 200;
 const NOTIFY_DELAY_MS = 500;
-/** How long to stop calling the gateway after repeated failures, growing each time. */
+/** How long to stop calling the provider after repeated failures, growing each time. */
 const BACKOFF_MS = [30_000, 120_000, 600_000];
 /**
  * A "sort again" run ends once nothing has been waiting for this long: accounts list their mail
@@ -31,21 +46,26 @@ interface SortRun {
 }
 
 interface KeyStore {
-  get(): string | undefined;
-  set(key: string): void;
-  clear(): void;
+  get(provider: AiProvider): string | undefined;
+  set(provider: AiProvider, key: string): void;
+  clear(provider: AiProvider): void;
+  saved(): ProviderKeys;
 }
 
 export interface CategorizerDeps {
   store: CategoryStore;
   keys: KeyStore;
   classify: Classifier;
+  /** Where mail is sorted; the Vercel AI Gateway when omitted. */
+  sortProvider?: () => AiProvider;
+  /** Where the AI-enabled features run; the Vercel AI Gateway when omitted. */
+  codeProvider?: () => ChatProvider;
   /** The model for the AI-enabled features (reading verification codes); empty means rules only. */
   codeModel?: () => string;
   /** The model that sorts mail into categories; Jev when omitted. */
   sortModel?: () => string;
   /** One small call to `model` that rejects when it cannot be used (the test of the AI-enabled features model). */
-  checkCodeModel?: (apiKey: string, model: string) => Promise<void>;
+  checkCodeModel?: (provider: ChatProvider, apiKey: string, model: string) => Promise<void>;
   /** Folders whose newly arrived mail is sorted automatically; the Inbox when omitted. */
   sortFolders?: () => readonly SortFolder[];
   /** Called, debounced, when new answers are stored, so the UI can refresh its list. */
@@ -118,13 +138,26 @@ export class Categorizer {
     return (this.deps.now ?? Date.now)();
   }
 
+  private sortProvider(): AiProvider {
+    return this.deps.sortProvider?.() ?? "vercel";
+  }
+
+  private codeProvider(): ChatProvider {
+    return this.deps.codeProvider?.() ?? "vercel";
+  }
+
   state(): CategoryState {
+    const keys = this.deps.keys.saved();
     return {
       categories: this.deps.store.categories(),
       ai: {
-        configured: Boolean(this.deps.keys.get()),
-        model: this.deps.sortModel?.() ?? JEV_MODEL,
-        codeModel: this.deps.codeModel?.() ?? DEFAULT_CODE_MODEL,
+        configured: keys[this.sortProvider()],
+        sortProvider: this.sortProvider(),
+        codeProvider: this.codeProvider(),
+        codeConfigured: keys[this.codeProvider()],
+        keys,
+        model: this.deps.sortModel?.() ?? DEFAULT_SORT_MODELS[this.sortProvider()],
+        codeModel: this.deps.codeModel?.() ?? DEFAULT_CODE_MODELS[this.codeProvider()],
         sortFolders: [...this.newMailFolders()],
         lastError: this.lastError,
         pending: this.queue.size + this.running.size,
@@ -133,34 +166,62 @@ export class Categorizer {
     };
   }
 
-  /** Replaces the categories. Throws the first problem found so the editor can show it. */
-  saveCategories(categories: Category[]): CategoryState {
+  /** How many conversations are filed under a category that `categories` no longer has. */
+  countDeleted(categories: readonly Category[]): number {
+    return this.deps.store.countNotIn(new Set(categories.map((category) => category.id)));
+  }
+
+  /**
+   * Replaces the categories. Throws the first problem found so the editor can show it.
+   * Conversations filed under a deleted category go back to the classifier on the next refresh,
+   * unless `orphans` is "none": then they are filed under no category and nothing is sorted.
+   */
+  saveCategories(categories: Category[], options?: SaveCategoriesOptions): CategoryState {
     const problems = categoryProblems(categories);
     if (problems.length > 0) throw new Error(problems[0]);
     this.deps.store.setCategories(categories);
-    // A conversation the user put in a category that is now gone goes back to the classifier.
-    this.deps.store.dropManualNotIn(new Set(categories.map((category) => category.id)));
-    // Conversations filed under a deleted category are re-classified on the next refresh.
+    const ids = new Set(categories.map((category) => category.id));
+    if (options?.orphans === "none") {
+      this.deps.store.moveNotInToNone(ids, this.now());
+    } else {
+      // A conversation the user put in a category that is now gone goes back to the classifier.
+      this.deps.store.dropManualNotIn(ids);
+    }
     this.queue.clear();
     this.scheduleUpdate();
     return this.state();
   }
 
-  setKey(key: string): CategoryState {
-    this.deps.keys.set(key);
+  setKey(provider: AiProvider, key: string): CategoryState {
+    this.deps.keys.set(provider, key);
+    if (provider === this.sortProvider()) this.retrySorting();
+    this.scheduleUpdate();
+    return this.state();
+  }
+
+  clearKey(provider: AiProvider): CategoryState {
+    this.deps.keys.clear(provider);
+    if (provider === this.sortProvider()) {
+      this.queue.clear();
+      this.lastError = null;
+    }
+    this.scheduleUpdate();
+    return this.state();
+  }
+
+  /** The sorting provider changed: its answers (and failures) are a fresh start, and the old queue is dropped. */
+  sortProviderChanged(): CategoryState {
+    this.queue.clear();
+    this.retrySorting();
+    this.scheduleUpdate();
+    return this.state();
+  }
+
+  /** Forgets the last failure and the pause it caused, so the next refresh tries again. */
+  private retrySorting(): void {
     this.lastError = null;
     this.failures = 0;
     this.pausedUntil = 0;
-    this.scheduleUpdate();
-    return this.state();
-  }
-
-  clearKey(): CategoryState {
-    this.deps.keys.clear();
-    this.queue.clear();
-    this.lastError = null;
-    this.scheduleUpdate();
-    return this.state();
   }
 
   /**
@@ -169,19 +230,20 @@ export class Categorizer {
    * clears or sets the "last sorting attempt failed" note; testing anything else leaves it alone.
    */
   async testModel(purpose: ModelPurpose, model: string): Promise<void> {
-    const key = this.deps.keys.get();
-    if (!key) throw new Error("No Vercel AI Gateway key is set.");
+    const provider = purpose === "features" ? this.codeProvider() : this.sortProvider();
+    const key = this.deps.keys.get(provider);
+    if (!key) throw new Error(`No ${PROVIDER_LABELS[provider]} key is set.`);
     if (purpose === "features") {
       if (!model) throw new Error("No model is set: AI-enabled features are off.");
       try {
-        await (this.deps.checkCodeModel ?? (async () => {}))(key, model);
+        await (this.deps.checkCodeModel ?? (async () => {}))(this.codeProvider(), key, model);
       } catch (error) {
-        throw new Error(describeGatewayError(error));
+        throw new Error(describeAiError(error, provider));
       }
       return;
     }
 
-    const savedModel = this.deps.sortModel?.() ?? JEV_MODEL;
+    const savedModel = this.deps.sortModel?.() ?? DEFAULT_SORT_MODELS[provider];
     const forSaved = model === savedModel;
     try {
       await this.deps.classify(
@@ -200,7 +262,7 @@ export class Categorizer {
         this.pausedUntil = 0;
       }
     } catch (error) {
-      const message = describeGatewayError(error);
+      const message = describeAiError(error, provider);
       if (forSaved) this.lastError = message;
       throw new Error(message);
     }
@@ -290,7 +352,7 @@ export class Categorizer {
 
     const categories = this.deps.store.categories();
     const known = new Set(categories.map((category) => category.id));
-    const ready = Boolean(this.deps.keys.get()) && this.now() >= this.pausedUntil;
+    const ready = Boolean(this.deps.keys.get(this.sortProvider())) && this.now() >= this.pausedUntil;
     const inRun = this.run !== null && this.sortFolders.has(folder);
     // New mail is classified in the folders the user chose; others only while a run covers them.
     const canClassify = ready && ((this.newMailFolders() as readonly MailFolder[]).includes(folder) || inRun);
@@ -403,7 +465,7 @@ export class Categorizer {
       this.scheduleUpdate();
     } catch (error) {
       if (generation !== this.generation) return;
-      this.lastError = describeGatewayError(error);
+      this.lastError = describeAiError(error, this.sortProvider());
       reportError("sorting", "Could not sort an email", this.lastError, {
         context: describeMessage(message),
         accountId: message.accountId,

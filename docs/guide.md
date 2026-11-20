@@ -23,7 +23,8 @@ npm run typecheck
 `npm run dev:web` is the quickest way to see the interface: it runs the renderer against an
 in-memory demo backend (three fictional accounts) instead of Electron. Two switches in the URL
 show the states a slow mail server produces: `?slow=8000` delays opening a message by 8 s, and
-`?getfail=2` makes the first two opens fail (then "Try again" works).
+`?getfail=2` makes the first two opens fail (then "Try again" works). `?onboarding` starts like a
+fresh install (no account), so the first-run setup guide opens.
 
 ## What it does
 
@@ -58,6 +59,18 @@ show the states a slow mail server produces: `?slow=8000` delays opening a messa
   and a toast offers to reopen it.
   Send Later (the arrow beside Send) queues mail in Drafts and sends when MiniMail is running.
 - Select mode (the pill switch) for bulk actions, search (loaded mail), light/dark/system theme.
+- Search filters: type `/` in the search box for the fields (`from:`, `to:`, `subject:`, `has:attachment`,
+  `is:` unread / read / pinned / replied / priority, `in:` folder, `category:`, `account:`, `after:` and
+  `before:` with a date or today / yesterday / week / month / year). Pick one with ↵ or Tab, then its value
+  (people come from your contacts). A finished filter, with a space after it, becomes a chip: click it, or
+  press Backspace in the empty box, to edit it as text again; × removes it. Use several at once: different
+  fields must all match, the same field twice or a comma (`from:alice,bob`) means either, and plain words
+  still match anywhere (`invoice from:alice is:unread`). `from: alice` works like `from:alice`. Quotes keep
+  spaces and commas together (`subject:"weekly report"`). Esc closes the list first, then the search.
+  `from:` and `to:` suggest your own signed-in accounts first, then your contacts; the list grows wider to fit
+  a name and address, and puts the address under the name when they still do not fit.
+  While you search the Inbox list, the Archive, Trash and Spam buttons that are off show a small number:
+  the conversations in that folder that match (from the copy saved on this computer). Click one to show them.
 - HTML mail is sanitized and shown in a sandboxed frame; remote images are blocked until you
   click "Load images".
   Clicking it also **trusts that sender**: next time their images load without asking, with a
@@ -70,7 +83,7 @@ show the states a slow mail server produces: `?slow=8000` delays opening a messa
   trade you are choosing.
 
 Shortcuts: `↑ ↓` or `J K` move, `Enter` opens, `Esc` goes back, `E` done (archive),
-`#` / `Delete` trash, `P` pin, `U` read/unread, `X` select, `C` compose, `⌘K` search, `⌘U` toggles the unread-only filter, `/` opens the menu of the selected item (also on right-click; type to filter its commands), `⌘Z` undoes the last archive / trash / spam / delete, `⌘↵` send.
+`#` / `Delete` trash, `P` pin, `U` read/unread, `X` select, `C` compose, `⌘K` search, `⌘F` finds words in the open conversation (`↵` / `⇧↵` or `⌘G` / `⇧⌘G` step through the matches, `Esc` closes), `⌘U` toggles the unread-only filter, `/` opens the menu of the selected item (also on right-click; type to filter its commands), `⌘Z` undoes the last archive / trash / spam / delete, `⌘↵` send.
 
 **Startup speed.** Each account loads on its own, so a slow server never holds back the others,
 and MiniMail keeps a copy of the last list it saw (sender, subject, a short preview) so the
@@ -109,29 +122,39 @@ shows a tag.
 How a message gets its category:
 
 1. **A new conversation** (not a reply to one MiniMail already knows) is sent to **Jev**,
-   TypeSafe AI's System One model, through the **Vercel AI Gateway** (`typesafe-ai/jev`). Jev
-   answers one multiple-choice question over your categories plus "None of these", and the
+   TypeSafe AI's System One model, through the **Vercel AI Gateway** (`typesafe-ai/jev`),
+   **OpenRouter** (`typesafe/jev-1.13`) or **TypeSafe's own API** (`jev-latest`), whichever you
+   chose. Jev answers one multiple-choice question over your categories plus "None of these", and the
    answer is stored for the conversation.
 2. **Replies** inherit the category of their conversation; they never cost another call.
 3. Below 40% confidence, or "None of these", the conversation stays a normal row.
 4. Until Jev answers, or with no key, a built-in guess from the mail headers (calendar invite,
    bulk-mail headers, automated sender) files mail under the matching built-in category.
 
-To turn AI sorting on, create an API key in the Vercel dashboard (AI Gateway, API Keys), open
-**Categories**, paste it and save. It is stored encrypted with your system keychain, and
-**Test connection** makes one real call so a bad key shows up immediately. Only the Inbox is
-classified, a few at a time, and after a failure MiniMail pauses its calls for a while instead
+To turn AI sorting on, open **Categories**, pick a provider (the Vercel AI Gateway, OpenRouter
+or the TypeSafe API), create an API key with it, paste it and save. Each provider keeps its own
+key, so you can switch between them under **Advanced** without pasting a key twice; switching
+puts that provider's default model in place. Keys are stored encrypted with your system keychain, and
+**Test connection** makes one real call so a bad key shows up immediately. New mail in all four
+folders (Inbox, Archive, Spam and Trash) is classified by default, a few at a time; **Sort new mail in**
+turns folders off (an install that was sorting before this default changed keeps sorting only the Inbox). After a failure MiniMail pauses its calls for a while instead
 of retrying in a loop.
 
 What leaves your computer: for each new conversation, the sender, the subject and about 500
-characters of the body. Digit runs (codes) and the path and query of every link (magic-link
+characters of the body, to the provider you chose. Digit runs (codes) and the path and query of every link (magic-link
 tokens) are replaced with placeholders first. Nothing is sent without a key.
 
-Editing criteria does not re-sort mail that already has a category; use **Sort all mail again**
-(or the button on the "Categories saved" notice) to run everything through the new criteria.
+Saving categories never re-sorts mail on its own. When you added a category, deleted one or
+rewrote the criteria of one (renaming, icons, colors and order do not count) and an AI key is set,
+Save first asks **Sort your mail again?** with three choices: **Cancel** (back to editing, nothing
+saved), **Save and sort again…** (saves, then opens the **Sort mail again** menu so you choose how
+far back and which folders), and **Save without sorting**. After a deletion the second choice reads
+**Save, no category for its mail**: the conversations that were in the deleted category are filed
+under no category and nothing is sent to the model. Without a key, a deleted category's mail goes
+back to the built-in guess from the mail headers.
+**Sort mail again** is also always available next to the category list.
 A toast follows the run ("5 of 40" with a bar) and ends with how many conversations were sorted, or
 why it stopped. The total is what has been queued so far, so it can grow as each account's inbox loads.
-Deleting a category re-sorts the conversations that were in it on the next refresh.
 
 "Replied" comes from the mailbox: IMAP's `\Answered` flag (MiniMail sets it when you reply from
 here) and, for Outlook, the last-verb property Outlook writes when you reply. Replies and
@@ -180,6 +203,20 @@ for senders. What it contacts and how:
 - Outlook accounts read the verification from the message headers Microsoft Graph returns. The
   whole Outlook path (sign-in, lists, replies, the startup copy, waiting out Microsoft's rate
   limits) is covered by tests but has not been tried against a live Outlook account.
+
+## First run
+
+On a fresh install, with no account yet, a setup guide opens in the middle of the window:
+
+1. **Connect your email**: add at least one account. It cannot go on without one.
+2. **Connect an AI provider**: needed for AI sorting. Pick the Vercel AI Gateway, OpenRouter or the
+   TypeSafe API and add its key. It is stored encrypted on this computer.
+   Without it, mail is still sorted by simple rules.
+3. **Categories** (optional): a look at the categories mail is sorted into, with a button to edit them in Settings.
+
+**Skip setup** closes it at any step. Finishing or skipping is remembered and the guide does not come back;
+if you quit halfway, it reopens at the first step still missing. Everything it does can be done later in
+Settings. People who set MiniMail up before the guide existed never see it.
 
 ## Adding your accounts
 

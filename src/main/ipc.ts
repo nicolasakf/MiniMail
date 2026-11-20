@@ -12,14 +12,17 @@ import {
   assignCategorySchema,
   categoryListSchema,
   codeIdsSchema,
+  aiProviderSchema,
+  chatProviderSchema,
   codeModelSchema,
+  setAiKeySchema,
   sortModelSchema,
   testModelSchema,
   sortFoldersSchema,
   draftIdSchema,
   draftSchema,
-  gatewayKeySchema,
   reclassifySchema,
+  saveCategoriesOptionsSchema,
   idsSchema,
   invitationResponseSchema,
   attachmentRefSchema,
@@ -33,7 +36,7 @@ import {
 } from "@shared/schemas";
 import { MOVE_DESTINATION } from "@shared/threads";
 import type { AppEvent } from "@shared/events";
-import type { MailAction } from "@shared/types";
+import { SORT_FOLDERS, type MailAction } from "@shared/types";
 
 import type { AiSettingsStore } from "./ai-settings";
 import { discoverAccountProvider, discoverImapSettings } from "./account-discovery";
@@ -162,11 +165,32 @@ export function registerIpc(options: {
   handle(IPC.mailContacts, () => service.contacts());
   handle(IPC.mailVerificationCodes, (ids: unknown) => codes.get(codeIdsSchema.parse(ids)));
   handle(IPC.categoriesGet, () => categorizer.state());
-  handle(IPC.categoriesSave, (categories: unknown) =>
-    categorizer.saveCategories(categoryListSchema.parse(categories)),
-  );
-  handle(IPC.categoriesSetKey, (key: unknown) => categorizer.setKey(gatewayKeySchema.parse(key)));
-  handle(IPC.categoriesClearKey, () => categorizer.clearKey());
+  handle(IPC.categoriesSave, (categories: unknown, options: unknown) => {
+    const list = categoryListSchema.parse(categories);
+    const parsed = saveCategoriesOptionsSchema.parse(options);
+    const moved = parsed?.orphans === "none" ? categorizer.countDeleted(list) : 0;
+    const state = categorizer.saveCategories(list, parsed);
+    if (moved > 0) {
+      recordAction(
+        "categories",
+        `Filed ${moved === 1 ? "a conversation" : `${moved} conversations`} from deleted categories under no category`,
+      );
+    }
+    return state;
+  });
+  handle(IPC.categoriesSetKey, (request: unknown) => {
+    const { provider, key } = setAiKeySchema.parse(request);
+    return categorizer.setKey(provider, key);
+  });
+  handle(IPC.categoriesClearKey, (provider: unknown) => categorizer.clearKey(aiProviderSchema.parse(provider)));
+  handle(IPC.categoriesSetSortProvider, (provider: unknown) => {
+    aiSettings.setSortProvider(aiProviderSchema.parse(provider));
+    return categorizer.sortProviderChanged();
+  });
+  handle(IPC.categoriesSetCodeProvider, (provider: unknown) => {
+    aiSettings.setCodeProvider(chatProviderSchema.parse(provider));
+    return categorizer.state();
+  });
   handle(IPC.categoriesSetCodeModel, (model: unknown) => {
     aiSettings.setCodeModel(codeModelSchema.parse(model));
     return categorizer.state();
@@ -185,7 +209,7 @@ export function registerIpc(options: {
   });
   handle(IPC.categoriesReclassify, (options: unknown) => {
     const parsed = reclassifySchema.parse(options);
-    const folders = parsed?.folders ?? ["inbox"];
+    const folders = parsed?.folders ?? [...SORT_FOLDERS];
     categorizer.reclassify(parsed?.since === undefined ? null : Date.parse(parsed.since), folders);
     void service.sortFolders(folders);
   });

@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { CircleAlert, CircleCheck, Loader2, RotateCcw } from "lucide-react";
 
 import type { ModelPurpose } from "@shared/ai-models";
-import { CODE_MODEL_PATTERN } from "@shared/verification-code";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,8 +45,10 @@ interface ModelFieldProps {
   defaultModel: string;
   /** Whether the field may be empty (the AI-enabled features then run on rules only). */
   allowEmpty: boolean;
+  /** What a model id of the chosen provider looks like. */
+  pattern: RegExp;
   ariaLabel: string;
-  /** A gateway key is saved; the model cannot be tested without one. */
+  /** The chosen provider has a key saved; the model cannot be tested without one. */
   configured: boolean;
   /** Saves the model and tells the user how it went (it shows its own errors). */
   onSave: (model: string) => Promise<void>;
@@ -56,8 +57,9 @@ interface ModelFieldProps {
 }
 
 /**
- * One gateway model choice with its own Save and Test connection. The test tries what is typed
- * in the field, saved or not, so a model can be checked before it is used.
+ * One model choice with its own Save and Test connection. The test tries what is typed
+ * in the field, saved or not, so a model can be checked before it is used. Save (and Reset) run
+ * the same test first and keep the old model when it fails.
  */
 export function ModelField({
   title,
@@ -66,6 +68,7 @@ export function ModelField({
   saved,
   defaultModel,
   allowEmpty,
+  pattern,
   ariaLabel,
   configured,
   onSave,
@@ -77,7 +80,7 @@ export function ModelField({
   useEffect(() => setModel(saved), [saved]);
 
   const trimmed = model.trim();
-  const valid = CODE_MODEL_PATTERN.test(trimmed) && (allowEmpty || trimmed !== "");
+  const valid = pattern.test(trimmed) && (allowEmpty || trimmed !== "");
   const testable = configured && valid && trimmed !== "";
 
   const change = (next: string) => {
@@ -85,9 +88,28 @@ export function ModelField({
     setConnection({ state: "idle" });
   };
 
+  /** One real call to `candidate`; shows how it went under the field. True when the model answered. */
+  const check = async (candidate: string): Promise<boolean> => {
+    setConnection({ state: "testing" });
+    try {
+      await api.categories.testModel(purpose, candidate);
+      setConnection({ state: "ok" });
+      return true;
+    } catch (error) {
+      setConnection({ state: "error", message: errorText(error) });
+      noteShownError(`The ${title.toLowerCase()} model could not be used`, errorText(error));
+      return false;
+    }
+  };
+
+  /**
+   * Saves `next`, but only after the connection test passes: a model that cannot answer is never
+   * saved. An empty model (rules only) has nothing to test, and without a key there is nothing to test with.
+   */
   const save = async (next: string) => {
     setSaving(true);
     try {
+      if (configured && next !== "" && !(await check(next))) return;
       await onSave(next);
     } finally {
       setSaving(false);
@@ -101,16 +123,7 @@ export function ModelField({
     else void save(defaultModel);
   };
 
-  const test = async () => {
-    setConnection({ state: "testing" });
-    try {
-      await api.categories.testModel(purpose, trimmed);
-      setConnection({ state: "ok" });
-    } catch (error) {
-      setConnection({ state: "error", message: errorText(error) });
-      noteShownError(`The ${title.toLowerCase()} model could not be used`, errorText(error));
-    }
-  };
+  const test = () => void check(trimmed);
 
   return (
     <form
@@ -144,8 +157,8 @@ export function ModelField({
           size="sm"
           variant="outline"
           disabled={!testable || connection.state === "testing"}
-          title={configured ? undefined : "Save a gateway key first"}
-          onClick={() => void test()}
+          title={configured ? undefined : "Save a key first"}
+          onClick={test}
         >
           {connection.state === "testing" && <Loader2 className="animate-spin" />}
           Test connection
@@ -161,7 +174,7 @@ export function ModelField({
           <RotateCcw /> Reset
         </Button>
       </div>
-      {!valid && <p className="text-xs text-red-300">Use a gateway model id like &quot;{defaultModel}&quot;.</p>}
+      {!valid && <p className="text-xs text-red-300">Use a model id like &quot;{defaultModel}&quot;.</p>}
       {saved === "" && emptyNote && <p className="text-xs text-muted-foreground">{emptyNote}</p>}
       <ConnectionNote connection={connection} okText={`Connected: ${trimmed} answered a test question.`} />
     </form>

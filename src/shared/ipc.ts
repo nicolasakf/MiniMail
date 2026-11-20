@@ -26,6 +26,8 @@ export const IPC = {
   categoriesSave: "categories:save",
   categoriesSetKey: "categories:set-key",
   categoriesClearKey: "categories:clear-key",
+  categoriesSetSortProvider: "categories:set-sort-provider",
+  categoriesSetCodeProvider: "categories:set-code-provider",
   categoriesSetCodeModel: "categories:set-code-model",
   categoriesSetSortModel: "categories:set-sort-model",
   categoriesSetSortFolders: "categories:set-sort-folders",

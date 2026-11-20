@@ -11,6 +11,7 @@ import { dirname } from "node:path";
 import { z } from "zod";
 
 import { DEFAULT_CATEGORIES, LEGACY_DEFAULT_IDS, defaultCategories, iconFor } from "@shared/categories";
+import { AI_PROVIDERS, PROVIDER_LABELS, type AiProvider, type ProviderKeys } from "@shared/ai-providers";
 import { categorySchema } from "@shared/schemas";
 import type { Category } from "@shared/types";
 import { reportError } from "./events";
@@ -126,6 +127,30 @@ export class CategoryStore {
     if (changed) this.saveNow();
   }
 
+  /** How many conversations are filed under a category that is not in `categoryIds`. */
+  countNotIn(categoryIds: ReadonlySet<string>): number {
+    let count = 0;
+    for (const value of this.results.values()) {
+      if (value.categoryId !== null && !categoryIds.has(value.categoryId)) count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * Files every conversation whose category is not in `categoryIds` (it was deleted) under none.
+   * Hand-filed ones stay hand-filed. Returns how many moved.
+   */
+  moveNotInToNone(categoryIds: ReadonlySet<string>, at: number): number {
+    let moved = 0;
+    for (const [key, value] of [...this.results]) {
+      if (value.categoryId === null || categoryIds.has(value.categoryId)) continue;
+      this.results.set(key, { ...value, categoryId: null, at });
+      moved += 1;
+    }
+    if (moved > 0) this.saveNow();
+    return moved;
+  }
+
   /** Writes pending changes now; called on quit. */
   flush(): void {
     if (this.timer) this.saveNow();
@@ -183,14 +208,20 @@ export class CategoryStore {
   }
 }
 
-const keyFileSchema = z.object({ version: z.literal(1), key: z.string() });
+/** Version 1 held one Vercel AI Gateway key; version 2 holds one key per provider. */
+const keyFileSchema = z.discriminatedUnion("version", [
+  z.object({ version: z.literal(1), key: z.string() }),
+  z.object({ version: z.literal(2), keys: z.record(z.string(), z.string()) }),
+]);
 
 /**
- * The Vercel AI Gateway key, encrypted with the OS keychain like account passwords. If
- * encryption is unavailable the key is refused rather than stored in plain text.
+ * The AI provider keys (Vercel AI Gateway, OpenRouter, TypeSafe), each encrypted with the OS keychain
+ * like account passwords. If encryption is unavailable a key is refused rather than stored in plain
+ * text. A file written before providers existed holds the one Vercel key; it is read as such and is
+ * written in the new format the next time a key changes.
  */
-export class GatewayKeyStore {
-  private value: string | undefined;
+export class AiKeyStore {
+  private values: Partial<Record<AiProvider, string>> = {};
 
   constructor(
     private readonly filePath: string,
@@ -199,33 +230,61 @@ export class GatewayKeyStore {
     this.load();
   }
 
-  get(): string | undefined {
-    return this.value;
+  get(provider: AiProvider): string | undefined {
+    return this.values[provider];
   }
 
-  set(key: string): void {
+  /** Which providers have a key saved. */
+  saved(): ProviderKeys {
+    return Object.fromEntries(AI_PROVIDERS.map((provider) => [provider, Boolean(this.values[provider])])) as ProviderKeys;
+  }
+
+  /** Whether any provider has a key. */
+  any(): boolean {
+    return AI_PROVIDERS.some((provider) => Boolean(this.values[provider]));
+  }
+
+  set(provider: AiProvider, key: string): void {
     if (!this.cipher.isEncryptionAvailable()) {
       throw new Error("Secure storage is unavailable, so the key cannot be saved.");
     }
-    const encrypted = this.cipher.encryptString(key).toString("base64");
-    writePrivateFile(this.filePath, JSON.stringify({ version: 1, key: encrypted }));
-    this.value = key;
+    this.write({ ...this.values, [provider]: key });
   }
 
-  clear(): void {
-    this.value = undefined;
-    writePrivateFile(this.filePath, JSON.stringify({ version: 1, key: "" }));
+  clear(provider: AiProvider): void {
+    const next = { ...this.values };
+    delete next[provider];
+    this.write(next);
+  }
+
+  private write(values: Partial<Record<AiProvider, string>>): void {
+    const keys: Record<string, string> = {};
+    for (const provider of AI_PROVIDERS) {
+      const value = values[provider];
+      if (value) keys[provider] = this.cipher.encryptString(value).toString("base64");
+    }
+    writePrivateFile(this.filePath, JSON.stringify({ version: 2, keys }));
+    this.values = values;
   }
 
   private load(): void {
     if (!existsSync(this.filePath)) return;
+    let encrypted: Record<string, string>;
     try {
       const parsed = keyFileSchema.parse(JSON.parse(readFileSync(this.filePath, "utf8")));
-      if (!parsed.key) return;
-      this.value = this.cipher.decryptString(Buffer.from(parsed.key, "base64"));
+      encrypted = parsed.version === 1 ? (parsed.key ? { vercel: parsed.key } : {}) : parsed.keys;
     } catch (error) {
-      reportError("storage", "Could not read the saved AI key", error);
-      this.value = undefined;
+      reportError("storage", "Could not read the saved AI keys", error);
+      return;
+    }
+    for (const provider of AI_PROVIDERS) {
+      const value = encrypted[provider];
+      if (!value) continue;
+      try {
+        this.values[provider] = this.cipher.decryptString(Buffer.from(value, "base64"));
+      } catch (error) {
+        reportError("storage", `Could not read the saved ${PROVIDER_LABELS[provider]} key`, error);
+      }
     }
   }
 }

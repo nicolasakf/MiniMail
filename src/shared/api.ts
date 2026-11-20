@@ -1,4 +1,5 @@
 import type { ModelPurpose } from "./ai-models";
+import type { AiProvider, ChatProvider } from "./ai-providers";
 import type { ComposeLibrary } from "./compose-library";
 import type { ImapSettings } from "./imap-settings";
 import type {
@@ -19,6 +20,7 @@ import type {
   UiPrefs,
   SortCounts,
   SortFolder,
+  SaveCategoriesOptions,
   SortOptions,
   UnsubscribeResult,
 } from "./types";
@@ -86,13 +88,17 @@ export interface MiniMailApi {
     /** Categories plus the state of the AI classifier. */
     get(): Promise<CategoryState>;
     /** Replaces the whole list. Rejects invalid or duplicate names and empty criteria. */
-    save(categories: Category[]): Promise<CategoryState>;
-    /** Stores a Vercel AI Gateway key (encrypted) and turns AI classification on. */
-    setGatewayKey(key: string): Promise<CategoryState>;
-    clearGatewayKey(): Promise<CategoryState>;
-    /** Sets the gateway model for the AI-enabled features, such as reading codes the rules cannot ("" turns them off). */
+    save(categories: Category[], options?: SaveCategoriesOptions): Promise<CategoryState>;
+    /** Stores a provider's API key (encrypted); AI sorting and features run once the chosen provider has one. */
+    setAiKey(provider: AiProvider, key: string): Promise<CategoryState>;
+    clearAiKey(provider: AiProvider): Promise<CategoryState>;
+    /** Chooses where mail is sorted; the sorting model goes back to that provider's default. */
+    setSortProvider(provider: AiProvider): Promise<CategoryState>;
+    /** Chooses where the AI-enabled features run; their model goes back to that provider's default. */
+    setCodeProvider(provider: ChatProvider): Promise<CategoryState>;
+    /** Sets the model for the AI-enabled features, such as reading codes the rules cannot ("" turns them off). */
     setCodeModel(model: string): Promise<CategoryState>;
-    /** Sets the gateway model that sorts mail into categories. */
+    /** Sets the model that sorts mail into categories. */
     setSortModel(model: string): Promise<CategoryState>;
     /** Chooses which folders' newly arrived mail is sorted automatically (none turns automatic sorting off). */
     setSortFolders(folders: SortFolder[]): Promise<CategoryState>;

@@ -1,7 +1,7 @@
 import { toast } from "@/lib/toast";
 
 import { accountLabel } from "@shared/accounts";
-import type { Account, SortFolder, SortOptions, SortProgress } from "@shared/types";
+import { SORT_FOLDERS, type Account, type SortFolder, type SortOptions, type SortProgress } from "@shared/types";
 
 import { api } from "./api";
 
@@ -69,7 +69,7 @@ function Bars({ progress, accounts }: { progress: SortProgress; accounts: Accoun
  * With `since`, only conversations with mail from that moment on are sorted again; `folders`
  * picks which folders (Inbox, Archive, Spam, Trash) are sorted.
  */
-export async function sortMailAgain(since?: Date, folders: SortFolder[] = ["inbox"]): Promise<void> {
+export async function sortMailAgain(since?: Date, folders: SortFolder[] = [...SORT_FOLDERS]): Promise<void> {
   try {
     const options: SortOptions = {};
     if (since) options.since = since.toISOString();

@@ -129,7 +129,7 @@ describe("UiPrefsStore", () => {
   const path = () => join(dir, "ui-prefs.json");
 
   it("starts with Smart, no unread filter and only the inbox shown", () => {
-    expect(new UiPrefsStore(path()).get()).toEqual({ view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [] });
+    expect(new UiPrefsStore(path()).get()).toEqual({ view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [], onboarded: null });
   });
 
   it("remembers the view tab and the filters across launches, each change on its own", () => {
@@ -142,6 +142,7 @@ describe("UiPrefsStore", () => {
       unreadOnly: true,
       shownFolders: ["inbox", "trash", "spam"],
       pinnedDrafts: [],
+      onboarded: null,
     });
   });
 
@@ -157,6 +158,33 @@ describe("UiPrefsStore", () => {
     writeFileSync(path(), "{broken");
     expect(new UiPrefsStore(path()).get().view).toBe("category");
     writeFileSync(path(), JSON.stringify({ version: 1, view: "nope", unreadOnly: true, shownFolders: ["spam"] }));
-    expect(new UiPrefsStore(path()).get()).toEqual({ view: "category", unreadOnly: true, shownFolders: ["spam"], pinnedDrafts: [] });
+    expect(new UiPrefsStore(path()).get()).toEqual({ view: "category", unreadOnly: true, shownFolders: ["spam"], pinnedDrafts: [], onboarded: true });
+  });
+
+  it("upgrades a version 1 file: the person used the app before, so the setup guide stays closed", () => {
+    writeFileSync(path(), JSON.stringify({ version: 1, view: "sender", unreadOnly: true, shownFolders: ["inbox", "spam"], pinnedDrafts: ["local-draft:d1"] }));
+    const store = new UiPrefsStore(path());
+    expect(store.get()).toEqual({
+      view: "sender",
+      unreadOnly: true,
+      shownFolders: ["inbox", "spam"],
+      pinnedDrafts: ["local-draft:d1"],
+      onboarded: true,
+    });
+    // The next write is in the new format and keeps the upgraded answer.
+    store.set({ view: "list" });
+    expect(JSON.parse(readFileSync(path(), "utf8"))).toMatchObject({ version: 2, view: "list", onboarded: true });
+    expect(new UiPrefsStore(path()).get().onboarded).toBe(true);
+  });
+
+  it("remembers whether the setup guide was started or finished", () => {
+    const store = new UiPrefsStore(path());
+    expect(store.get().onboarded).toBeNull();
+    store.set({ onboarded: false });
+    expect(new UiPrefsStore(path()).get().onboarded).toBe(false);
+    store.set({ onboarded: true });
+    expect(new UiPrefsStore(path()).get().onboarded).toBe(true);
+    writeFileSync(path(), JSON.stringify({ version: 2, onboarded: "yes" }));
+    expect(new UiPrefsStore(path()).get().onboarded).toBeNull();
   });
 });

@@ -5,11 +5,18 @@ import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "@share
 import { DEFAULT_LOGO_SETTINGS, isFreemail, logoKey, type LogoRequest, type LogoSettings } from "@shared/logos";
 import type { AccountCapabilities, MiniMailApi } from "@shared/api";
 import type { AppEvent } from "@shared/events";
-import { DEFAULT_SORT_MODEL, SORT_MODEL_PATTERN } from "@shared/ai-models";
+import { SORT_MODEL_PATTERN } from "@shared/ai-models";
+import {
+  DEFAULT_CODE_MODELS,
+  DEFAULT_SORT_MODELS,
+  noKeys,
+  PROVIDER_LABELS,
+  type AiProvider,
+  type ChatProvider,
+} from "@shared/ai-providers";
 import { categoryProblems, defaultCategories, ruleBasedCategoryId } from "@shared/categories";
 import {
   CODE_MODEL_PATTERN,
-  DEFAULT_CODE_MODEL,
   extractVerificationCode,
   htmlToText,
 } from "@shared/verification-code";
@@ -33,6 +40,7 @@ import type {
   SortFolder,
   UiPrefs,
 } from "@shared/types";
+import { SORT_FOLDERS } from "@shared/types";
 
 /**
  * In-memory backend with fictional accounts and mail. Used when the renderer runs
@@ -657,7 +665,9 @@ function demoEvents(): MiniMailApi["events"] {
 }
 
 export function createDemoApi(): MiniMailApi {
-  let accounts: Account[] = [ME_GMAIL, ME_UNIVERSITY, ME_ZOHO];
+  // ?onboarding starts like a fresh install (no account, setup guide not seen) to try the first-run guide.
+  const fresh = new URLSearchParams(window.location.search).has("onboarding");
+  let accounts: Account[] = fresh ? [] : [ME_GMAIL, ME_UNIVERSITY, ME_ZOHO];
   let messages = seedMessages();
   // ?getfail=N makes the first N message opens fail (the page opens each twice in dev, so use 2).
   let getFailures = Number(new URLSearchParams(window.location.search).get("getfail")) || 0;
@@ -705,8 +715,10 @@ export function createDemoApi(): MiniMailApi {
   let demoLibrary: Awaited<ReturnType<MiniMailApi["composeLibrary"]["get"]>> = { signatures: [] };
   let demoDrafts: SavedDraft[] = [];
   let demoNotifications: NotificationSettings = structuredClone(DEFAULT_NOTIFICATION_SETTINGS);
-  let demoPrefs: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [] };
-  let aiConfigured = false;
+  let demoPrefs: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [], onboarded: null };
+  const aiKeys = noKeys();
+  let sortProvider: AiProvider = "vercel";
+  let codeProvider: ChatProvider = "vercel";
   // A pretend "sort again" so the progress toast can be seen without a key.
   let sortStartedAt: number | null = null;
   const sortProgress = (): CategoryState["ai"]["sorting"] => {
@@ -721,12 +733,24 @@ export function createDemoApi(): MiniMailApi {
     const done = perAccount.reduce((sum, account) => sum + account.done, 0);
     return { done, total, accounts: perAccount, finished: done >= total, error: null };
   };
-  let codeModel: string = DEFAULT_CODE_MODEL;
-  let sortModel: string = DEFAULT_SORT_MODEL;
-  let sortFolders: SortFolder[] = ["inbox"];
+  let codeModel: string = DEFAULT_CODE_MODELS.vercel;
+  let sortModel: string = DEFAULT_SORT_MODELS.vercel;
+  let sortFolders: SortFolder[] = [...SORT_FOLDERS];
   const categoryState = (): CategoryState => ({
     categories: categories.map((category) => ({ ...category })),
-    ai: { configured: aiConfigured, model: sortModel, codeModel, sortFolders: [...sortFolders], lastError: null, pending: 0, sorting: sortProgress() },
+    ai: {
+      configured: aiKeys[sortProvider],
+      sortProvider,
+      codeProvider,
+      codeConfigured: aiKeys[codeProvider],
+      keys: { ...aiKeys },
+      model: sortModel,
+      codeModel,
+      sortFolders: [...sortFolders],
+      lastError: null,
+      pending: 0,
+      sorting: sortProgress(),
+    },
   });
 
   return {
@@ -1035,7 +1059,7 @@ export function createDemoApi(): MiniMailApi {
         await wait(40);
         return categoryState();
       },
-      async save(next) {
+      async save(next, _options) {
         await wait(80);
         const problems = categoryProblems(next);
         if (problems.length > 0) throw new Error(problems[0]);
@@ -1047,26 +1071,42 @@ export function createDemoApi(): MiniMailApi {
         notify();
         return categoryState();
       },
-      async setGatewayKey(key) {
+      async setAiKey(provider, key) {
         await wait(80);
         if (key.trim().length < 8) throw new Error("That does not look like an API key.");
-        aiConfigured = true;
+        aiKeys[provider] = true;
         return categoryState();
       },
-      async clearGatewayKey() {
+      async clearAiKey(provider) {
         await wait(40);
-        aiConfigured = false;
+        aiKeys[provider] = false;
+        return categoryState();
+      },
+      async setSortProvider(provider) {
+        await wait(40);
+        if (provider !== sortProvider) {
+          sortProvider = provider;
+          sortModel = DEFAULT_SORT_MODELS[provider];
+        }
+        return categoryState();
+      },
+      async setCodeProvider(provider) {
+        await wait(40);
+        if (provider !== codeProvider) {
+          codeProvider = provider;
+          if (codeModel !== "") codeModel = DEFAULT_CODE_MODELS[provider];
+        }
         return categoryState();
       },
       async setCodeModel(model) {
         await wait(40);
-        if (!CODE_MODEL_PATTERN.test(model.trim())) throw new Error('Use a gateway model id like "reflection/beam".');
+        if (!CODE_MODEL_PATTERN.test(model.trim())) throw new Error('Use a model id like "reflection/beam".');
         codeModel = model.trim();
         return categoryState();
       },
       async setSortModel(model) {
         await wait(40);
-        if (!SORT_MODEL_PATTERN.test(model.trim())) throw new Error('Use a gateway model id like "typesafe-ai/jev".');
+        if (!SORT_MODEL_PATTERN.test(model.trim())) throw new Error('Use a model id like "typesafe-ai/jev".');
         sortModel = model.trim();
         return categoryState();
       },
@@ -1077,7 +1117,8 @@ export function createDemoApi(): MiniMailApi {
       },
       async testModel(purpose, model) {
         await wait(600);
-        if (!aiConfigured) throw new Error("No Vercel AI Gateway key is set.");
+        const provider = purpose === "features" ? codeProvider : sortProvider;
+        if (!aiKeys[provider]) throw new Error(`No ${PROVIDER_LABELS[provider]} key is set.`);
         if (purpose === "features" && !model.trim()) throw new Error("No model is set: AI-enabled features are off.");
       },
       async reclassify(_options) {

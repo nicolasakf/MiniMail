@@ -19,7 +19,8 @@ import {
 import { isBlockedEntry, mailToTrash, type BlockKind } from "@shared/blocklist";
 import { planUnsubscribe, unsubscribeCommand } from "@shared/unsubscribe";
 import { dropFolderDuplicates, matchesDrill, receivedMail, type DashboardRange } from "@shared/dashboard";
-import { isPriorityEntry, isPriorityThread, priorityInbox, PRIORITY_GROUP, PRIORITY_GROUP_DEF } from "@shared/priority";
+import { isPriorityEntry, isPriorityMessage, isPriorityThread, priorityInbox, PRIORITY_GROUP, PRIORITY_GROUP_DEF } from "@shared/priority";
+import { isEmptySearch, matchesSearch, parseSearch } from "@shared/search-query";
 import { buildSenders, threadsFromDomain, threadsFromSender } from "@shared/sender-list";
 import { conversationFolder, groupThreads, MOVE_DESTINATION, withRelatedMessages, type Thread } from "@shared/threads";
 import type { OpenConversationRequest } from "@shared/notifications";
@@ -50,6 +51,8 @@ import { AccountErrorToasts, EmptyList, ListSkeleton, NoAccounts } from "@/compo
 import { BlockMenuButton, CategoryMenuButton, MuteMenuButton, PrioritySelectionMenuButton, ThreadView } from "@/components/mail/thread-view";
 import { useIsMac } from "@/hooks/use-platform";
 import { SettingsDialog, type SettingsTab } from "@/components/settings/settings-dialog";
+import { OnboardingDialog } from "@/components/mail/onboarding-dialog";
+import { useOnboarding } from "@/hooks/use-onboarding";
 import { ConfirmPopover } from "@/components/ui/confirm-popover";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -57,7 +60,8 @@ import { useCategories } from "@/hooks/use-categories";
 import { useDashboardMail } from "@/hooks/use-dashboard-mail";
 import { useConversationMail } from "@/hooks/use-conversation-mail";
 import { useMinimizedCategories } from "@/hooks/use-minimized-categories";
-import { matchesQuery, SHOWN_FOLDERS, useMailbox } from "@/hooks/use-mailbox";
+import { useHiddenFolderMatches } from "@/hooks/use-hidden-folder-matches";
+import { SHOWN_FOLDERS, searchLookupsFor, useMailbox } from "@/hooks/use-mailbox";
 import { api } from "@/lib/api";
 import { effectiveCategoryLayout, setAppearance, useAppearance } from "@/lib/appearance";
 import { newMessageSeed, type ComposeSeed } from "@/lib/compose";
@@ -205,6 +209,16 @@ export function MailApp() {
     },
     [savePrefs],
   );
+  const { categories, ai, setState: setCategoryState } = useCategories();
+  const priority = usePriority();
+  /** What the search box's `category:` and `is:priority` filters look at. */
+  const searchLookups = useMemo(
+    () => ({
+      categoryName: (id: string) => categories.find((category) => category.id === id)?.name ?? "",
+      isPriority: (message: MessageSummary) => isPriorityMessage(priority, message),
+    }),
+    [categories, priority],
+  );
   const {
     accounts,
     accountsLoaded,
@@ -226,8 +240,7 @@ export function MailApp() {
     actions,
     actionVersion,
     actionChanged,
-  } = useMailbox(shownFolders);
-  const { categories, ai, setState: setCategoryState } = useCategories();
+  } = useMailbox(shownFolders, searchLookups);
   /** Files conversations under a category (or none) and says so; the menu and the open conversation share it. */
   const fileUnderCategory = useCallback(
     (targets: string[], categoryId: string | null) => {
@@ -328,13 +341,14 @@ export function MailApp() {
 
   /** The conversations of a Dashboard list after the toolbar's account, folders, search and unread filter. */
   const drillListThreads = useMemo(() => {
-    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const search = parseSearch(query);
+    const lookups = searchLookupsFor(accounts, searchLookups);
     const messages = drillThreads
       .flatMap((thread) => thread.messages)
-      .filter((message) => inDrillView(message) && (words.length === 0 || matchesQuery(message, words)));
+      .filter((message) => inDrillView(message) && (isEmptySearch(search) || matchesSearch(message, search, lookups)));
     const shown = groupThreads(messages);
     return unreadOnly ? shown.filter((thread) => thread.unread) : shown;
-  }, [drillThreads, inDrillView, query, unreadOnly]);
+  }, [accounts, drillThreads, inDrillView, query, searchLookups, unreadOnly]);
 
   const savedDrafts = useDrafts();
   // A server draft that was opened here and kept lives on as a local draft; list only that one.
@@ -345,16 +359,17 @@ export function MailApp() {
   /** The drafts written here, as conversations beside the server's (same rows, selection and menus). */
   const localDraftThreads = useMemo(() => {
     if (folder !== "drafts" || inDrill) return [];
-    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const search = parseSearch(query);
+    const lookups = searchLookupsFor(accounts, searchLookups);
     const messages = savedDrafts
       .filter((draft) => scope === "all" || draft.accountId === scope)
       .map((draft) => {
         const account = accounts.find((item) => item.id === draft.accountId);
         return draftMessage(draft, { name: "", email: account?.email ?? "" });
       })
-      .filter((message) => words.length === 0 || matchesQuery(message, words));
+      .filter((message) => isEmptySearch(search) || matchesSearch(message, search, lookups));
     return draftThreads(messages);
-  }, [accounts, folder, inDrill, query, savedDrafts, scope]);
+  }, [accounts, folder, inDrill, query, savedDrafts, scope, searchLookups]);
   const pinnedDrafts = usePinnedDrafts();
   const threads = useMemo(() => {
     if (inDrill) return drillListThreads;
@@ -408,7 +423,6 @@ export function MailApp() {
     },
     [folder, inDrill, mailboxAct, savedDrafts],
   );
-  const priority = usePriority();
   /** Conversations in the list with unread priority mail: what the card beside the view tabs counts. */
   const priorityThreads = useMemo(
     () =>
@@ -535,6 +549,10 @@ export function MailApp() {
     tab: "appearance",
     adding: false,
   });
+  /** The first-run setup guide. While it is up, the keys belong to it, as they do for Settings. */
+  const onboarding = useOnboarding(accountsLoaded, accounts.length);
+  const onboardingOpen = onboarding.open;
+  const dialogOpen = settingsDialog.open || onboardingOpen;
 
   // Section boundaries (Today / Yesterday / This Week) are recomputed whenever the data changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1073,10 +1091,13 @@ export function MailApp() {
     });
   }, []);
 
+  /** Set when a category was just entered: in the split view its first conversation opens beside the list. */
+  const openFirstInPane = useRef(false);
   const showGroup = useCallback((kind: GroupKind) => {
     setOpenGroupKind(kind);
     setSenderPanelFocus(false);
     setChecked(new Set());
+    openFirstInPane.current = true;
   }, []);
 
   /** Back from a group's list to the folder, with the group's row selected again. */
@@ -1084,7 +1105,25 @@ export function MailApp() {
     if (openGroupKind !== null) setSelectedKey(`group:${openGroupKind}`);
     setOpenGroupKind(null);
     setChecked(new Set());
+    openFirstInPane.current = false;
   }, [openGroupKind]);
+
+  // The split view's pane shows something as soon as a category is entered: its first conversation.
+  useEffect(() => {
+    if (!openFirstInPane.current || openGroupKind === null) return;
+    if (!split) {
+      openFirstInPane.current = false;
+      return;
+    }
+    // The priority list turns the unread filter on right after it opens; its first row is the one left then.
+    if (openGroupKind === PRIORITY_GROUP && !unreadOnly) return;
+    const first = navigable.find((item) => item.type === "thread");
+    if (!first) return;
+    openFirstInPane.current = false;
+    setSelectedKey(first.key);
+    anchorKey.current = first.key;
+    showInPane(paneIdFor(first));
+  }, [openGroupKind, split, unreadOnly, navigable, showInPane]);
 
   const changeView = useCallback((next: MailView) => {
     setView(next);
@@ -1696,13 +1735,14 @@ export function MailApp() {
       if (event.key !== "," || event.shiftKey || event.altKey) return;
       if (!(isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
       event.preventDefault();
+      if (onboardingOpen) return; // the setup guide has the window until it is finished or skipped
       setSettingsDialog((previous) =>
         previous.open ? previous : { open: true, tab: "appearance", adding: false },
       );
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isMac]);
+  }, [isMac, onboardingOpen]);
 
   // ⌘U (Ctrl+U elsewhere) toggles the toolbar's unread-only filter, in the lists and the Dashboard's
   // drill-downs alike. In a text field it is left alone.
@@ -1710,19 +1750,19 @@ export function MailApp() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key.toLowerCase() !== "u" || event.shiftKey || event.altKey) return;
       if (!(isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
-      if (activeComposer || settingsDialog.open || isTypingTarget(event.target)) return;
+      if (activeComposer || dialogOpen || isTypingTarget(event.target)) return;
       if (onDashboard && !drill) return; // the charts have no list to filter
       event.preventDefault();
       setUnreadOnly(!unreadOnly);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isMac, activeComposer, settingsDialog.open, onDashboard, drill, unreadOnly, setUnreadOnly]);
+  }, [isMac, activeComposer, dialogOpen, onDashboard, drill, unreadOnly, setUnreadOnly]);
 
   // ⌘1–⌘4 (Ctrl+1–4 elsewhere) switch the rail's tabs: Dashboard, Inbox, Drafts, Sent.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.shiftKey || event.altKey || activeComposer || settingsDialog.open) return;
+      if (event.shiftKey || event.altKey || activeComposer || dialogOpen) return;
       if (!(isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
       const tab = ["1", "2", "3", "4"].indexOf(event.key);
       if (tab < 0) return;
@@ -1732,13 +1772,13 @@ export function MailApp() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isMac, activeComposer, settingsDialog.open, openDashboard, navigateFolder]);
+  }, [isMac, activeComposer, dialogOpen, openDashboard, navigateFolder]);
 
   // Keyboard shortcuts, in the spirit of Spark: arrows/J/K move, Enter opens.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey) return;
-      if (activeComposer || settingsDialog.open) return;
+      if (activeComposer || dialogOpen) return;
 
       // The Dashboard's charts have no list shortcuts, only ⌘Z to take back the last action. The
       // mail behind a chart is an ordinary list and uses all of them.
@@ -1994,7 +2034,7 @@ export function MailApp() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
-    settingsDialog.open,
+    dialogOpen,
     senderPanelFocused,
     senderView,
     moveSenderSelection,
@@ -2170,17 +2210,30 @@ export function MailApp() {
       </div>
     ) : null;
 
+  /** While searching the Inbox list: the matches waiting in the folders that are switched off. */
+  const hiddenMatches = useHiddenFolderMatches({
+    enabled: !inDrill && folder === "inbox",
+    query,
+    shown: shownFolders,
+    accountIds: useMemo(() => (scope === "all" ? [] : [scope]), [scope]),
+    lookups: useMemo(() => searchLookupsFor(accounts, searchLookups), [accounts, searchLookups]),
+    unreadOnly,
+  });
+
   const headerActions = {
     unreadOnly,
     onUnreadOnlyChange: setUnreadOnly,
     // Only the Inbox list and a Dashboard list can show Archive, Trash and Spam mail.
     shownFolders: inDrill ? drillShown : folder === "inbox" ? shownFolders : null,
     onToggleFolder: inDrill ? toggleDrillFolder : toggleShownFolder,
+    hiddenMatches,
     searchOpen,
     onSearchOpenChange: setSearchOpen,
     query,
     onQueryChange: setQuery,
     onEnterList: () => moveSelection(-Number.MAX_SAFE_INTEGER),
+    searchCategories: categories,
+    searchAccounts: accounts,
     onCompose: () => startCompose(),
   };
 
@@ -2298,7 +2351,7 @@ export function MailApp() {
           onMute={(kind, values) => muteThreads(kind, [paneThread], values)}
           onUnsubscribe={() => void unsubscribeThreads([paneThread])}
           onSearch={searchFrom}
-          shortcutsDisabled={activeComposer || settingsDialog.open}
+          shortcutsDisabled={activeComposer || dialogOpen}
         />
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
@@ -2382,7 +2435,7 @@ export function MailApp() {
             onMute={(kind, values) => muteThreads(kind, [openThread], values)}
             onUnsubscribe={() => void unsubscribeThreads([openThread])}
             onSearch={searchFrom}
-            shortcutsDisabled={activeComposer || settingsDialog.open}
+            shortcutsDisabled={activeComposer || dialogOpen}
           />
         ) : drill ? (
           <>
@@ -2610,6 +2663,19 @@ export function MailApp() {
         ai={ai}
         onAccountsChanged={() => void reloadAccounts()}
         onCategoryState={setCategoryState}
+      />
+
+      <OnboardingDialog
+        open={onboarding.open}
+        accounts={accounts}
+        categories={categories}
+        ai={ai}
+        onAccountsChanged={() => void reloadAccounts()}
+        onCategoryState={setCategoryState}
+        onFinish={(openCategories) => {
+          onboarding.finish();
+          if (openCategories) editCategories();
+        }}
       />
     </div>
   );

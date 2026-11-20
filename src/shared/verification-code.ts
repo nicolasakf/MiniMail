@@ -11,12 +11,13 @@
 export const VERIFICATION_CATEGORY_ID = "verification-codes";
 
 /**
- * The model that reads verification mail the local rules could not. Any Vercel AI Gateway
- * language model id works; the user can change it (or clear it to use rules only) in settings.
+ * The model that reads verification mail the local rules could not, on the Vercel AI Gateway (the
+ * default provider; OpenRouter has its own default). Any chat model id of the chosen provider works;
+ * the user can change it (or clear it to use rules only) in settings.
  */
 export const DEFAULT_CODE_MODEL = "reflection/beam";
 
-/** What a gateway model id looks like ("provider/model"); empty is allowed and means "rules only". */
+/** What a chat model id looks like ("provider/model"); empty is allowed and means "rules only". */
 export const CODE_MODEL_PATTERN = /^$|^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/i;
 
 /** Codes expire within minutes; older mail gets no chip and is never sent to a model. */

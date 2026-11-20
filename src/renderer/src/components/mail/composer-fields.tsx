@@ -1,13 +1,12 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Check, ChevronDown } from "lucide-react";
 
 import { accountLabel } from "@shared/accounts";
-import type { ContactEntry } from "@shared/contacts";
 import type { Account } from "@shared/types";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { cachedContacts, refreshContacts } from "@/lib/contact-cache";
+import { useContactIndex } from "@/hooks/use-contact-index";
 
 import { AccountMark } from "./account-mark";
 import type { ComposerSession } from "./composer-session";
@@ -66,21 +65,6 @@ function FromPicker({ accounts, value, onChange }: {
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-/** Everyone we have exchanged mail with: what is already known at once, refreshed when it opens. */
-function useContactIndex(): ContactEntry[] {
-  const [contacts, setContacts] = useState<ContactEntry[]>(cachedContacts);
-  useEffect(() => {
-    let cancelled = false;
-    void refreshContacts().then((found) => {
-      if (!cancelled) setContacts(found);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  return contacts;
 }
 
 const LINK_BUTTON = "rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground";

@@ -21,6 +21,7 @@ import {
   MIN_CRITERIA_LENGTH,
 } from "./categories";
 import { MODEL_PURPOSES, SORT_MODEL_PATTERN } from "./ai-models";
+import { AI_PROVIDERS, CHAT_PROVIDERS } from "./ai-providers";
 import { CODE_MODEL_PATTERN } from "./verification-code";
 import { MAX_ATTACHMENT_BYTES, MAX_DRAFT_ATTACHMENTS, SORT_FOLDERS } from "./types";
 import type { AddAccountInput, Category, Draft, ListQuery, MailView, SavedDraft, UiPrefs } from "./types";
@@ -194,6 +195,7 @@ export const uiPrefsPatchSchema: z.ZodType<Partial<UiPrefs>> = z
     unreadOnly: z.boolean(),
     shownFolders: shownFoldersSchema,
     pinnedDrafts: z.array(z.string().min(1).max(2048)).max(500),
+    onboarded: z.boolean(),
   })
   .partial()
   .strict();
@@ -255,22 +257,31 @@ export const notificationSettingsSchema: z.ZodType<NotificationSettings> = z.obj
   mutedThreads: z.array(z.string().min(3).max(400)).max(MAX_MUTED_THREADS),
 });
 
-/** Vercel AI Gateway API key typed by the user. */
-export const gatewayKeySchema = z.string().trim().min(8).max(300);
+/** An AI provider's API key typed by the user. */
+export const aiKeySchema = z.string().trim().min(8).max(300);
 
-/** A Vercel AI Gateway model id such as "reflection/beam", or empty to turn the model fallback off. */
+/** Which provider a key is for, or which provider a job should use. */
+export const aiProviderSchema = z.enum(AI_PROVIDERS);
+
+/** A provider that can run a chat model, which the AI-enabled features need. */
+export const chatProviderSchema = z.enum(CHAT_PROVIDERS);
+
+/** A key to store for one provider. */
+export const setAiKeySchema = z.object({ provider: aiProviderSchema, key: aiKeySchema });
+
+/** A chat model id such as "reflection/beam", or empty to turn the model fallback off. */
 export const codeModelSchema = z
   .string()
   .trim()
   .max(100)
-  .regex(CODE_MODEL_PATTERN, 'Use a gateway model id like "reflection/beam".');
+  .regex(CODE_MODEL_PATTERN, 'Use a model id like "reflection/beam".');
 
-/** The gateway model that sorts mail into categories, such as "typesafe-ai/jev". Never empty. */
+/** The model that sorts mail into categories, such as "typesafe-ai/jev" or "jev-latest". Never empty. */
 export const sortModelSchema = z
   .string()
   .trim()
   .max(100)
-  .regex(SORT_MODEL_PATTERN, 'Use a gateway model id like "typesafe-ai/jev".');
+  .regex(SORT_MODEL_PATTERN, 'Use a model id like "typesafe-ai/jev".');
 
 /** A connection test: which model purpose, and the model id to try (the one in the field, saved or not). */
 export const testModelSchema = z.object({
@@ -283,6 +294,9 @@ export const sortFoldersSchema = z
   .array(z.enum(SORT_FOLDERS))
   .max(SORT_FOLDERS.length)
   .transform((folders) => SORT_FOLDERS.filter((folder) => folders.includes(folder)));
+
+/** What saving the categories does with mail filed under a deleted one. */
+export const saveCategoriesOptionsSchema = z.object({ orphans: z.literal("none").optional() }).optional();
 
 /** "Sort mail again": everything, or only conversations with mail from `since` (an ISO date) on. */
 export const reclassifySchema = z

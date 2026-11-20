@@ -1,4 +1,5 @@
-import type { Contact, MessageSummary, SmartCategory } from "./types";
+import { accountLabel } from "./accounts";
+import type { Account, Contact, MessageSummary, SmartCategory } from "./types";
 
 /**
  * One address we have exchanged mail with, as the composer's recipient boxes suggest it.
@@ -106,6 +107,33 @@ export function searchContacts(
     )
     .slice(0, limit)
     .map(({ entry }) => entry);
+}
+
+/** One of the user's own accounts, as a person to search for (`from:` and `to:`). */
+export interface OwnAddress {
+  email: string;
+  /** The alias, or the address when there is none. */
+  label: string;
+  /** The address when `label` is an alias; empty otherwise. */
+  hint: string;
+}
+
+/**
+ * The signed-in accounts that match what was typed, in the order the accounts are kept. The contact
+ * index leaves the user's own addresses out (nobody writes to themselves), but mail from or to one
+ * account of another is searched for all the same. Nothing typed yet offers every account.
+ */
+export function searchOwnAddresses(accounts: readonly Pick<Account, "email" | "alias">[], query: string): OwnAddress[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  return accounts
+    .filter((account) => {
+      const haystack = `${account.alias ?? ""} ${account.email}`.toLowerCase();
+      return words.every((word) => haystack.includes(word));
+    })
+    .map((account) => {
+      const label = accountLabel(account);
+      return { email: account.email, label, hint: label === account.email ? "" : account.email };
+    });
 }
 
 /**

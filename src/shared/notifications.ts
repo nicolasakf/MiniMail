@@ -9,7 +9,7 @@ import type { MessageSummary } from "./types";
  */
 
 /** Folders mail can arrive in and a notification can be asked for. */
-export const NOTIFY_FOLDERS = ["inbox", "archive", "spam", "trash"] as const;
+export const NOTIFY_FOLDERS = ["inbox", "archive", "trash", "spam"] as const;
 export type NotifyFolder = (typeof NOTIFY_FOLDERS)[number];
 
 /** The conversation a clicked notification asks the page to open. */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildContactIndex, currentToken, entryLabel, guessName, searchContacts } from "./contacts";
+import { buildContactIndex, currentToken, entryLabel, guessName, searchContacts, searchOwnAddresses } from "./contacts";
 import type { MessageSummary } from "./types";
 
 const ME = new Set(["me@x.com"]);
@@ -91,5 +91,29 @@ describe("entryLabel", () => {
     expect(entryLabel({ name: "", email: "jane.doe@x.com" })).toBe("Jane Doe");
     expect(entryLabel({ name: "", email: "j4n3@x.com" })).toBe("j4n3@x.com");
     expect(guessName("a_b_c_d@x.com")).toBe("");
+  });
+});
+
+describe("searchOwnAddresses", () => {
+  const accounts = [
+    { email: "me@gmail.com", alias: "Personal" },
+    { email: "nicolas@work.com", alias: undefined },
+  ];
+
+  it("offers every account while nothing is typed", () => {
+    expect(searchOwnAddresses(accounts, "").map((entry) => entry.email)).toEqual(["me@gmail.com", "nicolas@work.com"]);
+  });
+
+  it("matches the alias and the address", () => {
+    expect(searchOwnAddresses(accounts, "pers").map((entry) => entry.email)).toEqual(["me@gmail.com"]);
+    expect(searchOwnAddresses(accounts, "work").map((entry) => entry.email)).toEqual(["nicolas@work.com"]);
+    expect(searchOwnAddresses(accounts, "nothing")).toEqual([]);
+  });
+
+  it("labels an account by its alias and keeps the address as the hint", () => {
+    expect(searchOwnAddresses(accounts, "")).toEqual([
+      { email: "me@gmail.com", label: "Personal", hint: "me@gmail.com" },
+      { email: "nicolas@work.com", label: "nicolas@work.com", hint: "" },
+    ]);
   });
 });

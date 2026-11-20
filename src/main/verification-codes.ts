@@ -8,7 +8,7 @@ import {
 import type { MessageDetail } from "@shared/types";
 
 import type { CodeFallback } from "./code-fallback";
-import { describeGatewayError } from "./jev";
+import { describeAiError } from "./jev";
 import { reportError } from "./events";
 
 /** After the model fails, rules still work; the model is left alone this long. */
@@ -92,7 +92,7 @@ export class VerificationCodes {
       return { code: confirmedCode(answer, source), settled: true };
     } catch (error) {
       // Only the reason is logged, never the message.
-      reportError("sorting", "Reading a verification code with the AI model failed", describeGatewayError(error));
+      reportError("sorting", "Reading a verification code with the AI model failed", describeAiError(error));
       this.pausedUntil = this.now() + PAUSE_MS;
       return null;
     }

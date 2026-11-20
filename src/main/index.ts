@@ -15,7 +15,7 @@ import { InvitationAnswers } from "./invitation-answers";
 import { checkCodeModel, createCodeFallback } from "./code-fallback";
 import { Categorizer } from "./categorizer";
 import { VerificationCodes } from "./verification-codes";
-import { CategoryStore, GatewayKeyStore } from "./category-store";
+import { AiKeyStore, CategoryStore } from "./category-store";
 import { registerIpc, publishEvents } from "./ipc";
 import { EventJournal } from "./event-journal";
 import { installJournal, recordInfo, reportError } from "./events";
@@ -265,16 +265,18 @@ if (!app.requestSingleInstanceLock()) {
     logEvent("app", `MiniMail ${app.getVersion()} started`, "info");
     const store = new AccountStore(join(userData, "accounts.json"));
     categoryStore = new CategoryStore(join(userData, "categories.json"));
-    const keys = new GatewayKeyStore(join(userData, "ai-gateway.json"), safeStorage);
-    const aiSettings = new AiSettingsStore(join(userData, "ai-settings.json"));
+    const keys = new AiKeyStore(join(userData, "ai-gateway.json"), safeStorage);
+    const aiSettings = new AiSettingsStore(join(userData, "ai-settings.json"), { keyAlreadySet: keys.any() });
     const categorizer = new Categorizer({
       store: categoryStore,
       keys,
+      sortProvider: () => aiSettings.sortProvider(),
+      codeProvider: () => aiSettings.codeProvider(),
       codeModel: () => aiSettings.codeModel(),
       sortModel: () => aiSettings.sortModel(),
       checkCodeModel,
       sortFolders: () => aiSettings.sortFolders(),
-      classify: createJevClassifier(() => keys.get(), () => aiSettings.sortModel()),
+      classify: createJevClassifier(() => aiSettings.sortProvider(), (provider) => keys.get(provider), () => aiSettings.sortModel()),
       // New answers change what the list should show, so ask the page to refresh.
       onUpdated: () => {
         mainWindow?.webContents.send(IPC.mailChanged);
@@ -314,9 +316,10 @@ if (!app.requestSingleInstanceLock()) {
     const codes = new VerificationCodes({
       load: (ids) => service!.get(ids),
       fallback: () => {
-        const key = keys.get();
+        const provider = aiSettings.codeProvider();
+        const key = keys.get(provider);
         const model = aiSettings.codeModel();
-        return key && model ? createCodeFallback(key, model) : null;
+        return key && model ? createCodeFallback(provider, key, model) : null;
       },
     });
     logoCache = new LogoCache(join(userData, "logos.json"), safeStorage);
