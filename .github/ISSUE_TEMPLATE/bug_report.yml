@@ -1,0 +1,33 @@
+name: Bug report
+description: Report a problem you can reproduce in MiniMail.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issues are public. Use demo data or redact email addresses, message content, verification codes, and credentials before sharing screenshots or Log entries.
+  - type: input
+    id: environment
+    attributes:
+      label: Version and environment
+      description: Include the MiniMail version or commit and say whether you saw the bug in the desktop app or browser demo. Include the OS or browser version if relevant.
+      placeholder: Source build at commit abc1234, browser demo in Safari
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the provider if it matters, such as Gmail, Outlook, or IMAP.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What happened and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots or Log entries
+      description: Share only the relevant, redacted details.

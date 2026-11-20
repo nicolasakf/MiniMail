@@ -1,0 +1,15 @@
+name: Feature request
+description: Suggest an improvement to MiniMail.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the situation and what makes it difficult today. Use fictional examples for anything involving mail.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would make it easier?
+      description: Describe the behavior you’d like to see.
