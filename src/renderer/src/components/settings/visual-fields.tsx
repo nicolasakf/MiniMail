@@ -198,7 +198,8 @@ export function SettingsMultiTileField<T extends string>({
                 "corner-squircle flex size-14 items-center justify-center rounded-md transition-colors",
                 "group-focus-visible:ring-2 group-focus-visible:ring-ring",
                 checked
-                  ? (option.activeClassName ?? "bg-primary/15 text-primary")
+                  ? // The outline is drawn in the tile's own text colour, so it follows each folder's tint.
+                    cn("ring-1 ring-current", option.activeClassName ?? "bg-primary/15 text-primary")
                   : "bg-muted/40 text-muted-foreground group-enabled:group-hover:bg-accent/60",
               )}
             >

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { BellRing } from "lucide-react";
 import { toast } from "@/lib/toast";
@@ -34,13 +34,14 @@ import {
   SettingsSegmentedField,
   SettingsSwitchField,
 } from "./fields";
-import { SettingsMultiTileField } from "./visual-fields";
+import { NotificationPreview } from "./notification-previews";
+import { SettingsMultiTileField, SettingsVisualField } from "./visual-fields";
 
 const FOLDER_OPTIONS: { folder: NotifyFolder; label: string; description: string }[] = [
   { folder: "inbox", label: "Inbox", description: "Mail that arrives in your Inbox." },
   { folder: "archive", label: "Archive", description: "Mail your own filters file straight into Archive." },
-  { folder: "spam", label: "Spam", description: "Junk mail. Off unless you want to watch for false positives." },
   { folder: "trash", label: "Trash", description: "Mail that lands in Trash. Off by default." },
+  { folder: "spam", label: "Spam", description: "Junk mail. Off unless you want to watch for false positives." },
 ];
 
 const CATEGORY_MODES: { value: CategoryFilterMode; label: string }[] = [
@@ -49,10 +50,10 @@ const CATEGORY_MODES: { value: CategoryFilterMode; label: string }[] = [
   { value: "except", label: "All except these" },
 ];
 
-const CONTENT_OPTIONS: { value: NotificationContent; label: string }[] = [
-  { value: "full", label: "Sender and subject" },
-  { value: "sender", label: "Sender only" },
-  { value: "hidden", label: "Hide details" },
+const CONTENT_OPTIONS: { value: NotificationContent; label: string; preview: ReactNode }[] = [
+  { value: "full", label: "Sender and subject", preview: <NotificationPreview content="full" /> },
+  { value: "sender", label: "Sender only", preview: <NotificationPreview content="sender" /> },
+  { value: "hidden", label: "Hide details", preview: <NotificationPreview content="hidden" /> },
 ];
 
 const CONTENT_HELP: Record<NotificationContent, string> = {
@@ -346,7 +347,7 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
           <SettingsSectionTitle title="What a notification shows" />
           <div className="space-y-2">
             <SettingsLabel label="Details" />
-            <SettingsSegmentedField
+            <SettingsVisualField
               ariaLabel="Notification details"
               value={view.content}
               options={CONTENT_OPTIONS}
