@@ -42,4 +42,13 @@ npm run dev        # the desktop app
 npm run dev:web    # the UI alone, with demo data and no accounts
 ```
 
-Microsoft sign-in works out of the box; Google sign-in in a development build needs your own OAuth client id in `.env.local` (see [`.env.example`](.env.example)). The rest is in the [guide](docs/guide.md): adding accounts, OAuth setup, AI sorting (it needs your own key), shortcuts and privacy.
+## Connecting your accounts
+
+**Microsoft sign-in works out of the box** for Outlook and Microsoft 365.
+
+You can connect **Gmail and Google Workspace** in two ways.
+
+1. **Set up your own OAuth client** for the full Google sign-in flow. Create a Desktop app OAuth client in Google Cloud and put its credentials in `.env.local` before running MiniMail from source. [OAuth setup guide](docs/guide.md#oauth-for-local-development)
+2. **Use an app password for the fastest and easiest setup.** If your Google Account has 2-Step Verification and supports app passwords, generate one and choose **Add with app password** in MiniMail. [Create an app password](https://myaccount.google.com/apppasswords)
+
+See the [guide](docs/guide.md) for AI sorting (it needs your own key), shortcuts and privacy.
