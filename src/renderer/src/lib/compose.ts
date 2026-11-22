@@ -1,3 +1,4 @@
+import type { CompletionMessage } from "@shared/completion";
 import type { Account, ComposeMode, Contact, Draft, DraftAttachment, MessageDetail } from "@shared/types";
 
 import { contactLabel, formatFullDate } from "./format";
@@ -24,16 +25,16 @@ export interface ComposeSeed {
   /** The quoted original of a reply, kept apart so it can stay collapsed under the reply. */
   quoted?: string;
   inReplyTo?: Draft["inReplyTo"];
+  /**
+   * The earlier messages of the conversation, for the text suggestions. Not saved with a draft: a
+   * draft reopened later suggests from the quoted original alone.
+   */
+  earlier?: CompletionMessage[];
   /** The message in the server's Drafts folder being continued: removed once this is sent or discarded. */
   serverMessageId?: string;
 }
 
-/** The text that is sent: what the user wrote, then the quoted original if there is one. */
-export function composeText(body: string, quoted: string | undefined): string {
-  const written = body.trimEnd();
-  if (!quoted?.trim()) return body;
-  return written ? `${written}\n\n${quoted}` : `\n\n${quoted}`;
-}
+export { composeText } from "@shared/compose-text";
 
 /** Plain-text rendition of a message, used for quoting. */
 export function messageToText(message: Pick<MessageDetail, "text" | "html">): string {
@@ -137,52 +138,7 @@ export function buildReplySeed(
   };
 }
 
-/** Splits on commas, semicolons and newlines, except inside a quoted display name. */
-function splitOutsideQuotes(input: string): string[] {
-  const parts: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  for (const char of input) {
-    if (char === '"') inQuotes = !inQuotes;
-    if (!inQuotes && (char === "," || char === ";" || char === "\n")) {
-      parts.push(current);
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-  parts.push(current);
-  return parts;
-}
-
-const ADDRESS_PATTERN =/^(?:"?([^"<]*?)"?\s*)?<([^<>@\s]+@[^<>@\s]+)>$|^([^<>@\s,;]+@[^<>@\s,;]+)$/;
-
-/** Whether `email` is a plain address ("a@x.com"): something, an @, something, and no spaces or commas. */
-export function isValidAddress(email: string): boolean {
-  return /^[^<>@\s,;]+@[^<>@\s,;]+$/.test(email);
-}
-
-/**
- * Parses what the user typed into a recipient box ("a@x.com, Bob <b@y.com>").
- * Anything that is not an address is reported back so the UI can flag it.
- */
-export function parseRecipients(input: string): { contacts: Contact[]; invalid: string[] } {
-  const contacts: Contact[] = [];
-  const invalid: string[] = [];
-  for (const part of splitOutsideQuotes(input)) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
-    const match = ADDRESS_PATTERN.exec(trimmed);
-    if (!match) {
-      invalid.push(trimmed);
-    } else if (match[2]) {
-      contacts.push({ name: (match[1] ?? "").trim(), email: match[2] });
-    } else {
-      contacts.push({ name: "", email: match[3] });
-    }
-  }
-  return { contacts, invalid };
-}
+export { isValidAddress, parseRecipients } from "@shared/recipients";
 
 /** Formats contacts back into the text a recipient box shows. */
 export function formatRecipients(contacts: readonly Contact[]): string {

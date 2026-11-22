@@ -12,6 +12,8 @@ import {
   type NotificationSettings,
 } from "./notifications";
 import { MAIL_WINDOW } from "./mail-window";
+import { ASK_MODES, CLI_COMMAND_IDS, MAX_ALLOWED_RECIPIENTS, normalizeAllowedRecipient, SKILL_TARGET_IDS, type CliSettings } from "./cli";
+import type { PageReply } from "./cli-page";
 import { imapSettingsSchema } from "./imap-settings";
 import {
   categoryProblems,
@@ -22,6 +24,7 @@ import {
 } from "./categories";
 import { MODEL_PURPOSES, SORT_MODEL_PATTERN } from "./ai-models";
 import { AI_PROVIDERS, CHAT_PROVIDERS } from "./ai-providers";
+import { COMPLETION_LENGTHS, COMPLETION_LIMITS } from "./completion";
 import { CODE_MODEL_PATTERN } from "./verification-code";
 import { MAX_ATTACHMENT_BYTES, MAX_DRAFT_ATTACHMENTS, SORT_FOLDERS } from "./types";
 import type { AddAccountInput, Category, Draft, ListQuery, MailView, SavedDraft, UiPrefs } from "./types";
@@ -269,12 +272,12 @@ export const chatProviderSchema = z.enum(CHAT_PROVIDERS);
 /** A key to store for one provider. */
 export const setAiKeySchema = z.object({ provider: aiProviderSchema, key: aiKeySchema });
 
-/** A chat model id such as "reflection/beam", or empty to turn the model fallback off. */
+/** A chat model id such as "openai/gpt-4.1-nano", or empty to turn the model fallback off. */
 export const codeModelSchema = z
   .string()
   .trim()
   .max(100)
-  .regex(CODE_MODEL_PATTERN, 'Use a model id like "reflection/beam".');
+  .regex(CODE_MODEL_PATTERN, 'Use a model id like "openai/gpt-4.1-nano".');
 
 /** The model that sorts mail into categories, such as "typesafe-ai/jev" or "jev-latest". Never empty. */
 export const sortModelSchema = z
@@ -287,6 +290,38 @@ export const sortModelSchema = z
 export const testModelSchema = z.object({
   purpose: z.enum(MODEL_PURPOSES),
   model: z.string().trim().max(100),
+});
+
+/** The composer's text completion: on or off, and how much the model may write at once. */
+export const completionSettingsSchema = z.object({
+  enabled: z.boolean(),
+  length: z.enum(COMPLETION_LENGTHS),
+  model: codeModelSchema,
+});
+
+/** One request for ghost text. Every part is capped, so a compromised page cannot send a book to the model. */
+export const completionRequestSchema = z.object({
+  session: z.string().min(1).max(100),
+  before: z.string().max(COMPLETION_LIMITS.before),
+  after: z.string().max(COMPLETION_LIMITS.after),
+  context: z.object({
+    mode: z.enum(["new", "reply", "replyAll", "forward"]),
+    subject: z.string().max(COMPLETION_LIMITS.subject),
+    me: contactSchema,
+    to: z.array(contactSchema).max(COMPLETION_LIMITS.recipients),
+    cc: z.array(contactSchema).max(COMPLETION_LIMITS.recipients),
+    quoted: z.string().max(COMPLETION_LIMITS.quoted).optional(),
+    earlier: z
+      .array(
+        z.object({
+          from: contactSchema,
+          date: z.string().max(40),
+          text: z.string().max(COMPLETION_LIMITS.earlierText),
+        }),
+      )
+      .max(COMPLETION_LIMITS.earlierMessages)
+      .optional(),
+  }),
 });
 
 /** Folders whose new mail is sorted automatically: any combination; none turns automatic sorting off. */
@@ -317,6 +352,8 @@ export const assignCategorySchema = z.object({
   sorting: z.boolean().optional(),
   /** Lets the Log row of this action offer an Undo. */
   ref: z.string().min(1).max(100).optional(),
+  /** Who asked, when it was not a click: the Log row says "via CLI". */
+  via: z.literal("cli").optional(),
 });
 
 /** One or more message ids; capped so a bad call cannot ask for thousands of fetches. */
@@ -335,3 +372,60 @@ export const eventReportSchema = z.object({
   accountId: z.string().max(200).optional(),
   ref: z.string().max(100).optional(),
 });
+
+/** Every choice on the CLI page; the whole object is replaced on each change. */
+export const cliSettingsSchema: z.ZodType<CliSettings> = z.object({
+  enabled: z.boolean(),
+  disabled: z.array(z.enum(CLI_COMMAND_IDS)).max(CLI_COMMAND_IDS.length),
+  ask: z.object({
+    send: z.enum(ASK_MODES as unknown as [string, ...string[]]),
+    unsubscribe: z.enum(ASK_MODES as unknown as [string, ...string[]]),
+    invitation: z.enum(ASK_MODES as unknown as [string, ...string[]]),
+  }) as unknown as z.ZodType<CliSettings["ask"]>,
+  allowedRecipients: z
+    .array(
+      z.string().max(320).refine((value) => {
+        const result = normalizeAllowedRecipient(value);
+        return "value" in result && result.value === value;
+      }, "Not an address or @domain that can be allowed."),
+    )
+    .max(MAX_ALLOWED_RECIPIENTS),
+  hideLinks: z.boolean(),
+  pathLink: z.boolean(),
+  skillTargets: z.array(z.enum(SKILL_TARGET_IDS)).max(SKILL_TARGET_IDS.length),
+});
+
+/** The page's answer to something the CLI asked of it (see `PageRequest`). */
+export const pageReplySchema: z.ZodType<PageReply> = z.union([
+  z.object({
+    id: z.number().int(),
+    ok: z.literal(true),
+    result: z.object({
+      outcome: z.enum(["applied", "failed", "undone", "timeout", "nothing"]),
+      count: z.number().int().min(0),
+      ref: z.string().max(200).optional(),
+      decision: z.enum(["reject", "once", "always"]).optional(),
+      unsubscribe: z
+        .object({
+          done: z.number().int().min(0),
+          manual: z.array(z.object({ sender: z.string().max(400), host: z.string().max(300) })).max(500),
+          failed: z.array(z.object({ sender: z.string().max(400), error: z.string().max(1000) })).max(500),
+          skipped: z.number().int().min(0),
+          alreadyDone: z.number().int().min(0),
+        })
+        .optional(),
+      draft: z
+        .object({
+          id: z.string().max(128),
+          accountId: z.string().max(128),
+          to: z.array(z.string().max(320)).max(500),
+          cc: z.array(z.string().max(320)).max(500),
+          bcc: z.array(z.string().max(320)).max(500),
+          subject: z.string().max(2000),
+          files: z.array(z.string().max(500)).max(25),
+        })
+        .optional(),
+    }),
+  }),
+  z.object({ id: z.number().int(), ok: z.literal(false), error: z.string().max(2000) }),
+]);

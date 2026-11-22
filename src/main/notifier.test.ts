@@ -8,6 +8,7 @@ import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings, type NotifyFo
 import type { ListResult, MessageSummary } from "@shared/types";
 
 import { NotificationSettingsStore } from "./notification-settings";
+import { sectionAt, seedSection } from "./test-settings";
 import { Notifier, type ShownNotification } from "./notifier";
 
 /** Noon local time, so the clock reads the same in every time zone. */
@@ -256,23 +257,23 @@ describe("NotificationSettingsStore", () => {
   });
 
   it("starts from the defaults and remembers a change", () => {
-    const path = join(dir, "n.json");
-    const store = new NotificationSettingsStore(path);
+    const path = join(dir, "settings.json");
+    const store = new NotificationSettingsStore(sectionAt(path, "notifications"));
     expect(store.get()).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
     store.set({ ...store.get(), sound: false, folders: ["inbox", "archive"] });
-    expect(new NotificationSettingsStore(path).get()).toMatchObject({ sound: false, folders: ["inbox", "archive"] });
+    expect(new NotificationSettingsStore(sectionAt(path, "notifications")).get()).toMatchObject({ sound: false, folders: ["inbox", "archive"] });
   });
 
   it("keeps saved choices and fills in newer ones from an older file", () => {
-    const path = join(dir, "n.json");
-    writeFileSync(path, JSON.stringify({ sound: false }));
-    expect(new NotificationSettingsStore(path).get()).toEqual({ ...DEFAULT_NOTIFICATION_SETTINGS, sound: false });
+    const path = join(dir, "settings.json");
+    seedSection(path, "notifications", { sound: false });
+    expect(new NotificationSettingsStore(sectionAt(path, "notifications")).get()).toEqual({ ...DEFAULT_NOTIFICATION_SETTINGS, sound: false });
   });
 
   it("falls back to the defaults when the file is damaged", () => {
-    const path = join(dir, "n.json");
-    writeFileSync(path, JSON.stringify({ folders: ["bogus"] }));
-    expect(new NotificationSettingsStore(path).get()).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
+    const path = join(dir, "settings.json");
+    seedSection(path, "notifications", { folders: ["bogus"] });
+    expect(new NotificationSettingsStore(sectionAt(path, "notifications")).get()).toEqual(DEFAULT_NOTIFICATION_SETTINGS);
   });
 
   it("uses an account's own sound and detail choices", async () => {

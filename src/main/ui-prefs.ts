@@ -1,12 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
-
 import { z } from "zod";
 
 import { shownFoldersSchema } from "@shared/schemas";
 import type { UiPrefs } from "@shared/types";
 
-import { writePrivateFile } from "./category-store";
 import { reportError } from "./events";
+import type { SettingsSection } from "./settings-file";
 
 const DEFAULTS: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [], onboarded: null };
 
@@ -24,15 +22,16 @@ const fileSchema = z.object({
 /**
  * Choices the app reopens with: the selected view tab and the list filters (unread only, and
  * which of Inbox, Archive, Trash and Spam mail shows in the Inbox list), and which drafts are pinned. Holds no mail data, so it is a plain
- * file, written the moment a choice changes.
+ * section of `settings.json`, written the moment a choice changes.
  */
 export class UiPrefsStore {
   private prefs: UiPrefs = { ...DEFAULTS, shownFolders: [...DEFAULTS.shownFolders], pinnedDrafts: [] };
 
-  constructor(private readonly filePath: string) {
-    if (!existsSync(filePath)) return;
+  constructor(private readonly section: SettingsSection) {
+    const raw = section.read();
+    if (raw === undefined) return;
     try {
-      const { version, ...saved } = fileSchema.parse(JSON.parse(readFileSync(filePath, "utf8")));
+      const { version, ...saved } = fileSchema.parse(raw);
       // v1 to v2: a version 1 file was written by someone who already used the app, so the setup guide is not for them.
       this.prefs = version === 1 ? { ...saved, onboarded: true } : saved;
     } catch (error) {
@@ -46,6 +45,6 @@ export class UiPrefsStore {
 
   set(patch: Partial<UiPrefs>): void {
     this.prefs = { ...this.prefs, ...patch };
-    writePrivateFile(this.filePath, JSON.stringify({ version: 2, ...this.prefs }));
+    this.section.write({ version: 2, ...this.prefs });
   }
 }

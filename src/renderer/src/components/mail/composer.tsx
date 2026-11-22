@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import type { Editor } from "@tiptap/core";
@@ -7,7 +7,9 @@ import { ALargeSmall, Maximize2, Minimize2, Minus, Paperclip, SquareArrowOutUpRi
 import type { Account } from "@shared/types";
 
 import { Button } from "@/components/ui/button";
+import { useCompletionSettings } from "@/hooks/use-completion-settings";
 import { api } from "@/lib/api";
+import { buildCompletionContext } from "@/lib/completion";
 import type { ComposeSeed } from "@/lib/compose";
 import { cleanEditorHtml } from "@/lib/rich-compose";
 import { toast } from "@/lib/toast";
@@ -97,6 +99,30 @@ export function Composer({ seed, accounts, onClose, detached, minimized, tray, t
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const signatures = useSignatureLibrary(fields.accountId, setError);
+
+  // Suggested text after the cursor. Each composer is one session, so its newest request replaces its older one.
+  const completionSettings = useCompletionSettings();
+  const [completionSession] = useState(() => crypto.randomUUID());
+  const suggestWith = useRef<(before: string, after: string) => Promise<string>>(async () => "");
+  useLayoutEffect(() => {
+    suggestWith.current = async (before, after) => {
+      const context = buildCompletionContext({
+        mode: seed.mode,
+        accountId: fields.accountId,
+        accounts,
+        to: fields.to,
+        cc: fields.cc,
+        subject: fields.subject,
+        quoted: fields.quoted,
+        earlier: seed.earlier,
+      });
+      return context ? api.completion.suggest({ session: completionSession, before, after, context }) : "";
+    };
+  });
+  const completion = useMemo(
+    () => ({ enabled: completionSettings.enabled, suggest: (before: string, after: string) => suggestWith.current(before, after) }),
+    [completionSettings.enabled],
+  );
 
   const title = fields.subject.trim() || TITLES[seed.mode];
   const recipients = [...fields.to.map((contact) => contact.email), fields.toText.trim()].filter(Boolean);
@@ -296,6 +322,7 @@ export function Composer({ seed, accounts, onClose, detached, minimized, tray, t
               onChange={(html) => { session.bodyHtml.current = html; }}
               onSubmit={() => void session.send()}
               onEscape={() => void session.requestClose()}
+              completion={completion}
             />
             {fields.quoted && <QuotedText value={fields.quoted} onChange={set.setQuoted} />}
           </div>

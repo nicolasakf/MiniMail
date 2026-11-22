@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultCategories } from "@shared/categories";
 
 import { AiSettingsStore } from "./ai-settings";
+import { savedSection, sectionAt, seedSection } from "./test-settings";
 import { callSystemOne, ProviderHttpError } from "./ai-provider";
 import { createJevClassifier, describeAiError, type ClassificationInput } from "./jev";
 
@@ -21,49 +22,119 @@ afterEach(() => {
 
 describe("AiSettingsStore", () => {
   it("reads a version 2 file (no providers) as the Vercel AI Gateway and keeps its models", () => {
-    const path = join(dir, "ai-settings.json");
-    writeFileSync(
-      path,
-      JSON.stringify({ version: 2, codeModel: "openai/gpt-5-nano", sortModel: "typesafe-ai/jev-1.14.0", sortFolders: ["inbox", "spam"] }),
-    );
-    const settings = new AiSettingsStore(path);
+    const path = join(dir, "settings.json");
+    seedSection(path, "ai", { version: 2, codeModel: "openai/gpt-5-nano", sortModel: "typesafe-ai/jev-1.14.0", sortFolders: ["inbox", "spam"] });
+    const settings = new AiSettingsStore(sectionAt(path, "ai"));
     expect(settings.sortProvider()).toBe("vercel");
     expect(settings.codeProvider()).toBe("vercel");
     expect(settings.sortModel()).toBe("typesafe-ai/jev-1.14.0");
     expect(settings.codeModel()).toBe("openai/gpt-5-nano");
     expect(settings.sortFolders()).toEqual(["inbox", "spam"]);
-    expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(2); // reading does not rewrite the file
+    expect(savedSection(path, "ai").version).toBe(2); // reading does not rewrite the file
   });
 
   it("reads a version 1 file the same way", () => {
-    const path = join(dir, "ai-settings.json");
-    writeFileSync(path, JSON.stringify({ version: 1, codeModel: "", sortFolders: ["inbox"] }));
-    const settings = new AiSettingsStore(path);
+    const path = join(dir, "settings.json");
+    seedSection(path, "ai", { version: 1, codeModel: "", sortFolders: ["inbox"] });
+    const settings = new AiSettingsStore(sectionAt(path, "ai"));
     expect(settings.sortProvider()).toBe("vercel");
     expect(settings.sortModel()).toBe("typesafe-ai/jev");
     expect(settings.codeModel()).toBe("");
   });
 
   it("puts the new provider's default model in place when the provider changes, and remembers it", () => {
-    const path = join(dir, "ai-settings.json");
-    const settings = new AiSettingsStore(path);
+    const path = join(dir, "settings.json");
+    const settings = new AiSettingsStore(sectionAt(path, "ai"));
     settings.setSortProvider("openrouter");
     settings.setCodeProvider("openrouter");
     expect(settings.sortModel()).toBe("typesafe/jev-1.13");
-    expect(settings.codeModel()).toBe("reflection/beam-1.0-501b-a23b");
+    expect(settings.codeModel()).toBe("openai/gpt-4.1-nano");
 
     settings.setSortProvider("typesafe");
     expect(settings.sortModel()).toBe("jev-latest");
 
-    const reopened = new AiSettingsStore(path);
+    const reopened = new AiSettingsStore(sectionAt(path, "ai"));
     expect(reopened.sortProvider()).toBe("typesafe");
     expect(reopened.codeProvider()).toBe("openrouter");
     expect(reopened.sortModel()).toBe("jev-latest");
-    expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(3);
+    expect(savedSection(path, "ai").version).toBe(4);
+  });
+
+  it("reads a version 3 file (before text completion) with completion off, and keeps everything else", () => {
+    const path = join(dir, "settings.json");
+    seedSection(path, "ai", {
+      version: 3,
+      sortProvider: "openrouter",
+      codeProvider: "openrouter",
+      codeModel: "reflection/beam-1.0-501b-a23b",
+      sortModel: "typesafe/jev-1.13",
+      sortFolders: ["inbox", "archive"],
+    });
+    const settings = new AiSettingsStore(sectionAt(path, "ai"));
+    expect(settings.completion()).toEqual({ enabled: false, length: "sentence", model: "openai/gpt-4.1-nano" });
+    expect(settings.sortProvider()).toBe("openrouter");
+    expect(settings.codeModel()).toBe("reflection/beam-1.0-501b-a23b");
+    expect(settings.sortFolders()).toEqual(["inbox", "archive"]);
+    expect(savedSection(path, "ai").version).toBe(3); // reading does not rewrite the file
+
+    // The next change upgrades the file and carries everything it held over.
+    settings.setCompletion({ enabled: true, length: "paragraph", model: "openai/gpt-4.1-nano" });
+    expect(savedSection(path, "ai")).toMatchObject({
+      version: 4,
+      sortProvider: "openrouter",
+      codeModel: "reflection/beam-1.0-501b-a23b",
+      sortFolders: ["inbox", "archive"],
+      completionEnabled: true,
+      completionLength: "paragraph",
+      completionModel: "openai/gpt-4.1-nano",
+    });
+    expect(new AiSettingsStore(sectionAt(path, "ai")).completion()).toEqual({
+      enabled: true,
+      length: "paragraph",
+      model: "openai/gpt-4.1-nano",
+    });
+  });
+
+  it("falls back to the default for a completion choice it does not know, without touching the rest", () => {
+    const path = join(dir, "settings.json");
+    seedSection(path, "ai", { version: 4, codeModel: "openai/gpt-5-nano", completionEnabled: true, completionLength: "essay" });
+    const settings = new AiSettingsStore(sectionAt(path, "ai"));
+    expect(settings.completion()).toEqual({ enabled: true, length: "sentence", model: "openai/gpt-4.1-nano" });
+    expect(settings.codeModel()).toBe("openai/gpt-5-nano");
+  });
+
+  it("gives a version 4 file saved before completion had a model of its own the default completion model", () => {
+    const path = join(dir, "settings.json");
+    seedSection(path, "ai", {
+      version: 4,
+      codeModel: "reflection/beam",
+      sortFolders: ["inbox"],
+      completionEnabled: true,
+      completionLength: "paragraph",
+    });
+    const settings = new AiSettingsStore(sectionAt(path, "ai"));
+    // It was on, and stays on, but no longer waits for a reasoning model.
+    expect(settings.completion()).toEqual({ enabled: true, length: "paragraph", model: "openai/gpt-4.1-nano" });
+    expect(settings.codeModel()).toBe("reflection/beam");
+
+    settings.setCompletion({ enabled: true, length: "paragraph", model: " mistral/ministral-8b " });
+    expect(savedSection(path, "ai")).toMatchObject({ version: 4, codeModel: "reflection/beam", completionModel: "mistral/ministral-8b" });
+    expect(new AiSettingsStore(sectionAt(path, "ai")).completion().model).toBe("mistral/ministral-8b");
+  });
+
+  it("puts the new provider's completion model in place when the provider changes, and keeps an empty one empty", () => {
+    const path = join(dir, "settings.json");
+    const settings = new AiSettingsStore(sectionAt(path, "ai"));
+    settings.setCompletion({ enabled: true, length: "sentence", model: "mistral/ministral-8b" });
+    settings.setCodeProvider("openrouter");
+    expect(settings.completion().model).toBe("openai/gpt-4.1-nano");
+    settings.setCompletion({ enabled: true, length: "sentence", model: "" });
+    settings.setCodeProvider("vercel");
+    expect(settings.completion().model).toBe("");
   });
 
   it("keeps a model the person typed when the provider is chosen again, and keeps rules-only empty", () => {
-    const settings = new AiSettingsStore(join(dir, "ai-settings.json"));
+    const settings = new AiSettingsStore(sectionAt(join(dir, "settings.json"), "ai"));
     settings.setSortModel("typesafe-ai/jev-1.14.0");
     settings.setSortProvider("vercel");
     expect(settings.sortModel()).toBe("typesafe-ai/jev-1.14.0");

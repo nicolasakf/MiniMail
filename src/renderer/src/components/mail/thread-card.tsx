@@ -6,8 +6,10 @@ import {
   Check,
   CircleHelp,
   Download,
+  ChevronDown,
   Loader2,
   MapPin,
+  Paperclip,
   User,
   X,
   type LucideIcon,
@@ -16,6 +18,7 @@ import {
 import type { InvitationResponse } from "@shared/types";
 
 import { FileIcon } from "@/components/ui/file-icon";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { contactLabel } from "@/lib/format";
@@ -188,52 +191,89 @@ function InvitationBlock({
 interface ThreadCardProps {
   /** What the conversation holds; null until it has downloaded. */
   artifacts: ThreadArtifacts | null;
-  /** The summaries say the conversation has these, so the card holds their place while it downloads. */
+  /** The summaries say the conversation has these, so the list holds their place while it downloads. */
   expecting: { attachments: boolean; invitations: boolean };
   onOpenAttachment: (attachment: ThreadAttachment) => Promise<void>;
   onSaveAttachment: (attachment: ThreadAttachment) => Promise<void>;
   onRespond: (entry: ThreadInvitation, response: InvitationResponse) => Promise<void>;
 }
 
-/** The panel beside a conversation that gathers what is in it: the meetings it invites to and the files it carries. */
+/** Whether the conversation holds (or, until it has downloaded, is expected to hold) anything to list. */
+function hasThreadArtifacts(artifacts: ThreadArtifacts | null, expecting: ThreadCardProps["expecting"]): boolean {
+  return artifacts
+    ? artifacts.attachments.length > 0 || artifacts.invitations.length > 0
+    : expecting.attachments || expecting.invitations;
+}
+
+/**
+ * The toolbar's dropdown that gathers what is in the conversation: the meetings it invites to and the
+ * files it carries. It sits left of Reply and renders nothing when there is nothing to list.
+ */
 export function ThreadCard({ artifacts, expecting, onOpenAttachment, onSaveAttachment, onRespond }: ThreadCardProps) {
+  const [open, setOpen] = useState(false);
   const invitations = artifacts?.invitations ?? [];
   const attachments = artifacts?.attachments ?? [];
   const senders = new Set(attachments.map((attachment) => attachment.from.email.toLowerCase()));
 
   const waitingForInvitations = !artifacts && expecting.invitations;
   const waitingForAttachments = !artifacts && expecting.attachments;
+  if (!hasThreadArtifacts(artifacts, expecting)) return null;
+
+  const showInvitations = invitations.length > 0 || waitingForInvitations;
+  const showAttachments = attachments.length > 0 || waitingForAttachments;
+  // The trigger says what is inside: files get a paperclip, a conversation of meetings alone a calendar.
+  const Icon = showAttachments ? Paperclip : CalendarDays;
+  const count = artifacts ? attachments.length + invitations.length : null;
+  const label = showAttachments && showInvitations ? "Attachments and invitations" : showAttachments ? "Attachments" : invitations.length > 1 ? "Invitations" : "Invitation";
 
   return (
-    <div className="corner-squircle space-y-4 rounded-2xl border border-border bg-card p-3 shadow-sm">
-      {(invitations.length > 0 || waitingForInvitations) && (
-        <Section title={invitations.length > 1 ? "Invitations" : "Invitation"}>
-          {waitingForInvitations && <Skeleton className="h-24 w-full" />}
-          {invitations.map((entry) => (
-            <InvitationBlock key={entry.invitation.uid} entry={entry} onRespond={(response) => onRespond(entry, response)} />
-          ))}
-        </Section>
-      )}
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tooltip open={open ? false : undefined}>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label={label}
+              className="corner-squircle electron-no-drag flex h-9 items-center gap-1 rounded-lg pl-2 pr-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
+            >
+              <Icon className="size-[18px]" />
+              {count !== null && <span className="text-xs tabular-nums">{count}</span>}
+              <ChevronDown className="size-3.5" />
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{label}</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" className="max-h-[70vh] w-80 space-y-4 overflow-y-auto p-3">
+        {showInvitations && (
+          <Section title={invitations.length > 1 ? "Invitations" : "Invitation"}>
+            {waitingForInvitations && <Skeleton className="h-24 w-full" />}
+            {invitations.map((entry) => (
+              <InvitationBlock key={entry.invitation.uid} entry={entry} onRespond={(response) => onRespond(entry, response)} />
+            ))}
+          </Section>
+        )}
 
-      {(attachments.length > 0 || waitingForAttachments) && (
-        <Section title="Attachments">
-          {waitingForAttachments && (
-            <div className="space-y-1.5 px-2">
-              <Skeleton className="h-8 w-full" />
-              <Skeleton className="h-8 w-full" />
-            </div>
-          )}
-          {attachments.map((attachment) => (
-            <AttachmentRow
-              key={`${attachment.messageId}|${attachment.id}`}
-              attachment={attachment}
-              showSender={senders.size > 1}
-              onOpen={() => onOpenAttachment(attachment)}
-              onSave={() => onSaveAttachment(attachment)}
-            />
-          ))}
-        </Section>
-      )}
-    </div>
+        {showAttachments && (
+          <Section title="Attachments">
+            {waitingForAttachments && (
+              <div className="space-y-1.5 px-2">
+                <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-8 w-full" />
+              </div>
+            )}
+            {attachments.map((attachment) => (
+              <AttachmentRow
+                key={`${attachment.messageId}|${attachment.id}`}
+                attachment={attachment}
+                showSender={senders.size > 1}
+                onOpen={() => onOpenAttachment(attachment)}
+                onSave={() => onSaveAttachment(attachment)}
+              />
+            ))}
+          </Section>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

@@ -107,7 +107,12 @@ export function togglePriority(kind: PriorityKind, value: string): void {
  * Marks (`on`) or unmarks every one of these conversations, senders or domains that is not already
  * so, as one action with one Undo. Same rules as `togglePriority` for what is blocked.
  */
-export function setPriority(kind: PriorityKind, values: readonly string[], on: boolean): void {
+export function setPriority(
+  kind: PriorityKind,
+  values: readonly string[],
+  on: boolean,
+  options: { via?: string } = {},
+): { applied: number; ref?: string } {
   const applied: string[] = [];
   for (const value of values) {
     if (isPriorityEntry(current, kind, value) === on) continue;
@@ -115,9 +120,10 @@ export function setPriority(kind: PriorityKind, values: readonly string[], on: b
     commit(togglePriorityEntry(current, kind, value));
     applied.push(value);
   }
-  if (applied.length === 0) return;
+  if (applied.length === 0) return { applied: 0 };
   const target = countedTargets(kind, applied.length);
-  const title = on ? `Marked ${target} as priority` : `Removed the priority mark from ${target}`;
+  const by = options.via ? ` via ${options.via}` : "";
+  const title = `${on ? `Marked ${target} as priority` : `Removed the priority mark from ${target}`}${by}`;
   const context = applied.join(", ");
   const ref = newUndoRef("priority");
   recordAction("mail", title, "", { context, ref });
@@ -129,6 +135,7 @@ export function setPriority(kind: PriorityKind, values: readonly string[], on: b
       for (const value of applied) if (isPriorityEntry(current, kind, value) === on) commit(togglePriorityEntry(current, kind, value));
     },
   });
+  return { applied: applied.length, ref };
 }
 
 /**

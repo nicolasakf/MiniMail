@@ -220,6 +220,16 @@ body,
   height: 0;
   pointer-events: none;
 }
+/* A suggestion is on show after the cursor: it takes the placeholder's place, and is never selectable. */
+.mail-editor[data-empty="true"]:has(.mail-ghost)::before { display: none; }
+/* ProseMirror gives every non-editable widget `white-space: normal`; the selector is as specific as it needs to be to keep line breaks. */
+.mail-editor .mail-ghost[contenteditable="false"] {
+  color: hsl(var(--muted-foreground));
+  opacity: .75;
+  white-space: pre-wrap;
+  pointer-events: none;
+  user-select: none;
+}
 .mail-editor p { min-height: 1.5em; }
 .mail-editor h1 { font-size: 1.65em; font-weight: 700; margin: .35em 0; }
 .mail-editor h2 { font-size: 1.3em; font-weight: 600; margin: .3em 0; }

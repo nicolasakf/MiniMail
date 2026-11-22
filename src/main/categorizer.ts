@@ -10,6 +10,7 @@ import type {
 } from "@shared/types";
 
 import type { ModelPurpose } from "@shared/ai-models";
+import { DEFAULT_COMPLETION, type CompletionSettings } from "@shared/completion";
 import {
   DEFAULT_CODE_MODELS,
   DEFAULT_SORT_MODELS,
@@ -62,6 +63,7 @@ export interface CategorizerDeps {
   codeProvider?: () => ChatProvider;
   /** The model for the AI-enabled features (reading verification codes); empty means rules only. */
   codeModel?: () => string;
+  completion?: () => CompletionSettings;
   /** The model that sorts mail into categories; Jev when omitted. */
   sortModel?: () => string;
   /** One small call to `model` that rejects when it cannot be used (the test of the AI-enabled features model). */
@@ -159,6 +161,7 @@ export class Categorizer {
         model: this.deps.sortModel?.() ?? DEFAULT_SORT_MODELS[this.sortProvider()],
         codeModel: this.deps.codeModel?.() ?? DEFAULT_CODE_MODELS[this.codeProvider()],
         sortFolders: [...this.newMailFolders()],
+        completion: this.deps.completion?.() ?? { ...DEFAULT_COMPLETION },
         lastError: this.lastError,
         pending: this.queue.size + this.running.size,
         sorting: this.run ? snapshot(this.run, false, null) : this.lastRun,

@@ -66,10 +66,14 @@ const api: MiniMailApi = {
     setCodeModel: (model) => invoke(IPC.categoriesSetCodeModel, model),
     setSortModel: (model) => invoke(IPC.categoriesSetSortModel, model),
     setSortFolders: (folders) => invoke(IPC.categoriesSetSortFolders, folders),
+    setCompletion: (settings) => invoke(IPC.categoriesSetCompletion, settings),
     testModel: (purpose, model) => invoke(IPC.categoriesTest, { purpose, model }),
     reclassify: (options) => invoke(IPC.categoriesReclassify, options),
     sortCounts: (options) => invoke(IPC.categoriesSortCounts, options),
-    assign: (threads, categoryId, ref) => invoke(IPC.categoriesAssign, { threads, categoryId, ref }),
+    assign: (threads, categoryId, ref, via) => invoke(IPC.categoriesAssign, { threads, categoryId, ref, via }),
+  },
+  completion: {
+    suggest: (request) => invoke(IPC.completionSuggest, request),
   },
   senders: {
     trusted: () => invoke(IPC.sendersTrusted),
@@ -119,6 +123,17 @@ const api: MiniMailApi = {
     settings: () => invoke(IPC.notificationsGet),
     setSettings: (settings) => invoke(IPC.notificationsSet, settings),
     test: () => invoke(IPC.notificationsTest),
+  },
+  cli: {
+    get: () => invoke(IPC.cliGet),
+    set: (settings) => invoke(IPC.cliSet, settings),
+    onPageRequest: (listener) => {
+      const handler = (_event: unknown, message: { id: number; request: Parameters<typeof listener>[1] }) => listener(message.id, message.request);
+      ipcRenderer.on(IPC.cliPageRequest, handler);
+      return () => ipcRenderer.removeListener(IPC.cliPageRequest, handler);
+    },
+    pageReply: (reply) => ipcRenderer.send(IPC.cliPageReply, reply),
+    pageReady: () => ipcRenderer.send(IPC.cliPageReady),
   },
   events: {
     list: () => invoke(IPC.eventsList),

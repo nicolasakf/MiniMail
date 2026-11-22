@@ -2,7 +2,7 @@ import React from "react";
 
 import { cn } from "@/lib/utils";
 
-import { CmdOrCtrl, Enter } from "./keyboard-icons";
+import { CmdOrCtrl, Enter, Shift } from "./keyboard-icons";
 
 export type ShortcutElement = string | React.ComponentType<{ className?: string }>;
 export type ShortcutSequence = ShortcutElement | ShortcutElement[];
@@ -72,7 +72,9 @@ export function KeyboardShortcutBadge({
 export function shortcutSequence(hint: string): ShortcutElement[] {
   return hint.split(/\s+/).filter(Boolean).flatMap((part): ShortcutElement[] => {
     if (part === "↵") return [Enter];
-    if (part.startsWith("⌘")) return part.length > 1 ? [CmdOrCtrl, part.slice(1)] : [CmdOrCtrl];
+    // "⇧U", "⌘⇧U": Shift is its own key, the rest is read as before.
+    if (part.startsWith("⇧") && part.length > 1) return [Shift, ...shortcutSequence(part.slice(1))];
+    if (part.startsWith("⌘")) return part.length > 1 ? [CmdOrCtrl, ...shortcutSequence(part.slice(1))] : [CmdOrCtrl];
     if (/^ctrl\+./i.test(part)) return [CmdOrCtrl, part.slice(5)];
     return [part];
   });

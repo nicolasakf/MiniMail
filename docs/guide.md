@@ -83,7 +83,7 @@ fresh install (no account), so the first-run setup guide opens.
   trade you are choosing.
 
 Shortcuts: `↑ ↓` or `J K` move, `Enter` opens, `Esc` goes back, `E` done (archive),
-`#` / `Delete` trash, `P` pin, `U` read/unread, `X` select, `C` compose, `⌘K` search, `⌘F` finds words in the open conversation (`↵` / `⇧↵` or `⌘G` / `⇧⌘G` step through the matches, `Esc` closes), `⌘U` toggles the unread-only filter, `/` opens the menu of the selected item (also on right-click; type to filter its commands), `⌘Z` undoes the last archive / trash / spam / delete, `⌘↵` send.
+`#` / `Delete` trash, `P` pin, `U` read/unread, `X` select, `C` compose, `⌘K` search, `⌘F` finds words in the open conversation (`↵` / `⇧↵` or `⌘G` / `⇧⌘G` step through the matches, `Esc` closes), `⌘U` toggles the unread-only filter, `⌘⇧U` marks everything the list shows as read, `/` opens the menu of the selected item (also on right-click; type to filter its commands), `⌘Z` undoes the last archive / trash / spam / delete, `⌘↵` send.
 
 **Startup speed.** Each account loads on its own, so a slow server never holds back the others,
 and MiniMail keeps a copy of the last list it saw (sender, subject, a short preview) so the
@@ -160,6 +160,22 @@ why it stopped. The total is what has been queued so far, so it can grow as each
 here) and, for Outlook, the last-verb property Outlook writes when you reply. Replies and
 forwards from an Outlook account go out through Outlook's own reply draft, so they stay in the
 conversation in every Outlook client and the original is marked as replied there too.
+
+## Text completion
+
+While you write, a model can suggest what comes next as dimmed text after your cursor. **Tab** keeps it,
+**Esc** refuses it (Esc then does not close the message), and typing the first words of it keeps the rest
+in place. Turn it on under **Settings → AI Features → Text completion**, where you also choose how much it
+writes at once: a **sentence**, a **paragraph**, or the **full message** (signature aside). It is off until
+you turn it on. It has a model of its own, **Completion model**, on the provider you chose for the
+AI-enabled features. The default is `openai/gpt-4.1-nano`: a suggestion only helps when it arrives as you
+type, so pick a small model that answers directly, not a reasoning one.
+
+What leaves your computer: after you pause typing, the text before and after your cursor, the message you
+are answering and the few before it in the conversation, the subject and who you are writing to, to the
+provider you chose. Only text at the end of a paragraph is completed, and a failed request is logged once
+a minute at most, not on every pause. A reply opened again from a saved draft or in its own window has the
+quoted message but not the earlier ones.
 
 ## Logos and photos
 
@@ -270,6 +286,20 @@ accounts** and add `http://localhost` under **Mobile and desktop applications**.
 Configure delegated Graph permissions `User.Read`, `Mail.ReadWrite`,
 `Mail.Send`, and `offline_access`. Add `Calendars.ReadWrite` for optional
 invitation responses. See the [release guide](macos-release.md) for public builds.
+
+## The CLI for AI agents
+
+MiniMail has a `minimail` command that lets an AI agent on your computer, such as Claude Code, Codex or Cursor, work with your mail. It is **off** until you turn it on in **Settings, CLI** (or in the last, optional step of the setup guide).
+
+- **Only what you allow.** Each command has its own switch, in groups. **Read** (list, search, show, refresh, wait, categories, contacts), **Organize** (archive, trash, spam, mark read, pin, category, priority, mute, block, undo), **Drafts** and **Ask first**. Each change an agent makes is recorded in the Log as "via CLI" with an Undo, and `minimail undo` takes back its own changes.
+- **Nothing changes on screen when it reads.** Reading never opens a message and never marks it as read. Each read leaves one quiet row in the Log.
+- **Drafts are for you.** An agent can write drafts (new, reply, reply all, forward, with files) that appear in Drafts. It never sends one on its own, and it only changes drafts it wrote itself.
+- **Sending asks you first.** Sending a message, unsubscribing and answering an invitation cannot be undone, so MiniMail shows a card with exactly what will happen and waits: **Reject**, **Allow once** or **Always allow**. For sending, "always allow" adds the recipients to a list; a message goes out without asking only when everyone on it, Cc and Bcc included, is on that list. A draft with files the agent attached always asks. You can also let it send to anyone (Settings warns you first) or turn any of these off.
+- **Sign-in codes are never given out.** A message that contains one comes back as withheld, without its text, and a search cannot find it by its words; an agent cannot reply to or forward it either. Anyone can email an agent instructions to pass a code on, and a code can be enough to take over an account. Detection uses rules and, when AI sorting is set up, its model: it catches most codes, not all.
+- **Links are hidden.** Every link in mail reaches the agent as `[link example.com]`, so a password reset or sign-in link never does. You can turn that off; the page warns you first.
+- **The skill.** Tick the agents you use and MiniMail adds a short skill file that teaches them to use the command and to treat mail as untrusted. Claude Code has its own folder; Codex, Cursor, Gemini CLI and GitHub Copilot all read `~/.agents/skills`, so one tick covers them. It is removed when you turn the CLI off, and MiniMail never touches a file it did not write.
+- **In your own terminal.** While the CLI is on, MiniMail keeps a link at `~/.local/bin/minimail` (make sure that folder is on your PATH; "Use minimail in your terminal" turns it off). Agents try `minimail` first and use the full path if the shell cannot find it. `minimail help` lists everything, and `minimail show <id> --headers` shows where a message came from without its text.
+- **Who can use it.** While it is on, any program running as you can use the command, so keep it off when you do not need it. It does not work from other users or other computers.
 
 ## Layout
 

@@ -51,6 +51,7 @@ import { AccountErrorToasts, EmptyList, ListSkeleton, NoAccounts } from "@/compo
 import { BlockMenuButton, CategoryMenuButton, MuteMenuButton, PrioritySelectionMenuButton, ThreadView } from "@/components/mail/thread-view";
 import { useIsMac } from "@/hooks/use-platform";
 import { SettingsDialog, type SettingsTab } from "@/components/settings/settings-dialog";
+import { CliConfirmDialog } from "@/components/mail/cli-confirm-dialog";
 import { OnboardingDialog } from "@/components/mail/onboarding-dialog";
 import { useOnboarding } from "@/hooks/use-onboarding";
 import { ConfirmPopover } from "@/components/ui/confirm-popover";
@@ -61,12 +62,15 @@ import { useDashboardMail } from "@/hooks/use-dashboard-mail";
 import { useConversationMail } from "@/hooks/use-conversation-mail";
 import { useMinimizedCategories } from "@/hooks/use-minimized-categories";
 import { useHiddenFolderMatches } from "@/hooks/use-hidden-folder-matches";
+import { useCliPage } from "@/hooks/use-cli-page";
+import { askPerson } from "@/lib/cli-confirm";
+import { unsubscribeForCli } from "@/lib/cli-unsubscribe";
 import { SHOWN_FOLDERS, searchLookupsFor, useMailbox } from "@/hooks/use-mailbox";
 import { api } from "@/lib/api";
 import { effectiveCategoryLayout, setAppearance, useAppearance } from "@/lib/appearance";
 import { newMessageSeed, type ComposeSeed } from "@/lib/compose";
 import { refreshContacts } from "@/lib/contact-cache";
-import { deleteDraft, removeServerDraft, saveDraft, seedFromDraft, seedFromServerDraft, useDrafts } from "@/lib/drafts";
+import { deleteDraft, listDrafts, newDraftId, removeServerDraft, saveDraft, seedFromDraft, seedFromServerDraft, useDrafts } from "@/lib/drafts";
 import { setDraftsPinned, usePinnedDrafts } from "@/lib/pinned-drafts";
 import { draftIdOf, draftMessage, draftThreads, isLocalDraftId } from "@/lib/local-drafts";
 import { contactLabel, FOLDER_TITLES } from "@/lib/format";
@@ -235,6 +239,7 @@ export function MailApp() {
     setQuery,
     refresh,
     act: mailboxAct,
+    perform: mailboxPerform,
     assignCategory,
     undo,
     actions,
@@ -453,6 +458,8 @@ export function MailApp() {
   }, []);
 
   const [openThreadId, setOpenThreadId] = useState<string | null>(null);
+  /** Split view only: the open conversation fills the window (Enter or a double click), as without the split view. */
+  const [readFull, setReadFull] = useState(false);
   /** The group whose own list is showing (Category view). */
   const [openGroupKind, setOpenGroupKind] = useState<GroupKind | null>(null);
   /** The sender picked in the Sender view's panel; the first one stands in until one is picked. */
@@ -700,7 +707,22 @@ export function MailApp() {
 
   const selectedItem = navigable.find((item) => item.key === selectedKey);
   /** The conversation that replaces the list, full screen; in the split view it sits beside it instead. */
-  const fullOpen = openThread !== undefined && !split;
+  const fullOpen = openThread !== undefined && (!split || readFull);
+  // The full screen reading ends with the conversation, and with the split view.
+  useEffect(() => {
+    if (readFull && (!split || !openThread)) setReadFull(false);
+  }, [readFull, split, openThread]);
+  /**
+   * Back from a conversation read full screen: the list returns, and the conversation leaves the
+   * split view's pane too (`keepPane`: the pane already moved on to a neighbor, after deleting it).
+   */
+  const leaveFull = useCallback(
+    (keepPane = false) => {
+      setReadFull(false);
+      if (!keepPane) setOpenThreadId(null);
+    },
+    [],
+  );
   /** The conversation beside the list (split view), if one is shown. */
   const paneThread = split ? openThread : undefined;
   /** Several conversations are selected: the pane shows how many instead of one of them. */
@@ -867,6 +889,28 @@ export function MailApp() {
 
   const { settings: notifySettings, update: updateNotify } = useNotificationSettings();
 
+  // The CLI acts through this page, so what an agent does has an Undo and a Log row like a click.
+  useCliPage({
+    perform: mailboxPerform,
+    settle: (batch, timeoutMs) => actions.whenSettled(batch, timeoutMs),
+    assignCategory,
+    notifySettings: () => notifySettings,
+    updateNotify,
+    ask: askPerson,
+    unsubscribe: (rows) => unsubscribeForCli(rows, unsubscribedLists, { unsubscribe: api.mail.unsubscribe, remember: recordUnsubscribed }),
+    accounts: () => accounts,
+    drafts: {
+      list: listDrafts,
+      save: saveDraft,
+      // `deleteDraft` reports its own failure instead of throwing, so check that the draft is really gone.
+      remove: async (id) => {
+        await deleteDraft(id);
+        if (listDrafts().some((draft) => draft.id === id)) throw new Error("The draft could not be deleted. The Log says why.");
+      },
+      newId: newDraftId,
+    },
+  });
+
   /**
    * Mutes (or, when all of them already are, unmutes) these conversations, or their sender or domain.
    * Only notifications stop: the mail is filed where it always was.
@@ -1016,11 +1060,11 @@ export function MailApp() {
   /** Searches the list for one person's address, leaving a conversation that is open full screen. */
   const searchFrom = useCallback(
     (contact: Contact) => {
-      if (fullOpen) setOpenThreadId(null);
+      if (fullOpen) leaveFull();
       setQuery(contact.email);
       setSearchOpen(true);
     },
-    [fullOpen, setQuery],
+    [fullOpen, leaveFull, setQuery],
   );
 
   /** Blocked mail in the Inbox or Archive goes to the Trash, new arrivals included; each message is sent once. */
@@ -1049,6 +1093,20 @@ export function MailApp() {
     },
     [act, threads],
   );
+
+  /** Every unread message of the conversations the list shows (its filters applied) goes to read. */
+  const unreadInList = useMemo(
+    () => threads.flatMap((thread) => thread.messages).filter((message) => message.unread),
+    [threads],
+  );
+  const markAllRead = useCallback(() => {
+    if (unreadInList.length === 0) return;
+    void act(
+      "markRead",
+      unreadInList.map((message) => message.id),
+      unreadInList,
+    );
+  }, [act, unreadInList]);
 
   const toggleSection = useCallback((key: string) => {
     if (key === MINIMIZED_SECTION) {
@@ -1104,6 +1162,8 @@ export function MailApp() {
   const closeGroup = useCallback(() => {
     if (openGroupKind !== null) setSelectedKey(`group:${openGroupKind}`);
     setOpenGroupKind(null);
+    // The conversation the category opened beside the list goes with it.
+    setOpenThreadId(null);
     setChecked(new Set());
     openFirstInPane.current = false;
   }, [openGroupKind]);
@@ -1347,7 +1407,12 @@ export function MailApp() {
    */
   const openFromList = useCallback(
     (thread: Thread) => {
-      if (folder !== "drafts" || inDrill) return showInPane(thread.id);
+      if (folder !== "drafts" || inDrill) {
+        showInPane(thread.id);
+        // Enter or a double click in the split view reads it full screen; one click only shows it beside the list.
+        if (split) setReadFull(true);
+        return;
+      }
       const message = thread.latest;
       const localId = draftIdOf(message.id);
       if (localId !== null) {
@@ -1370,7 +1435,7 @@ export function MailApp() {
         }
       })();
     },
-    [folder, inDrill, savedDrafts, showInPane, startCompose],
+    [folder, inDrill, savedDrafts, showInPane, split, startCompose],
   );
 
   const editCategories = useCallback(() => {
@@ -1455,7 +1520,7 @@ export function MailApp() {
 
     if (thread) {
       const entries: MenuEntry[] = [];
-      if (!fullOpen && openThread?.id !== thread.id) {
+      if (!fullOpen && (split || openThread?.id !== thread.id)) {
         entries.push({
           id: "open",
           label: "Open",
@@ -1695,6 +1760,7 @@ export function MailApp() {
     setCategoryMinimized,
     openThread,
     fullOpen,
+    split,
     listFolder,
     threadFolder,
     actOnThread,
@@ -1758,6 +1824,20 @@ export function MailApp() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isMac, activeComposer, dialogOpen, onDashboard, drill, unreadOnly, setUnreadOnly]);
+
+  // ⇧⌘U (Ctrl+Shift+U elsewhere) marks everything the list shows as read; same guards as ⌘U.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== "u" || !event.shiftKey || event.altKey) return;
+      if (!(isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey)) return;
+      if (activeComposer || dialogOpen || isTypingTarget(event.target)) return;
+      if (onDashboard && !drill) return; // the charts have no list
+      event.preventDefault();
+      markAllRead();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isMac, activeComposer, dialogOpen, onDashboard, drill, markAllRead]);
 
   // ⌘1–⌘4 (Ctrl+1–4 elsewhere) switch the rail's tabs: Dashboard, Inbox, Drafts, Sent.
   useEffect(() => {
@@ -1845,7 +1925,7 @@ export function MailApp() {
         }
         if (!target) return;
         actOnThread(action, target);
-        if (fullOpen && action === "deleteForever") setOpenThreadId(null);
+        if (fullOpen && action === "deleteForever") leaveFull(true);
       };
       /** Archive, trash and spam need the same key twice within a few seconds: the first press only arms it. */
       const confirmThenAct = (action: MailAction) => {
@@ -1913,9 +1993,10 @@ export function MailApp() {
 
       switch (event.key) {
         case "Escape":
-          if (fullOpen) setOpenThreadId(null);
+          if (fullOpen) leaveFull();
           else if (checked.size > 0) setChecked(new Set());
-          else if (openThread) showInPane(null);
+          // Inside a category or a Dashboard list the pane's conversation was opened for you: Esc goes back at once.
+          else if (openThread && !openGroup && !inDrill) showInPane(null);
           else if (openGroup) closeGroup();
           else if (searchOpen) {
             setQuery("");
@@ -2060,6 +2141,7 @@ export function MailApp() {
     openMenuForSelection,
     openThread,
     fullOpen,
+    leaveFull,
     showInPane,
     openFromList,
     searchOpen,
@@ -2223,6 +2305,7 @@ export function MailApp() {
   const headerActions = {
     unreadOnly,
     onUnreadOnlyChange: setUnreadOnly,
+    onMarkAllRead: unreadInList.length > 0 && folder !== "drafts" ? markAllRead : null,
     // Only the Inbox list and a Dashboard list can show Archive, Trash and Spam mail.
     shownFolders: inDrill ? drillShown : folder === "inbox" ? shownFolders : null,
     onToggleFolder: inDrill ? toggleDrillFolder : toggleShownFolder,
@@ -2366,7 +2449,15 @@ export function MailApp() {
 
   /** What a swipe to the left goes back to, as Escape does; null when there is nothing to go back to. */
   const swipeBack =
-    fullOpen && openThread ? () => setOpenThreadId(null) : openGroup ? closeGroup : inDrill ? closeDrill : null;
+    fullOpen && openThread
+      ? () => leaveFull()
+      : paneThread && !openGroup && !inDrill
+        ? () => showInPane(null)
+        : openGroup
+          ? closeGroup
+          : inDrill
+            ? closeDrill
+            : null;
   const mainRef = useRef<HTMLElement>(null);
   useSwipeBack(mainRef, swipeBack);
 
@@ -2422,10 +2513,10 @@ export function MailApp() {
             thread={viewedThread ?? openThread}
             folder={threadFolder(openThread)}
             accounts={accounts}
-            onBack={() => setOpenThreadId(null)}
+            onBack={() => leaveFull()}
             onAction={(action) => {
               actOnThread(action, openThread);
-              if (action === "deleteForever") setOpenThreadId(null);
+              if (action === "deleteForever") leaveFull(true);
             }}
             onCompose={startCompose}
             categories={openThreadCategories}
@@ -2610,7 +2701,7 @@ export function MailApp() {
           onConfirm={() => {
             const { thread } = deleteConfirm;
             actOnThread("deleteForever", thread);
-            if (fullOpen) setOpenThreadId(null);
+            if (fullOpen) leaveFull(true);
           }}
           side="bottom"
           align="start"
@@ -2677,6 +2768,9 @@ export function MailApp() {
           if (openCategories) editCategories();
         }}
       />
+
+      {/* Asks before the CLI does something that cannot be taken back. */}
+      <CliConfirmDialog />
     </div>
   );
 }

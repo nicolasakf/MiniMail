@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { promises as dns } from "node:dns";
@@ -11,8 +12,17 @@ import type { OpenConversationRequest } from "@shared/notifications";
 
 import { AiSettingsStore } from "./ai-settings";
 import { AttachmentFiles } from "./attachment-files";
+import { abortableSleep, CliDrafts, handleCliRequest, UndoRefs, type CliBackend } from "./cli/commands";
+import { CliController } from "./cli/controller";
+import { appBundleOf, cliPaths } from "./cli/launcher";
+import { PageBridge, PageTimeoutError } from "./cli/page-bridge";
+import { draftToSend } from "./cli/send";
+import { resolveRows } from "./cli/rows";
+import { CliServer } from "./cli/server";
+import { CliSettingsStore } from "./cli/settings";
 import { InvitationAnswers } from "./invitation-answers";
 import { checkCodeModel, createCodeFallback } from "./code-fallback";
+import { Completer } from "./completion";
 import { Categorizer } from "./categorizer";
 import { VerificationCodes } from "./verification-codes";
 import { AiKeyStore, CategoryStore } from "./category-store";
@@ -36,6 +46,7 @@ import { NotificationSettingsStore } from "./notification-settings";
 import { Notifier } from "./notifier";
 import { setNetworkProbe } from "./network";
 import { POLL_INTERVAL_MS, Polling } from "./polling";
+import { SettingsFile } from "./settings-file";
 import { UiPrefsStore } from "./ui-prefs";
 import { TrustedSenders } from "./trusted-senders";
 import { MailCache } from "./mail-cache";
@@ -93,6 +104,11 @@ process.on("unhandledRejection", (reason) => {
 const rendererUrl = process.env["ELECTRON_RENDERER_URL"];
 
 let mainWindow: BrowserWindow | null = null;
+/** MiniMail was started by the CLI (`open -g ... --hidden`): the window loads but stays out of the way until the person asks for it. */
+let startedHidden = process.argv.includes("--hidden");
+let cliServer: CliServer | null = null;
+let pageBridge: PageBridge | null = null;
+let cliController: CliController | null = null;
 let service: MailService | null = null;
 let categoryStore: CategoryStore | null = null;
 let mailCache: MailCache | null = null;
@@ -163,6 +179,10 @@ function createWindow(): void {
   mainWindow = window;
 
   window.once("ready-to-show", () => {
+    if (startedHidden) {
+      perfLog("window ready, kept hidden");
+      return;
+    }
     perfLog("window shown");
     window.show();
   });
@@ -181,8 +201,11 @@ function createWindow(): void {
   window.on("focus", () => {
     if (polling.focused(net.isOnline())) window.webContents.send(IPC.mailChanged);
   });
+  // What the CLI asked of the page is lost when the page reloads or the window closes; the page announces itself again.
+  window.webContents.on("did-start-loading", () => pageBridge?.pageGone("The MiniMail window reloaded."));
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
+    pageBridge?.pageGone("The MiniMail window was closed.");
   });
 
   protectNavigation(window);
@@ -226,6 +249,29 @@ function showNotification({ title, body, silent, open }: { title: string; body: 
   notification.show();
 }
 
+/** Brings the window to the front, making it first if it was closed or never shown. */
+function showMainWindow(): void {
+  startedHidden = false;
+  if (!mainWindow) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+/** Opens a conversation in the window, waiting for the page when it is still loading (a hidden start). */
+function openConversation(request: OpenConversationRequest): void {
+  showMainWindow();
+  const window = mainWindow;
+  if (!window) return;
+  if (window.webContents.isLoading()) {
+    // The page has to be listening first; a moment after it finished loading is enough.
+    window.webContents.once("did-finish-load", () => setTimeout(() => window.webContents.send(IPC.mailOpenConversation, request), 600));
+  } else window.webContents.send(IPC.mailOpenConversation, request);
+}
+
 function startPolling(): void {
   const refresh = (): void => {
     polling.refreshed();
@@ -246,10 +292,7 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
+    if (mainWindow) showMainWindow();
   });
 
   void app.whenReady().then(() => {
@@ -265,14 +308,16 @@ if (!app.requestSingleInstanceLock()) {
     logEvent("app", `MiniMail ${app.getVersion()} started`, "info");
     const store = new AccountStore(join(userData, "accounts.json"));
     categoryStore = new CategoryStore(join(userData, "categories.json"));
+    const settings = new SettingsFile(join(userData, "settings.json"));
     const keys = new AiKeyStore(join(userData, "ai-gateway.json"), safeStorage);
-    const aiSettings = new AiSettingsStore(join(userData, "ai-settings.json"), { keyAlreadySet: keys.any() });
+    const aiSettings = new AiSettingsStore(settings.section("ai"), { keyAlreadySet: keys.any() });
     const categorizer = new Categorizer({
       store: categoryStore,
       keys,
       sortProvider: () => aiSettings.sortProvider(),
       codeProvider: () => aiSettings.codeProvider(),
       codeModel: () => aiSettings.codeModel(),
+      completion: () => aiSettings.completion(),
       sortModel: () => aiSettings.sortModel(),
       checkCodeModel,
       sortFolders: () => aiSettings.sortFolders(),
@@ -282,6 +327,10 @@ if (!app.requestSingleInstanceLock()) {
         mainWindow?.webContents.send(IPC.mailChanged);
         void notifier?.check(); // A message waiting for its category may be ready now.
       },
+    });
+    const completer = new Completer({
+      settings: () => aiSettings.completion(),
+      model: () => ({ provider: aiSettings.codeProvider(), apiKey: keys.get(aiSettings.codeProvider()), model: aiSettings.completion().model }),
     });
     mailCache = new MailCache(join(userData, "mail-cache.json"), safeStorage);
     perfLog("stores loaded", `${store.list().length} accounts`);
@@ -323,7 +372,7 @@ if (!app.requestSingleInstanceLock()) {
       },
     });
     logoCache = new LogoCache(join(userData, "logos.json"), safeStorage);
-    const logoSettings = new LogoSettingsStore(join(userData, "logo-settings.json"));
+    const logoSettings = new LogoSettingsStore(settings.section("logos"));
     const finder = { fetch: safeFetch, resolveTxt: (name: string) => dns.resolveTxt(name) };
     const logos = new LogoService({
       cache: logoCache,
@@ -332,7 +381,7 @@ if (!app.requestSingleInstanceLock()) {
       findSite: (domain) => findSiteIcon(domain, finder),
       findPerson: (email) => findGravatar(email, finder),
     });
-    const notificationSettings = new NotificationSettingsStore(join(userData, "notification-settings.json"));
+    const notificationSettings = new NotificationSettingsStore(settings.section("notifications"));
     notifier = new Notifier({
       settings: () => notificationSettings.get(),
       list: (folder) => service!.list({ folder, limit: 40 }),
@@ -353,12 +402,95 @@ if (!app.requestSingleInstanceLock()) {
         mainWindow?.webContents.send(IPC.mailChanged);
       },
     );
+    const paths = cliPaths(userData);
+    const cliSettings = new CliSettingsStore(settings.section("cli"));
+    const bridge = new PageBridge({
+      send: (id, request) => {
+        if (!mainWindow || mainWindow.isDestroyed()) return false;
+        mainWindow.webContents.send(IPC.cliPageRequest, { id, request });
+        return true;
+      },
+      // No window open (the app is running in the background): make one and keep it out of sight.
+      ensurePage: () => {
+        if (mainWindow) return;
+        startedHidden = true;
+        createWindow();
+      },
+    });
+    pageBridge = bridge;
+    const undos = new UndoRefs();
+    const cliDrafts = new CliDrafts();
+    const cliBackend: CliBackend = {
+      version: app.getVersion(),
+      accounts: () => service!.listAccounts(),
+      list: (query) => service!.list(query),
+      get: (ids) => service!.get(ids),
+      categories: () => categorizer.state().categories,
+      contacts: () => service!.contacts(),
+      carriesCode: (detail) => codes.carriesCode(detail),
+      openConversation,
+      rows: (ids) => resolveRows((query) => service!.list(query), ids),
+      page: (request) => bridge.request(request),
+      draft: (id) => drafts.list().find((candidate) => candidate.id === id),
+      send: async (saved, at) => {
+        const draft = draftToSend(saved);
+        // A scheduled message is kept by the delivery queue, which takes the draft out of Drafts itself.
+        if (at !== null) return delivery!.schedule({ ...saved, serverMessageId: undefined }, draft, at);
+        await service!.send(draft);
+        drafts.remove(saved.id);
+        for (const window of BrowserWindow.getAllWindows()) window.webContents.send(IPC.draftsChanged);
+      },
+      confirm: async (card) => {
+        // Said plainly and without the subject or the people, which anyone looking at the screen could read.
+        if (BrowserWindow.getFocusedWindow() === null) {
+          showNotification({ title: "MiniMail is waiting for your answer", body: `A command-line agent wants to ${card.action === "send" ? "send a message" : card.action === "unsubscribe" ? "unsubscribe you from a list" : "answer an invitation"}.`, silent: false });
+        }
+        try {
+          const answer = await bridge.request({ kind: "confirm", card }, 5 * 60_000);
+          return answer.decision ?? "reject";
+        } catch (error) {
+          if (error instanceof PageTimeoutError) return "no-answer";
+          throw error;
+        }
+      },
+      changeSettings: async (change) => void (await cliController!.set(change(cliSettings.get()))),
+      respond: (id, response) => service!.respondToInvitation(id, response),
+      notify: (title, body) => showNotification({ title, body, silent: false }),
+    };
+    cliServer = new CliServer({
+      socketPath: paths.socket,
+      enabled: () => cliSettings.get().enabled,
+      handle: (request, signal) =>
+        handleCliRequest(
+          request,
+          {
+            settings: () => cliSettings.get(),
+            backend: cliBackend,
+            undos,
+            drafts: cliDrafts,
+            // What was read stays private: the subjects and the search go in `context`, never in the title.
+            record: (title, detail, context) => recordInfo("cli", title, detail, context ? { context } : {}),
+            now: Date.now,
+            sleep: abortableSleep,
+          },
+          signal,
+        ),
+    });
+    const cli = (cliController = new CliController({
+      store: cliSettings,
+      server: cliServer,
+      paths,
+      home: homedir(),
+      executable: process.execPath,
+      appBundle: appBundleOf(process.execPath, app.isPackaged),
+    }));
     registerIpc({
       service,
       attachmentFiles,
       notifier,
       notificationSettings,
       categorizer,
+      completer,
       aiSettings,
       codes,
       logos,
@@ -367,24 +499,26 @@ if (!app.requestSingleInstanceLock()) {
       composeLibrary: new ComposeLibraryStore(join(userData, "compose-library.json"), safeStorage),
       drafts,
       delivery,
-      prefs: new UiPrefsStore(join(userData, "ui-prefs.json")),
+      prefs: new UiPrefsStore(settings.section("ui")),
       journal,
       oauthConfig,
       rendererUrl,
       openExternal: openExternalSafely,
       openLog,
+      cli,
+      pageBridge: bridge,
     });
 
     registerComposerWindows(() => mainWindow, rendererUrl, protectNavigation);
     createWindow();
     startPolling();
     delivery.start();
+    // The socket, the `minimail` command and the skills follow the saved choice: all absent while the CLI is off.
+    void cli.apply();
     // The history is read after the window is on its way, in small slices, so it never delays launch.
     setTimeout(() => void journal?.load(), 0);
 
-    app.on("activate", () => {
-      if (!mainWindow) createWindow();
-    });
+    app.on("activate", () => showMainWindow());
   });
 
   app.on("window-all-closed", () => {
@@ -405,6 +539,7 @@ if (!app.requestSingleInstanceLock()) {
     recordInfo("app", "MiniMail quit");
     flushJournal();
     delivery?.stop();
+    void cliServer?.stop(); // removes the socket file at once
     if (pollTimer) clearInterval(pollTimer);
     setDockBadge(0);
     categoryStore?.flush();

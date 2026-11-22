@@ -2,12 +2,15 @@ import { normalizeAlias, providerForEmailDomain } from "@shared/accounts";
 import { zohoSettings } from "@shared/imap-settings";
 import { trustKey } from "@shared/trust";
 import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "@shared/notifications";
+import { DEFAULT_CLI_SETTINGS, SKILL_TARGETS, type CliSettings, type CliState } from "@shared/cli";
 import { DEFAULT_LOGO_SETTINGS, isFreemail, logoKey, type LogoRequest, type LogoSettings } from "@shared/logos";
 import type { AccountCapabilities, MiniMailApi } from "@shared/api";
 import type { AppEvent } from "@shared/events";
 import { SORT_MODEL_PATTERN } from "@shared/ai-models";
+import { DEFAULT_COMPLETION, type CompletionSettings } from "@shared/completion";
 import {
   DEFAULT_CODE_MODELS,
+  DEFAULT_COMPLETION_MODELS,
   DEFAULT_SORT_MODELS,
   noKeys,
   PROVIDER_LABELS,
@@ -715,6 +718,20 @@ export function createDemoApi(): MiniMailApi {
   let demoLibrary: Awaited<ReturnType<MiniMailApi["composeLibrary"]["get"]>> = { signatures: [] };
   let demoDrafts: SavedDraft[] = [];
   let demoNotifications: NotificationSettings = structuredClone(DEFAULT_NOTIFICATION_SETTINGS);
+  let demoCli: CliSettings = structuredClone(DEFAULT_CLI_SETTINGS);
+  const demoCliState = (): CliState => ({
+    settings: structuredClone(demoCli),
+    launcher: demoCli.enabled ? "/Users/you/Library/Application Support/MiniMail/cli/minimail" : null,
+    running: demoCli.enabled,
+    skills: SKILL_TARGETS.map((target) => ({
+      id: target.id,
+      label: target.label,
+      folder: target.folder,
+      detected: target.id === "claude",
+      installed: demoCli.enabled && demoCli.skillTargets.includes(target.id),
+    })),
+    pathLink: { path: "~/.local/bin/minimail", installed: demoCli.enabled && demoCli.pathLink },
+  });
   let demoPrefs: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [], onboarded: null };
   const aiKeys = noKeys();
   let sortProvider: AiProvider = "vercel";
@@ -736,6 +753,7 @@ export function createDemoApi(): MiniMailApi {
   let codeModel: string = DEFAULT_CODE_MODELS.vercel;
   let sortModel: string = DEFAULT_SORT_MODELS.vercel;
   let sortFolders: SortFolder[] = [...SORT_FOLDERS];
+  let completion: CompletionSettings = { ...DEFAULT_COMPLETION };
   const categoryState = (): CategoryState => ({
     categories: categories.map((category) => ({ ...category })),
     ai: {
@@ -747,6 +765,7 @@ export function createDemoApi(): MiniMailApi {
       model: sortModel,
       codeModel,
       sortFolders: [...sortFolders],
+      completion: { ...completion },
       lastError: null,
       pending: 0,
       sorting: sortProgress(),
@@ -990,6 +1009,18 @@ export function createDemoApi(): MiniMailApi {
       },
       onOpenConversation() { return () => {}; },
     },
+    completion: {
+      // A canned answer after a short wait, so the dimmed text can be tried without a key.
+      async suggest(request) {
+        await wait(350);
+        if (!completion.enabled || !aiKeys[codeProvider] || !completion.model) return "";
+        const sentence = "Thanks for sending this over, I will take a look and come back to you tomorrow.";
+        const paragraph = `${sentence} If anything is urgent in the meantime, just let me know.`;
+        const answer = completion.length === "sentence" ? sentence : paragraph;
+        const spaced = request.before.length > 0 && !/\s$/.test(request.before) ? ` ${answer}` : answer;
+        return completion.length === "full" ? `${spaced}\n\nBest regards` : spaced;
+      },
+    },
     senders: {
       async trusted() {
         return [...trustedSenders];
@@ -1095,12 +1126,13 @@ export function createDemoApi(): MiniMailApi {
         if (provider !== codeProvider) {
           codeProvider = provider;
           if (codeModel !== "") codeModel = DEFAULT_CODE_MODELS[provider];
+          if (completion.model !== "") completion = { ...completion, model: DEFAULT_COMPLETION_MODELS[provider] };
         }
         return categoryState();
       },
       async setCodeModel(model) {
         await wait(40);
-        if (!CODE_MODEL_PATTERN.test(model.trim())) throw new Error('Use a model id like "reflection/beam".');
+        if (!CODE_MODEL_PATTERN.test(model.trim())) throw new Error('Use a model id like "openai/gpt-4.1-nano".');
         codeModel = model.trim();
         return categoryState();
       },
@@ -1113,6 +1145,11 @@ export function createDemoApi(): MiniMailApi {
       async setSortFolders(folders) {
         await wait(40);
         sortFolders = [...folders];
+        return categoryState();
+      },
+      async setCompletion(settings) {
+        await wait(40);
+        completion = { ...settings, model: settings.model.trim() };
         return categoryState();
       },
       async testModel(purpose, model) {
@@ -1142,6 +1179,19 @@ export function createDemoApi(): MiniMailApi {
           ).size;
         return { inbox: count("inbox"), archive: count("archive"), spam: count("spam"), trash: count("trash") };
       },
+    },
+    cli: {
+      async get() {
+        return demoCliState();
+      },
+      async set(next) {
+        demoCli = structuredClone(next);
+        return demoCliState();
+      },
+      // The demo has no main process to ask the page for anything.
+      onPageRequest: () => () => undefined,
+      pageReply: () => undefined,
+      pageReady: () => undefined,
     },
     notifications: {
       async settings() {

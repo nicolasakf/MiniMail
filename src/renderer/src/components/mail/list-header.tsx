@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   Check,
+  CheckCheck,
   ChevronDown,
   Mail,
   MailOpen,
@@ -79,6 +80,7 @@ function HeaderIconButton({
   activeClassName,
   className,
   badge,
+  disabled,
   onClick,
   children,
 }: {
@@ -95,6 +97,8 @@ function HeaderIconButton({
   className?: string;
   /** A small number on the corner of the button (matches waiting behind it). */
   badge?: number;
+  /** Greyed out and inert (nothing to act on). */
+  disabled?: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -105,9 +109,10 @@ function HeaderIconButton({
           type="button"
           aria-label={label}
           aria-pressed={pressed}
+          disabled={disabled}
           onClick={onClick}
           className={cn(
-            "corner-squircle electron-no-drag relative flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+            "corner-squircle electron-no-drag relative flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40",
             pressed &&
               (activeClassName ??
                 "bg-accent text-sidebar-primary hover:text-sidebar-primary"),
@@ -331,6 +336,8 @@ export function AccountSwitcher({
 interface HeaderActionsProps {
   unreadOnly: boolean;
   onUnreadOnlyChange: (on: boolean) => void;
+  /** Marks every unread conversation of the list as read; null where the list has none to act on. */
+  onMarkAllRead: (() => void) | null;
   /** The folders checked in the Inbox list; null when this list cannot show other folders. */
   shownFolders: readonly ShownFolder[] | null;
   onToggleFolder: (folder: ShownFolder) => void;
@@ -404,15 +411,24 @@ export function FolderFilterGroup({
 function FilterGroup({
   unreadOnly,
   onUnreadOnlyChange,
+  onMarkAllRead,
   shownFolders,
   onToggleFolder,
   hiddenMatches,
 }: Pick<
   HeaderActionsProps,
-  "unreadOnly" | "onUnreadOnlyChange" | "shownFolders" | "onToggleFolder" | "hiddenMatches"
+  "unreadOnly" | "onUnreadOnlyChange" | "onMarkAllRead" | "shownFolders" | "onToggleFolder" | "hiddenMatches"
 >) {
   return (
     <>
+      <HeaderIconButton
+        label="Mark all as read"
+        hint="⌘⇧U"
+        disabled={!onMarkAllRead}
+        onClick={() => onMarkAllRead?.()}
+      >
+        <CheckCheck className="size-[18px]" />
+      </HeaderIconButton>
       <HeaderIconButton
         label="Show unread only"
         tooltip={unreadOnly ? "Showing unread only" : "Show unread only"}
@@ -446,6 +462,7 @@ export const FOCUS_SEARCH_EVENT = "minimail:focus-search";
 function HeaderActions({
   unreadOnly,
   onUnreadOnlyChange,
+  onMarkAllRead,
   shownFolders,
   onToggleFolder,
   hiddenMatches,
@@ -486,6 +503,7 @@ function HeaderActions({
       <FilterGroup
         unreadOnly={unreadOnly}
         onUnreadOnlyChange={onUnreadOnlyChange}
+        onMarkAllRead={onMarkAllRead}
         shownFolders={shownFolders}
         onToggleFolder={onToggleFolder}
         hiddenMatches={hiddenMatches}

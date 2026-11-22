@@ -30,6 +30,13 @@ export const SHOWN_FOLDERS: readonly ShownFolder[] = ["inbox", "archive", "trash
 /** "all" means every account; otherwise an account id. */
 export type AccountScope = "all" | string;
 
+/** What came of a command on messages: its batch, how many it changed, and the `ref` of its Undo (when it has one). */
+export interface ActResult {
+  batch: number;
+  count: number;
+  ref?: string;
+}
+
 const UNDOABLE: Partial<Record<MailAction, string>> = {
   archive: "archived",
   trash: "moved to Trash",
@@ -325,16 +332,22 @@ export function useMailbox(
     };
   }, [actions]);
 
-  const act = useCallback(
-    (action: MailAction, ids: string[], source: readonly MessageSummary[] = messagesRef.current) => {
+  /**
+   * Runs a command on these messages and says what became of it. `via` is who asked when it was not a
+   * click ("CLI"): the command then goes to the server at once (nobody is looking at the 6-second
+   * Undo toast), the Log says "via CLI", and the answer comes back to the one that asked.
+   */
+  const perform = useCallback(
+    (action: MailAction, ids: string[], source: readonly MessageSummary[] = messagesRef.current, options: { via?: string } = {}): ActResult => {
       const wanted = new Set(ids);
       const rows = source.filter((row) => wanted.has(row.id));
       const done = UNDOABLE[action];
-      const { batch, count, undoable } = actions.enqueue(action, rows, !!done, (id) => toast.dismiss(`undo-${id}`));
+      const { batch, count, undoable } = actions.enqueue(action, rows, !!done && !options.via, (id) => toast.dismiss(`undo-${id}`), undefined, options.via);
       // ⌘Z and the Undo on the Log row take it back from here, whether or not it has been sent yet.
-      if (count && actions.canRevert(batch)) {
+      const ref = count && actions.canRevert(batch) ? undoRef(batch) : undefined;
+      if (ref) {
         undoStack.push({
-          ref: undoRef(batch),
+          ref,
           label: `${ACTION_LABEL[action]} (${count === 1 ? "a message" : `${count} messages`})`,
           logged: true,
           run: () => void actions.revert(batch),
@@ -347,18 +360,25 @@ export function useMailbox(
           action: { label: "Undo", onClick: () => undoStack.undo(undoRef(batch)) },
         });
       }
+      return { batch, count, ref };
     },
     [actions],
+  );
+  const act = useCallback(
+    (action: MailAction, ids: string[], source: readonly MessageSummary[] = messagesRef.current) => {
+      perform(action, ids, source);
+    },
+    [perform],
   );
   /** ⌘Z: takes back the newest action that can be undone, mail or not. False when there is none. */
   const undo = useCallback(() => undoStack.undoLast(), []);
 
   /** Files conversations in the local list and on the server. True when the server took it. */
   const changeCategory = useCallback(
-    async (threadIds: string[], categoryId: string | null, ref?: string): Promise<boolean> => {
+    async (threadIds: string[], categoryId: string | null, ref?: string, via?: "cli"): Promise<boolean> => {
       setMessages((previous) => applyCategory(previous, new Set(threadIds), categoryId));
       try {
-        await api.categories.assign(threadIds, categoryId, ref);
+        await api.categories.assign(threadIds, categoryId, ref, via);
         return true;
       } catch (error) {
         toast.error(`Could not change the category: ${errorText(error)}`);
@@ -372,19 +392,25 @@ export function useMailbox(
   /**
    * Files conversations (ids as in `Thread.id`) under a category by hand, or under none (null).
    * Each conversation's category before is kept, so ⌘Z or the Log row's Undo can put it back.
+   * `known` gives the category before for conversations that are not loaded here (the CLI knows them from
+   * the server); `via` says who asked. Resolves with the `ref` of the Undo, when there is one.
    */
   const assignCategory = useCallback(
-    async (threadIds: string[], categoryId: string | null): Promise<void> => {
-      if (threadIds.length === 0) return;
+    async (
+      threadIds: string[],
+      categoryId: string | null,
+      options: { known?: ReadonlyMap<string, string | null>; via?: "cli" } = {},
+    ): Promise<string | undefined> => {
+      if (threadIds.length === 0) return undefined;
       const wanted = new Set(threadIds);
-      const before = new Map<string, string | null>();
+      const before = new Map<string, string | null>(options.known ?? []);
       for (const message of rawMessages.current) {
         const key = `${message.accountId}:${message.threadId}`;
         if (wanted.has(key) && !before.has(key)) before.set(key, message.categoryId ?? null);
       }
       const changed = [...before].filter(([, previous]) => previous !== categoryId);
       const ref = changed.length > 0 ? newUndoRef("category") : undefined;
-      if (!(await changeCategory(threadIds, categoryId, ref)) || !ref) return;
+      if (!(await changeCategory(threadIds, categoryId, ref, options.via)) || !ref) return undefined;
       undoStack.push({
         ref,
         label: changed.length === 1 ? "a conversation's category" : `the category of ${changed.length} conversations`,
@@ -395,6 +421,7 @@ export function useMailbox(
           for (const [previous, keys] of byPrevious) void changeCategory(keys, previous);
         },
       });
+      return ref;
     },
     [changeCategory],
   );
@@ -434,6 +461,7 @@ export function useMailbox(
     setQuery,
     refresh,
     act,
+    perform,
     assignCategory,
     undo,
     actions,

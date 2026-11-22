@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { useThemePalette, type ThemePalette } from "@/hooks/use-theme-palette";
 import { useAppearance } from "@/lib/appearance";
 import { api } from "@/lib/api";
-import { chooseEmailRender, hasDarkModeRules, invertRgb, pinLightColorScheme, type EmailRender } from "@/lib/email-html";
+import { chooseEmailRender, hasDarkModeRules, pinLightColorScheme, preFlipRgb, type EmailRender } from "@/lib/email-html";
 import { trustSender, untrustSender, useTrustedSenders } from "@/lib/trusted-senders";
 import { cn } from "@/lib/utils";
 
@@ -63,8 +63,8 @@ ${shared} ${palette.border};color:${palette.muted}}`;
   }
   if (render === "inverted") {
     // The page is flipped as a whole, so it is written as the light design and painted with the
-    // card's flipped color; images and video are flipped back to their own colors.
-    const page = invertRgb(palette.card) ?? "#fff";
+    // card's color pre-compensated for the filter (a plain inversion would tint greys brown); images and video are flipped back to their own colors.
+    const page = preFlipRgb(palette.card) ?? "#fff";
     return `:root{color-scheme:dark}
 html,body{margin:0;padding:0;${base};background:transparent}
 .mm{padding:16px;background:${page};color:#1f2328;filter:${FLIP}}
@@ -129,6 +129,25 @@ function HtmlBody({ html, from, authenticated }: { html: string } & Sender) {
     observer.observe(doc.documentElement);
     observer.observe(doc.body);
     doc.querySelectorAll("img").forEach((img) => img.addEventListener("load", resize));
+
+    // A wheel over the message stays inside the frame, so the page's swipe-left-to-go-back never saw it.
+    // Hand a copy to the frame's own element, where it bubbles up like any other. It is not a trusted
+    // event, so it cannot scroll anything a second time.
+    doc.addEventListener(
+      "wheel",
+      (event) => {
+        frameRef.current?.dispatchEvent(
+          new WheelEvent("wheel", {
+            bubbles: true,
+            deltaX: event.deltaX,
+            deltaY: event.deltaY,
+            deltaMode: event.deltaMode,
+            ctrlKey: event.ctrlKey,
+          }),
+        );
+      },
+      { passive: true },
+    );
 
     doc.addEventListener("click", (event) => {
       const anchor = (event.target as Element | null)?.closest("a");

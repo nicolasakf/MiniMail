@@ -16,6 +16,8 @@ import {
 
 import { MAX_ATTACHMENT_BYTES, MAX_DRAFT_ATTACHMENTS, MAX_INLINE_IMAGE_BYTES } from "@shared/types";
 
+import { useGhostCompletion, type GhostCompletion } from "@/hooks/use-ghost-completion";
+import { acceptSuggestion, dismissSuggestion, GhostText } from "@/lib/ghost-text";
 import { base64Bytes, cleanEditorHtml, imageData, INLINE_IMAGE_TYPES, plainEditorHtml, webUrl } from "@/lib/rich-compose";
 import { cn } from "@/lib/utils";
 import { reportError } from "@/lib/events";
@@ -48,6 +50,7 @@ const extensions = [
   TableKit,
   Image.configure({ allowBase64: true }),
   Indent,
+  GhostText,
 ];
 
 const fonts = ["Arial", "Georgia", "Helvetica", "Times New Roman", "Verdana", "Courier New", "Trebuchet MS"];
@@ -307,7 +310,7 @@ function FormatTools({ editor, onError, panel, setPanel }: {
   );
 }
 
-export function RichEditor({ editorRef, overlayRef, scrollRef, initialText, initialHtml, autoFocus, showToolbar, disabled, compact, onError, onChange, label = "Message", placeholder = "Write your message…", toolbarHost, onSubmit, onEscape }: {
+export function RichEditor({ editorRef, overlayRef, scrollRef, initialText, initialHtml, autoFocus, showToolbar, disabled, compact, onError, onChange, label = "Message", placeholder = "Write your message…", toolbarHost, onSubmit, onEscape, completion }: {
   editorRef: React.RefObject<Editor | null>;
   overlayRef: React.RefObject<HTMLDivElement | null>;
   scrollRef: React.RefObject<HTMLDivElement | null>;
@@ -321,6 +324,11 @@ export function RichEditor({ editorRef, overlayRef, scrollRef, initialText, init
    * so the surrounding form could not tell it had not been used; it is passed up instead.
    */
   onEscape?: () => void;
+  /**
+   * Suggests what comes next as dimmed text after the cursor: Tab keeps it and Esc refuses it (Esc
+   * then does not reach `onEscape`). Left out, nothing is suggested.
+   */
+  completion?: GhostCompletion;
   /**
    * Where the toolbar goes when it is shown in place (not as a bubble over a selection). An
    * element puts it there; null waits for that element to exist; undefined docks it above the text.
@@ -353,7 +361,14 @@ export function RichEditor({ editorRef, overlayRef, scrollRef, initialText, init
         void insertImages(editorRef.current, files, onError);
         return true;
       },
-      handleKeyDown: (_view, event) => {
+      handleKeyDown: (view, event) => {
+        // Tab keeps the suggestion on show, Esc refuses it; with none they do what they always do.
+        if (event.isComposing === false) {
+          if (event.key === "Tab" && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey && acceptSuggestion(view)) {
+            return true;
+          }
+          if (event.key === "Escape" && dismissSuggestion(view)) return true;
+        }
         if (event.key === "Escape" && !event.isComposing && escape.current) {
           escape.current();
           return true;
@@ -376,6 +391,7 @@ export function RichEditor({ editorRef, overlayRef, scrollRef, initialText, init
       },
     },
   });
+  useGhostCompletion(editor, completion);
   useEffect(() => {
     editorRef.current = editor;
     return () => { editorRef.current = null; };

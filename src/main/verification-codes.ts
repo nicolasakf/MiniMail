@@ -75,8 +75,23 @@ export class VerificationCodes {
     return result;
   }
 
-  private async resolve(detail: MessageDetail): Promise<Entry | null> {
-    if (!isFreshForCode(detail.date, this.now())) return { code: null, settled: true };
+  /**
+   * Whether the message carries a one-time code, at any age: the CLI withholds such mail, and a reset
+   * code can stay valid for days. Local rules first, then the model when one is set up. A lookup that
+   * fails counts as "no code found here" (the rules already answered, and the failure is reported).
+   */
+  async carriesCode(detail: MessageDetail): Promise<boolean> {
+    const key = `any:${detail.id}`;
+    const cached = this.cache.get(key);
+    if (cached && (cached.code !== null || cached.settled)) return cached.code !== null;
+    const entry = await this.resolve(detail, true);
+    if (!entry) return false;
+    this.remember(key, entry);
+    return entry.code !== null;
+  }
+
+  private async resolve(detail: MessageDetail, anyAge = false): Promise<Entry | null> {
+    if (!anyAge && !isFreshForCode(detail.date, this.now())) return { code: null, settled: true };
 
     const source: CodeSource = {
       subject: detail.subject,

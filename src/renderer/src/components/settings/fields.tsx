@@ -18,7 +18,7 @@ export function SettingsPageHeader({ title, action }: { title: string; action?: 
   );
 }
 
-function InfoIcon({ info, label }: { info: ReactNode; label: string }) {
+export function InfoIcon({ info, label }: { info: ReactNode; label: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>

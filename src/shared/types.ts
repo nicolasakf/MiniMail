@@ -4,6 +4,7 @@
  */
 
 import type { AiProvider, ChatProvider, ProviderKeys } from "./ai-providers";
+import type { CompletionSettings } from "./completion";
 import type { ImapSettings } from "./imap-settings";
 
 export type Provider = "gmail" | "outlook" | "zoho" | "imap";
@@ -123,6 +124,8 @@ export interface AiStatus {
   codeModel: string;
   /** Folders whose newly arrived mail is sorted automatically (the Inbox by default; none means new mail is not sorted automatically). */
   sortFolders: SortFolder[];
+  /** The composer's text completion, which runs on `codeModel`. */
+  completion: CompletionSettings;
   /** Last classification failure, cleared by the next success. */
   lastError: string | null;
   /** Conversations waiting to be classified. */

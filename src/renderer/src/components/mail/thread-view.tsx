@@ -32,6 +32,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { api } from "@/lib/api";
 import { collectArtifacts, withAnswer, type ThreadAttachment, type ThreadInvitation } from "@/lib/artifacts";
 import { EMAIL_WIDTH_REM, useAppearance } from "@/lib/appearance";
+import { earlierMessages } from "@/lib/completion";
 import { buildReplySeed, newMessageSeed, type ComposeSeed } from "@/lib/compose";
 import { accountFor, contactLabel, formatFullDate, normalizeSubject } from "@/lib/format";
 import { isTypingTarget } from "@/lib/keyboard";
@@ -63,6 +64,8 @@ import { ThreadCard } from "./thread-card";
 import { AccountMark } from "./account-mark";
 import { SenderAvatar } from "./sender-avatar";
 import { noteShownError } from "@/lib/events";
+import { seedFromDraft, useDrafts } from "@/lib/drafts";
+import { draftsForThread } from "@/lib/local-drafts";
 
 interface ThreadViewProps {
   mailActions: MailActions;
@@ -90,8 +93,7 @@ interface ThreadViewProps {
   shortcutsDisabled?: boolean;
   /**
    * Shown beside the list (split view) rather than in place of it: the toolbar sits under the
-   * window's own toolbar instead of reserving room for the window controls, and the attachments
-   * card goes above the messages instead of beside them.
+   * window's own toolbar instead of reserving room for the window controls.
    */
   embedded?: boolean;
 }
@@ -752,6 +754,8 @@ export function ThreadView({
   const unsubscribeAction = unsubscribeButton(unsubscribeCmd, false);
   // The category, priority, mute and block menus sit after Pin and read, then a divider and the moves (Inbox, Archive, ...).
   /** Sent and Drafts hold the user's own mail, which is never priority mail and is never blocked. */
+  const savedDrafts = useDrafts();
+  const draftsHere = useMemo(() => draftsForThread(savedDrafts, thread), [savedDrafts, thread]);
   const priorityShown = folder !== "sent" && folder !== "drafts";
   const categoryMenuBefore = useMemo(
     () => actions.find(({ action }) => MOVE_ACTIONS.has(action))?.action ?? null,
@@ -808,8 +812,13 @@ export function ThreadView({
       </Fragment>
     ));
 
+  /** A reply, with the conversation before it so the text suggestions can read it. */
+  const replySeed = (message: MessageDetail, mode: "reply" | "replyAll" | "forward"): ComposeSeed => ({
+    ...buildReplySeed(message, mode, accounts),
+    earlier: earlierMessages(thread.messages, details, message.id),
+  });
   const startCompose = (mode: "reply" | "replyAll" | "forward") => {
-    if (latest) onCompose(buildReplySeed(latest, mode, accounts));
+    if (latest) onCompose(replySeed(latest, mode));
   };
 
   // R replies, E replies to all, F forwards (once the full message has loaded).
@@ -825,23 +834,22 @@ export function ThreadView({
       const mode = modes[event.key.toLowerCase()];
       if (!mode) return;
       event.preventDefault();
-      onCompose(buildReplySeed(latest, mode, accounts));
+      onCompose(replySeed(latest, mode));
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [accounts, latest, onCompose, shortcutsDisabled]);
+    // replySeed only reads what these already list, or what changes with them.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accounts, details, latest, onCompose, shortcutsDisabled]);
 
-  // What the conversation holds, listed in the card beside it.
-  // Listed once the whole conversation is here, so the card does not grow while older messages arrive.
+  // What the conversation holds, listed in the dropdown left of Reply.
+  // Listed once the whole conversation is here, so the list does not grow while older messages arrive.
   const artifacts = useMemo(() => (finished ? collectArtifacts(details) : null), [finished, details]);
   const expecting = {
     attachments: !error && thread.messages.some((message) => message.hasAttachments),
     invitations: !error && thread.messages.some((message) => message.signal === "invitation"),
   };
   const { emailWidth } = useAppearance();
-  const cardShown = artifacts
-    ? artifacts.attachments.length > 0 || artifacts.invitations.length > 0
-    : expecting.attachments || expecting.invitations;
 
   const openAttachment = async (attachment: ThreadAttachment) => {
     try {
@@ -946,6 +954,13 @@ export function ThreadView({
           <FolderBadge folder={folder} />
         </div>
         <div className="flex items-center gap-1">
+          <ThreadCard
+            artifacts={artifacts}
+            expecting={expecting}
+            onOpenAttachment={openAttachment}
+            onSaveAttachment={saveAttachment}
+            onRespond={respond}
+          />
           <ToolbarButton label="Reply" hint="R" onClick={() => startCompose("reply")}>
             <Reply className="size-[18px]" />
           </ToolbarButton>
@@ -972,19 +987,17 @@ export function ThreadView({
         />
       )}
 
-      <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto pb-[45vh]", embedded ? "px-6 pt-4" : cardShown ? "pl-8 pr-3" : "px-8")}>
+      <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto pb-[45vh]", embedded ? "px-6 pt-4" : "px-8")}>
         <div
           className={cn(
             "gap-8",
             embedded
-              ? "mx-auto flex max-w-3xl flex-col-reverse"
-              : cardShown
-                ? "grid w-full grid-cols-[minmax(0,1fr)_minmax(0,var(--reading-width))_1fr] items-start"
-                : "mx-auto flex max-w-[var(--reading-width)] items-start",
+              ? "mx-auto flex max-w-3xl flex-col"
+              : "mx-auto flex max-w-[var(--reading-width)] items-start",
           )}
           style={{ "--reading-width": `${EMAIL_WIDTH_REM[emailWidth]}rem` } as CSSProperties}
         >
-          <div className={cn("min-w-0 flex-1", cardShown && !embedded && "col-start-2")}>
+          <div className="min-w-0 flex-1">
             <h1 className="mb-1 text-2xl font-semibold leading-tight">
               {normalizeSubject(thread.latest.subject)}
             </h1>
@@ -1086,20 +1099,25 @@ export function ThreadView({
                   </article>
                 );
               })}
+              {/* A draft written for this conversation closes it, as the next thing to say. */}
+              {draftsHere.map((draft) => (
+                <button
+                  key={draft.id}
+                  type="button"
+                  onClick={() => onCompose(seedFromDraft(draft))}
+                  className="corner-squircle flex w-full cursor-pointer items-center gap-3 rounded-xl border border-dashed border-border bg-card/40 p-4 text-left hover:bg-card/70"
+                >
+                  <Pencil className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <span className="shrink-0 font-semibold">Draft</span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                    {draft.body.replace(/\s+/g, " ").trim() || "Empty"}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{formatFullDate(draft.savedAt)}</span>
+                </button>
+              ))}
             </div>
             {!finished && !error && <LoadingNote slow={slow} />}
           </div>
-          {cardShown && (
-            <aside className={embedded ? "w-full" : "sticky top-0 col-start-3 w-max max-w-72 justify-self-end"}>
-              <ThreadCard
-                artifacts={artifacts}
-                expecting={expecting}
-                onOpenAttachment={openAttachment}
-                onSaveAttachment={saveAttachment}
-                onRespond={respond}
-              />
-            </aside>
-          )}
         </div>
       </div>
     </div>

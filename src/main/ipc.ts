@@ -15,6 +15,8 @@ import {
   aiProviderSchema,
   chatProviderSchema,
   codeModelSchema,
+  completionRequestSchema,
+  completionSettingsSchema,
   setAiKeySchema,
   sortModelSchema,
   testModelSchema,
@@ -33,6 +35,8 @@ import {
   savedDraftSchema,
   eventReportSchema,
   uiPrefsPatchSchema,
+  cliSettingsSchema,
+  pageReplySchema,
 } from "@shared/schemas";
 import { MOVE_DESTINATION } from "@shared/threads";
 import type { AppEvent } from "@shared/events";
@@ -42,6 +46,9 @@ import type { AiSettingsStore } from "./ai-settings";
 import { discoverAccountProvider, discoverImapSettings } from "./account-discovery";
 import type { AttachmentFiles } from "./attachment-files";
 import type { Categorizer } from "./categorizer";
+import type { Completer } from "./completion";
+import type { CliController } from "./cli/controller";
+import type { PageBridge } from "./cli/page-bridge";
 import type { EventJournal } from "./event-journal";
 import { recordAction, reportError } from "./events";
 import { doneTitle, ipcArea, reportIpcFailure } from "./ipc-events";
@@ -74,6 +81,7 @@ export function registerIpc(options: {
   notifier: Notifier;
   notificationSettings: NotificationSettingsStore;
   categorizer: Categorizer;
+  completer: Completer;
   aiSettings: AiSettingsStore;
   codes: VerificationCodes;
   logos: LogoService;
@@ -88,8 +96,10 @@ export function registerIpc(options: {
   rendererUrl: string | undefined;
   openExternal: (url: string) => Promise<void>;
   openLog: () => Promise<void>;
+  cli: CliController;
+  pageBridge: PageBridge;
 }): void {
-  const { service, attachmentFiles, notifier, notificationSettings, categorizer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, journal, oauthConfig, rendererUrl, openExternal, openLog } = options;
+  const { service, attachmentFiles, notifier, notificationSettings, categorizer, completer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, journal, oauthConfig, rendererUrl, openExternal, openLog, cli, pageBridge } = options;
 
   /**
    * Registers a handler. Whatever it throws is recorded (so no failure goes unseen, even one nobody
@@ -203,6 +213,11 @@ export function registerIpc(options: {
     aiSettings.setSortFolders(sortFoldersSchema.parse(folders));
     return categorizer.state();
   });
+  handle(IPC.categoriesSetCompletion, (settings: unknown) => {
+    aiSettings.setCompletion(completionSettingsSchema.parse(settings));
+    return categorizer.state();
+  });
+  handle(IPC.completionSuggest, (request: unknown) => completer.suggest(completionRequestSchema.parse(request)));
   handle(IPC.categoriesTest, (request: unknown) => {
     const { purpose, model } = testModelSchema.parse(request);
     return categorizer.testModel(purpose, model);
@@ -218,11 +233,12 @@ export function registerIpc(options: {
     return service.sortCounts(since === undefined ? null : Date.parse(since));
   });
   handle(IPC.categoriesAssign, (request: unknown) => {
-    const { threads, categoryId, ref } = assignCategorySchema.parse(request);
+    const { threads, categoryId, ref, via } = assignCategorySchema.parse(request);
     categorizer.assign(threads, categoryId);
     const name = categorizer.state().categories.find((category) => category.id === categoryId)?.name;
     const count = threads.length === 1 ? "a conversation" : `${threads.length} conversations`;
-    recordAction("categories", name ? `Moved ${count} to ${name}` : `Took ${count} out of any category`, "", { ref });
+    const by = via === "cli" ? " via CLI" : "";
+    recordAction("categories", `${name ? `Moved ${count} to ${name}` : `Took ${count} out of any category`}${by}`, "", { ref });
   });
   handle(IPC.sendersTrusted, () => trusted.list());
   handle(IPC.sendersTrust, (email: unknown) => trusted.add(senderEmail.parse(email)));
@@ -259,7 +275,27 @@ export function registerIpc(options: {
 
   handle(IPC.eventsList, () => journal.list());
   handle(IPC.eventsMarkDone, () => journal.markErrorsDone());
+  handle(IPC.cliGet, () => cli.state());
+  // The controller records what changed (turned on or off, the skill for an agent), which says more than the channel name.
+  handle(IPC.cliSet, (settings: unknown) => cli.set(cliSettingsSchema.parse(settings)));
   handle(IPC.eventsOpenLog, () => openLog());
+  // The page tells the CLI's bridge that it is listening, and answers what the CLI asked of it.
+  ipcMain.on(IPC.cliPageReady, (event) => {
+    try {
+      assertTrustedSender(event as unknown as IpcMainInvokeEvent, rendererUrl);
+      pageBridge.pageReady();
+    } catch (error) {
+      reportError("cli", "Could not accept the page's announcement", error);
+    }
+  });
+  ipcMain.on(IPC.cliPageReply, (event, reply: unknown) => {
+    try {
+      assertTrustedSender(event as unknown as IpcMainInvokeEvent, rendererUrl);
+      pageBridge.reply(pageReplySchema.parse(reply));
+    } catch (error) {
+      reportError("cli", "Could not read the page's answer to the CLI", error);
+    }
+  });
   // One-way: the page reports and moves on. A malformed report is itself worth knowing about.
   ipcMain.on(IPC.eventsReport, (event, report: unknown) => {
     try {

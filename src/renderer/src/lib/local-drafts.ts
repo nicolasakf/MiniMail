@@ -43,3 +43,14 @@ export function draftMessage(draft: SavedDraft, owner: MessageSummary["from"]): 
 export function draftThreads(messages: readonly MessageSummary[]): Thread[] {
   return groupThreads(messages);
 }
+
+/**
+ * The saved drafts that answer a message of the conversation (a reply, reply all or forward of it),
+ * oldest first, so the conversation can end with them. A draft that is not a response has none.
+ */
+export function draftsForThread(drafts: readonly SavedDraft[], thread: Pick<Thread, "messages">): SavedDraft[] {
+  const ids = new Set(thread.messages.map((message) => message.id));
+  return drafts
+    .filter((draft) => draft.inReplyTo !== undefined && ids.has(draft.inReplyTo.nativeId))
+    .sort((a, b) => a.savedAt.localeCompare(b.savedAt));
+}

@@ -41,8 +41,18 @@ export const DEFAULT_SORT_MODELS: Record<AiProvider, string> = {
 
 /** The chat model for the AI-enabled features, per provider. */
 export const DEFAULT_CODE_MODELS: Record<ChatProvider, string> = {
-  vercel: "reflection/beam",
-  openrouter: "reflection/beam-1.0-501b-a23b",
+  vercel: "openai/gpt-4.1-nano",
+  openrouter: "openai/gpt-4.1-nano",
+};
+
+/**
+ * The chat model for the composer's text completion, per provider. It is its own choice: a
+ * suggestion is only worth showing when it arrives within a moment, so it wants a small model that
+ * answers directly, not a reasoning one like the default of the AI-enabled features.
+ */
+export const DEFAULT_COMPLETION_MODELS: Record<ChatProvider, string> = {
+  vercel: "openai/gpt-4.1-nano",
+  openrouter: "openai/gpt-4.1-nano",
 };
 
 /** Base URL of the System One endpoint for the providers that are called directly (not through the AI SDK). */

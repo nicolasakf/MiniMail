@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { CircleAlert, CircleCheck, Loader2, RotateCcw } from "lucide-react";
 
@@ -6,6 +6,7 @@ import type { ModelPurpose } from "@shared/ai-models";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InfoIcon } from "@/components/settings/fields";
 import { api } from "@/lib/api";
 import { noteShownError } from "@/lib/events";
 
@@ -37,7 +38,9 @@ export function ConnectionNote({ connection, okText }: { connection: Connection;
 interface ModelFieldProps {
   title: string;
   /** One line under the title: what this model is used for. */
-  help: string;
+  help?: string;
+  /** Explains the model in a tooltip next to the title, in place of `help` under it. */
+  info?: ReactNode;
   purpose: ModelPurpose;
   /** The model that is saved now. */
   saved: string;
@@ -64,6 +67,7 @@ interface ModelFieldProps {
 export function ModelField({
   title,
   help,
+  info,
   purpose,
   saved,
   defaultModel,
@@ -134,8 +138,11 @@ export function ModelField({
       }}
     >
       <div>
-        <h4 className="text-sm font-semibold">{title}</h4>
-        <p className="text-xs text-muted-foreground">{help}</p>
+        <div className="flex items-center gap-1.5">
+          <h4 className="text-sm font-semibold">{title}</h4>
+          {info ? <InfoIcon info={info} label={title} /> : null}
+        </div>
+        {help && <p className="text-xs text-muted-foreground">{help}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Input

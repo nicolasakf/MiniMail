@@ -40,10 +40,22 @@ export function chooseEmailRender(options: {
   return options.background === "theme" ? "inverted" : "white";
 }
 
-/** `rgb(r, g, b)` with each channel flipped, as the `invert(1)` filter will flip it back. Null if unparsable. */
-export function invertRgb(color: string): string | null {
+/**
+ * The page color to write so that the `invert(1) hue-rotate(180deg)` filter paints `color`.
+ * Inverting alone is not enough: the hue rotation turns a bluish grey (the dimmed theme) brown,
+ * so the color is rotated first (a 180 degree turn is its own inverse) and then flipped.
+ * Null if unparsable.
+ */
+export function preFlipRgb(color: string): string | null {
   const match = /^rgba?\(\s*(\d{1,3})[\s,]+(\d{1,3})[\s,]+(\d{1,3})/i.exec(color.trim());
   if (!match) return null;
-  const [red, green, blue] = [match[1], match[2], match[3]].map((value) => 255 - Number(value));
+  const [r, g, b] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  // The hue-rotate(180deg) matrix from the CSS filter spec.
+  const turned = [
+    -0.574 * r + 1.43 * g + 0.144 * b,
+    0.426 * r + 0.43 * g + 0.144 * b,
+    0.426 * r + 1.43 * g - 0.856 * b,
+  ];
+  const [red, green, blue] = turned.map((value) => 255 - Math.round(Math.min(255, Math.max(0, value))));
   return `rgb(${red}, ${green}, ${blue})`;
 }

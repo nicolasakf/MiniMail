@@ -15,7 +15,7 @@ export const VERIFICATION_CATEGORY_ID = "verification-codes";
  * default provider; OpenRouter has its own default). Any chat model id of the chosen provider works;
  * the user can change it (or clear it to use rules only) in settings.
  */
-export const DEFAULT_CODE_MODEL = "reflection/beam";
+export const DEFAULT_CODE_MODEL = "openai/gpt-4.1-nano";
 
 /** What a chat model id looks like ("provider/model"); empty is allowed and means "rules only". */
 export const CODE_MODEL_PATTERN = /^$|^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/i;

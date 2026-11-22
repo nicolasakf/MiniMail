@@ -11,3 +11,9 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Files imported with `?raw` come in as their text (the CLI's client script is written out by the app). */
+declare module "*?raw" {
+  const content: string;
+  export default content;
+}

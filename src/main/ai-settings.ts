@@ -1,12 +1,12 @@
-import { existsSync, readFileSync } from "node:fs";
-
 import { z } from "zod";
 
 import { SORT_MODEL_PATTERN } from "@shared/ai-models";
+import { COMPLETION_LENGTHS, DEFAULT_COMPLETION, type CompletionSettings } from "@shared/completion";
 import {
   AI_PROVIDERS,
   CHAT_PROVIDERS,
   DEFAULT_CODE_MODELS,
+  DEFAULT_COMPLETION_MODELS,
   DEFAULT_PROVIDER,
   DEFAULT_SORT_MODELS,
   type AiProvider,
@@ -15,8 +15,8 @@ import {
 import { sortFoldersSchema } from "@shared/schemas";
 import { SORT_FOLDERS, type SortFolder } from "@shared/types";
 
-import { writePrivateFile } from "./category-store";
 import { reportError } from "./events";
+import type { SettingsSection } from "./settings-file";
 
 /** A fresh install sorts mail in every folder. */
 const DEFAULT_SORT_FOLDERS: SortFolder[] = [...SORT_FOLDERS];
@@ -29,9 +29,12 @@ const LEGACY_SORT_FOLDERS: SortFolder[] = ["inbox"];
  * Version 1 had no `sortModel`: it was always Jev, which is what a missing value becomes.
  * Versions 1 and 2 had no providers: everything ran through the Vercel AI Gateway, which is what a
  * missing provider becomes, so the models saved then keep working.
+ * Versions 1 to 3 had no text completion: it stays off, as it is for anyone who has not chosen it.
+ * Version 4 files written before completion had a model of its own have no `completionModel`: it
+ * becomes the default completion model (a small one that answers at once), as for a fresh install.
  */
 const fileSchema = z.object({
-  version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   sortProvider: z.enum(AI_PROVIDERS).catch(DEFAULT_PROVIDER),
   codeProvider: z.enum(CHAT_PROVIDERS).catch("vercel"),
   codeModel: z.string().catch(DEFAULT_CODE_MODELS.vercel),
@@ -40,6 +43,10 @@ const fileSchema = z.object({
     .regex(SORT_MODEL_PATTERN)
     .catch(DEFAULT_SORT_MODELS.vercel),
   sortFolders: sortFoldersSchema.catch([...LEGACY_SORT_FOLDERS]),
+  /** Added in version 4. */
+  completionEnabled: z.boolean().catch(DEFAULT_COMPLETION.enabled),
+  completionLength: z.enum(COMPLETION_LENGTHS).catch(DEFAULT_COMPLETION.length),
+  completionModel: z.string().catch(DEFAULT_COMPLETION.model),
 });
 
 /**
@@ -52,6 +59,9 @@ const fileSchema = z.object({
  * newly arrived mail is sorted into categories automatically: all four on a fresh install. An
  * install that already used AI sorting before that default changed keeps sorting only the Inbox
  * until the person chooses otherwise, so nothing starts costing more calls on its own.
+ * `completion` is the composer's text completion: off by default, with how much it may write at once.
+ * It has its own model, on the provider of `codeProvider`: choosing another provider puts that
+ * provider's default completion model in its place, unless the model was emptied on purpose.
  */
 export class AiSettingsStore {
   private sortHost: AiProvider = DEFAULT_PROVIDER;
@@ -59,17 +69,19 @@ export class AiSettingsStore {
   private model = DEFAULT_CODE_MODELS.vercel;
   private sorter = DEFAULT_SORT_MODELS.vercel;
   private folders: SortFolder[] = [...DEFAULT_SORT_FOLDERS];
+  private completionChoice: CompletionSettings = { ...DEFAULT_COMPLETION };
 
   /**
-   * `keyAlreadySet` is whether any key was saved when this runs: with a key but no settings file,
+   * `keyAlreadySet` is whether any key was saved when this runs: with a key but no saved AI settings,
    * the install has been sorting the Inbox only, so that choice is written down now (it is the one
-   * thing that cannot be read from the file, because there is none).
+   * thing that cannot be read from the settings, because there are none).
    */
   constructor(
-    private readonly filePath: string,
+    private readonly section: SettingsSection,
     options: { keyAlreadySet?: boolean } = {},
   ) {
-    if (!existsSync(filePath)) {
+    const raw = section.read();
+    if (raw === undefined) {
       if (options.keyAlreadySet) {
         this.folders = [...LEGACY_SORT_FOLDERS];
         this.write();
@@ -77,12 +89,17 @@ export class AiSettingsStore {
       return;
     }
     try {
-      const saved = fileSchema.parse(JSON.parse(readFileSync(filePath, "utf8")));
+      const saved = fileSchema.parse(raw);
       this.sortHost = saved.sortProvider;
       this.codeHost = saved.codeProvider;
       this.model = saved.codeModel;
       this.sorter = saved.sortModel;
       this.folders = saved.sortFolders;
+      this.completionChoice = {
+        enabled: saved.completionEnabled,
+        length: saved.completionLength,
+        model: saved.completionModel,
+      };
     } catch (error) {
       reportError("storage", "Could not read the AI settings; using defaults", error);
     }
@@ -108,6 +125,10 @@ export class AiSettingsStore {
     return [...this.folders];
   }
 
+  completion(): CompletionSettings {
+    return { ...this.completionChoice };
+  }
+
   /** Sorts mail through `provider`; the sorting model becomes that provider's default unless it stays the same. */
   setSortProvider(provider: AiProvider): AiProvider {
     if (provider !== this.sortHost) {
@@ -124,6 +145,7 @@ export class AiSettingsStore {
       this.codeHost = provider;
       // An empty model is a deliberate "rules only" and stays so.
       if (this.model !== "") this.model = DEFAULT_CODE_MODELS[provider];
+      if (this.completionChoice.model !== "") this.completionChoice.model = DEFAULT_COMPLETION_MODELS[provider];
       this.write();
     }
     return this.codeHost;
@@ -147,17 +169,23 @@ export class AiSettingsStore {
     return this.sortFolders();
   }
 
+  setCompletion(settings: CompletionSettings): CompletionSettings {
+    this.completionChoice = { enabled: settings.enabled, length: settings.length, model: settings.model.trim() };
+    this.write();
+    return this.completion();
+  }
+
   private write(): void {
-    writePrivateFile(
-      this.filePath,
-      JSON.stringify({
-        version: 3,
-        sortProvider: this.sortHost,
-        codeProvider: this.codeHost,
-        codeModel: this.model,
-        sortModel: this.sorter,
-        sortFolders: this.folders,
-      }),
-    );
+    this.section.write({
+      version: 4,
+      sortProvider: this.sortHost,
+      codeProvider: this.codeHost,
+      codeModel: this.model,
+      sortModel: this.sorter,
+      sortFolders: this.folders,
+      completionEnabled: this.completionChoice.enabled,
+      completionLength: this.completionChoice.length,
+      completionModel: this.completionChoice.model,
+    });
   }
 }

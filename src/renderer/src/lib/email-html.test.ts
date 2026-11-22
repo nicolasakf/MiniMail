@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { chooseEmailRender, hasDarkModeRules, invertRgb, pinLightColorScheme } from "./email-html";
+import { chooseEmailRender, hasDarkModeRules, pinLightColorScheme, preFlipRgb } from "./email-html";
 
 describe("pinLightColorScheme", () => {
   it("disables dark-mode rules and keeps light ones", () => {
@@ -34,10 +34,18 @@ describe("chooseEmailRender", () => {
   });
 });
 
-describe("invertRgb", () => {
-  it("flips each channel", () => {
-    expect(invertRgb("rgb(10, 20, 30)")).toBe("rgb(245, 235, 225)");
-    expect(invertRgb("rgb(10 20 30 / 50%)")).toBe("rgb(245, 235, 225)");
-    expect(invertRgb("hotpink")).toBeNull();
+describe("preFlipRgb", () => {
+  it("keeps the dimmed card grey once the filter has run", () => {
+    // The dimmed card is a bluish grey; a plain inversion came out brownish.
+    const [red, green, blue] = (preFlipRgb("rgb(37, 38, 42)") ?? "").match(/\d+/g)!.map(Number);
+    expect([red, green, blue]).toEqual([216, 217, 221]);
+  });
+
+  it("leaves pure greys as plain inversions", () => {
+    expect(preFlipRgb("rgb(40, 40, 40)")).toBe("rgb(215, 215, 215)");
+  });
+
+  it("returns null for colors it cannot parse", () => {
+    expect(preFlipRgb("hotpink")).toBeNull();
   });
 });

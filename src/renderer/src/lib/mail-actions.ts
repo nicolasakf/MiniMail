@@ -19,6 +19,8 @@ interface Intent {
   ready: boolean;
   /** Set on a command that takes another back: how its Log event is worded (it is not undoable itself). */
   undoTitle?: string;
+  /** Who asked, when it was not a click ("CLI"): the Log event says "... via CLI". */
+  via?: string;
 }
 /** What a batch did, kept so it can be taken back: the rows as they were before, and where they ended up. */
 interface History {
@@ -161,11 +163,52 @@ export class MailActions {
   /** Per batch, the rows once the server moved them (their ids change with the folder). */
   private landed = new Map<number, Map<string, MessageSummary>>();
 
+  /** Batches the CLI asked for and the server refused (kept so `whenSettled` can say so). */
+  private failedBatches = new Set<number>();
+  /** Called on every change; `whenSettled` listens here. */
+  private waiters = new Set<() => void>();
+
   constructor(
     private send: (action: MailAction, ids: string[]) => Promise<MailActionResult[]>,
-    private update: () => void,
+    private notify: () => void,
     private refresh: () => void,
   ) {}
+
+  private update = (): void => {
+    this.notify();
+    for (const waiter of [...this.waiters]) waiter();
+  };
+
+  /** Whether any message of this batch is still waiting to be sent or being sent. */
+  private pending(batch: number): boolean {
+    for (const entry of this.entries.values()) {
+      if (entry.sending?.batch === batch) return true;
+      if (entry.queued.some((intent) => intent.batch === batch)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Waits until every message of a batch has been answered by the server (or the batch was cancelled).
+   * "failed" when the server refused any of them (the Log has the reason), "undone" when it was taken
+   * back before it was sent, "timeout" when it is still waiting after `timeoutMs`.
+   */
+  whenSettled(batch: number, timeoutMs: number): Promise<"applied" | "failed" | "undone" | "timeout"> {
+    return new Promise((resolve) => {
+      const finish = (result: "applied" | "failed" | "undone" | "timeout"): void => {
+        clearTimeout(timer);
+        this.waiters.delete(check);
+        resolve(result);
+      };
+      const check = (): void => {
+        if (this.pending(batch)) return;
+        finish(this.failedBatches.has(batch) ? "failed" : this.history.has(batch) ? "applied" : "undone");
+      };
+      const timer = setTimeout(() => finish("timeout"), timeoutMs);
+      this.waiters.add(check);
+      check();
+    });
+  }
 
   get events(): readonly MailEvent[] { return this.notices; }
   get manualVersion(): number { return this.serial; }
@@ -213,10 +256,11 @@ export class MailActions {
     undoable: boolean,
     dismiss?: (batch: number) => void,
     undoTitle?: string,
+    via?: string,
   ) {
     const batch = ++this.serial;
     const field = fieldOf(action);
-    const intent: Intent = { action, field, batch, ready: !undoable, undoTitle };
+    const intent: Intent = { action, field, batch, ready: !undoable, undoTitle, via };
     let count = 0;
     const affected: MessageSummary[] = [];
     const seen = new Set<Entry>();
@@ -270,6 +314,7 @@ export class MailActions {
       if (this.history.size <= HISTORY_LIMIT) break;
       this.history.delete(old);
       this.landed.delete(old);
+      this.failedBatches.delete(old);
     }
   }
 
@@ -398,9 +443,11 @@ export class MailActions {
             appliedByBatch.set(id, [...(appliedByBatch.get(id) ?? []), entry.row]);
           }
           for (const [id, applied] of appliedByBatch) {
-            const undoTitle = batch.find((entry) => entry.sending?.batch === id)?.sending?.undoTitle;
+            const sent = batch.find((entry) => entry.sending?.batch === id)?.sending;
+            const undoTitle = sent?.undoTitle;
             const count = applied.length === 1 ? "a message" : `${applied.length} messages`;
-            recordAction("mail", undoTitle ? `${undoTitle} ${count}` : `${ACTION_DONE[action]} ${count}`, "", {
+            const via = sent?.via ? ` via ${sent.via}` : "";
+            recordAction("mail", `${undoTitle ? `${undoTitle} ${count}` : `${ACTION_DONE[action]} ${count}`}${via}`, "", {
               context: describeSubjects(applied),
               accountId: applied[0]!.accountId,
               ...(undoTitle ? {} : { ref: undoRef(id) }),
@@ -424,6 +471,7 @@ export class MailActions {
                 this.landed.set(intent.batch, landed);
               }
             } else {
+              this.failedBatches.add(intent.batch);
               const unknown = result?.status !== "failed";
               if (unknown) {
                 if (intent.field === "folder") entry.needsLocation = true;

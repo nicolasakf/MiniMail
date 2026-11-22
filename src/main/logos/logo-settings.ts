@@ -1,19 +1,18 @@
-import { existsSync, readFileSync } from "node:fs";
-
 import { DEFAULT_LOGO_SETTINGS, type LogoSettings } from "@shared/logos";
 import { logoSettingsSchema } from "@shared/schemas";
 
-import { writePrivateFile } from "../category-store";
 import { reportError } from "../events";
+import type { SettingsSection } from "../settings-file";
 
-/** The two logo switches, kept in a small plain file (they hold no mail data). */
+/** The two logo switches, kept in a section of `settings.json` (they hold no mail data). */
 export class LogoSettingsStore {
   private value: LogoSettings = { ...DEFAULT_LOGO_SETTINGS };
 
-  constructor(private readonly filePath: string) {
-    if (!existsSync(filePath)) return;
+  constructor(private readonly section: SettingsSection) {
+    const raw = section.read();
+    if (raw === undefined) return;
     try {
-      this.value = logoSettingsSchema.parse(JSON.parse(readFileSync(filePath, "utf8")));
+      this.value = logoSettingsSchema.parse(raw);
     } catch (error) {
       reportError("storage", "Could not read the logo settings; using defaults", error);
     }
@@ -25,7 +24,7 @@ export class LogoSettingsStore {
 
   set(next: LogoSettings): LogoSettings {
     this.value = { ...next };
-    writePrivateFile(this.filePath, JSON.stringify(this.value));
+    this.section.write(this.value);
     return this.get();
   }
 }

@@ -1,12 +1,15 @@
 import { useState } from "react";
 
-import { Check, KeyRound } from "lucide-react";
+import { Check, KeyRound, SquareTerminal } from "lucide-react";
 
 import { iconFor } from "@shared/categories";
 import type { Account, AiStatus, Category, CategoryState } from "@shared/types";
 
 import { Button } from "@/components/ui/button";
+import { CliSkillTargets } from "@/components/settings/cli-tab";
+import { SettingsSwitchField } from "@/components/settings/fields";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useCli } from "@/hooks/use-cli";
 import { api } from "@/lib/api";
 import { canContinue, firstOpenStep, ONBOARDING_STEPS, type OnboardingStepId } from "@/lib/onboarding";
 import { cn } from "@/lib/utils";
@@ -26,7 +29,7 @@ interface OnboardingDialogProps {
   onFinish: (editCategories: boolean) => void;
 }
 
-/** The three steps as a row: done ones carry a check, the current one is filled. */
+/** The steps as a row: done ones carry a check, the current one is filled. */
 function Stepper({ current }: { current: OnboardingStepId }) {
   const index = ONBOARDING_STEPS.findIndex((step) => step.id === current);
   return (
@@ -72,8 +75,57 @@ function StepIntro({ title, children }: { title: string; children: string }) {
 }
 
 /**
+ * The last step: let an AI agent on this computer read mail through the `minimail` command. It is the
+ * same switch and the same choice of agents as the CLI page in Settings (they share `useCli`), and
+ * nothing happens until the person turns it on.
+ */
+function AgentStep() {
+  const { state, update } = useCli();
+  const enabled = state?.settings.enabled ?? false;
+  return (
+    <div className="space-y-5 px-6 py-5">
+      <StepIntro title="Connect MiniMail with your AI agent">
+        Let an AI agent on this computer, such as Claude Code or Codex, look through your mail with a command. It can read and search your mail, tidy it (archive, mark as read, block) and write drafts for you to look over. Sending a message, unsubscribing and answering invitations ask you first, and MiniMail never gives it sign-in codes.
+      </StepIntro>
+      {api.system.demo && (
+        <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">Browser demo: nothing is installed on this computer.</p>
+      )}
+      <SettingsSwitchField
+        id="onboarding-cli"
+        label="Allow the MiniMail CLI"
+        description="You can switch it off any time. Nothing is installed or listening while it is off."
+        checked={enabled}
+        disabled={state === null}
+        onCheckedChange={(next) => void update((current) => ({ ...current, enabled: next }))}
+      />
+      {state && enabled && (
+        <section aria-label="Install the skill" className="space-y-3">
+          <div className="flex items-center gap-2">
+            <SquareTerminal className="size-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold">Which agent do you use?</h3>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            MiniMail adds a short skill file for each one you tick. It teaches the agent to use the command and to treat mail as untrusted.
+          </p>
+          <CliSkillTargets
+            state={state}
+            onToggle={(id, on) =>
+              void update((current) => ({
+                ...current,
+                skillTargets: on ? [...new Set([...current.skillTargets, id])] : current.skillTargets.filter((target) => target !== id),
+              }))
+            }
+          />
+        </section>
+      )}
+      <p className="text-xs text-muted-foreground">Everything about it is in Settings, under CLI.</p>
+    </div>
+  );
+}
+
+/**
  * The first-run setup guide, a dialog in the middle of the window: connect an email account, add the
- * AI provider and its key, and (optionally) look over the categories mail is sorted into. Each step uses
+ * AI provider and its key, and (optionally) look over the categories mail is sorted into and connect an AI agent. Each step uses
  * the same parts as Settings, so nothing here works differently from there. It cannot be closed by
  * accident (no Escape, no click outside): "Skip setup" is the way out, and finishing it is remembered.
  */
@@ -103,7 +155,7 @@ export function OnboardingDialog({
       >
         <DialogHeader className="sr-only">
           <DialogTitle>Set up MiniMail</DialogTitle>
-          <DialogDescription>Connect an email account, connect an AI provider and look over your categories.</DialogDescription>
+          <DialogDescription>Connect an email account, connect an AI provider, look over your categories and, if you like, connect an AI agent.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 border-b border-border px-6 pb-4 pt-5">
@@ -174,6 +226,8 @@ export function OnboardingDialog({
               <p className="text-xs text-muted-foreground">You can change them any time in Settings, under Categories.</p>
             </div>
           )}
+
+          {step === "agent" && <AgentStep />}
         </div>
 
         <div className="flex items-center gap-2 border-t border-border px-6 py-3">
@@ -187,23 +241,25 @@ export function OnboardingDialog({
               </Button>
             )}
             {last ? (
+              <Button type="button" size="sm" onClick={() => onFinish(false)}>
+                Start using MiniMail
+              </Button>
+            ) : (
               <>
-                <Button type="button" variant="outline" size="sm" onClick={() => onFinish(true)}>
-                  Edit categories
-                </Button>
-                <Button type="button" size="sm" onClick={() => onFinish(false)}>
-                  Start using MiniMail
+                {step === "categories" && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => onFinish(true)}>
+                    Edit categories
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!canContinue(step, accounts.length, keySaved)}
+                  onClick={() => next && setStep(next.id)}
+                >
+                  Continue
                 </Button>
               </>
-            ) : (
-              <Button
-                type="button"
-                size="sm"
-                disabled={!canContinue(step, accounts.length, keySaved)}
-                onClick={() => next && setStep(next.id)}
-              >
-                Continue
-              </Button>
             )}
           </div>
         </div>

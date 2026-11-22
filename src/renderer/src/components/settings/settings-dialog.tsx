@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { Bell, Palette, Sparkles, Tags, User, Users, type LucideIcon } from "lucide-react";
+import { Bell, Palette, Sparkles, SquareTerminal, Tags, User, Users, type LucideIcon } from "lucide-react";
 
 import type { Account, AiStatus, Category, CategoryState } from "@shared/types";
 
@@ -10,11 +10,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { cn } from "@/lib/utils";
 
 import { AiFeaturesTab } from "./ai-features-tab";
+import { CliTab } from "./cli-tab";
 import { AppearanceTab } from "./appearance-tab";
 import { NotificationsTab } from "./notifications-tab";
 import { SendersTab } from "./senders-tab";
 
-export const SETTINGS_TABS = ["appearance", "accounts", "categories", "ai-features", "senders", "notifications"] as const;
+export const SETTINGS_TABS = ["appearance", "accounts", "categories", "ai-features", "senders", "notifications", "cli"] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const NAV: { id: SettingsTab; title: string; icon: LucideIcon }[] = [
@@ -24,6 +25,7 @@ const NAV: { id: SettingsTab; title: string; icon: LucideIcon }[] = [
   { id: "ai-features", title: "AI Features", icon: Sparkles },
   { id: "senders", title: "Senders", icon: User },
   { id: "notifications", title: "Notifications", icon: Bell },
+  { id: "cli", title: "CLI", icon: SquareTerminal },
 ];
 
 interface SettingsDialogProps {
@@ -128,7 +130,7 @@ export function SettingsDialog({
       >
         <DialogHeader className="sr-only">
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Appearance, accounts, categories, AI features, senders and notifications.</DialogDescription>
+          <DialogDescription>Appearance, accounts, categories, AI features, senders, notifications and the command line for AI agents.</DialogDescription>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 gap-3 p-3">
           <nav
@@ -164,6 +166,7 @@ export function SettingsDialog({
             {page("ai-features", <AiFeaturesTab ai={ai} onState={onCategoryState} />)}
             {page("senders", <SendersTab accounts={accounts} />)}
             {page("notifications", <NotificationsTab accounts={accounts} categories={categories} onOpenSenders={() => show("senders")} />)}
+            {page("cli", <CliTab />)}
           </div>
         </div>
       </DialogContent>

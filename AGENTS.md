@@ -8,6 +8,8 @@ default, unless the user says otherwise:
 1. **The context menu** of a row or open conversation (`menuEntries` in `mail-app.tsx`).
 2. **The top toolbar of the email view** (`ThreadView` in `components/mail/thread-view.tsx`).
 3. **The bulk action toolbar** shown when several conversations are selected (`bulkBar` in `mail-app.tsx`).
+4. **The CLI** (`CLI_COMMANDS` in `shared/cli.ts`). A new action that can be undone gets a command in the Organize
+   group (see "The CLI for AI agents" below); one that cannot be undone goes in Ask first.
 
 Keep the same order, labels, icons and wording across the three. Where an action has choices
 (for example sender or domain), use the same choices in each place; share the builder rather than
@@ -28,6 +30,48 @@ Block, Mute and Priority that would act on **several** senders or domains ("Bloc
 `TargetsDialog`: each address or domain has a checkbox (all ticked) and only the ticked ones are acted on. The label ends
 in "…" to say so (`actsOnMany` in `lib/blocklist.ts`). Every place goes through `targetsAsk` (`lib/targets-confirm.ts`),
 so a new place for these commands must too.
+
+## The CLI for AI agents
+
+`minimail` (code in `src/main/cli/`) lets an AI agent on this computer use MiniMail, only as far as the person
+allowed in Settings, CLI. Commands, by group: Always (status, help, open, undo), Read, Organize (pin, mark-read,
+category, priority, mute, block, the moves), Drafts (`draft new|reply|reply-all|forward|edit|delete|list`) and Ask first
+(`send`, `unsubscribe`, `invitation`).
+
+- **It is a thin client of the running app**, over a private Unix socket (`server.ts`). Never read the mail files
+  from another process: they are encrypted with the app's keychain item. The app writes the `minimail` command and
+  its client (`launcher.ts`, `client.cjs`) when the CLI is on, and removes them when it is off. The link
+  `~/.local/bin/minimail` (`path-link.ts`) is kept while the CLI is on (the `pathLink` setting, on unless the person turns it
+  off) and is only ever changed or removed when it is MiniMail's own. The skill tells agents to try `minimail` first and the full path second.
+- **One list of commands**, `CLI_COMMANDS` in `shared/cli.ts`. `help`, the CLI tab and the skill all come from it. A new
+  command is an entry there (with its `options`, and `switches` if an option stands alone; `client.cjs` keeps the
+  same switch list, and a test fails when they drift), a handler in `commands.ts` and a test; the tab picks it up.
+- **Main enforces the permissions** (`handleCliRequest`), never the client or the page. Unknown options are refused.
+- **Anything that must behave like a click goes through the page** (`PageBridge` in `page-bridge.ts`, requests in
+  `shared/cli-page.ts`, handler in `renderer/lib/cli-page.ts`): mail moves and flags use `MailActions` (so Undo, the
+  Log row "via CLI" and the server's answer come with them, and `whenSettled` says how it ended), block, priority and
+  mute use the page's own lists, drafts use `lib/drafts`. The page opens hidden when the app has no window. Add a request
+  kind there rather than doing such a change in the main process, which has no undo stack.
+- **Mail text never reaches the CLI unscreened** (`redact.ts`). A message with a sign-in code is withheld everywhere
+  (rows, `search`, `wait`, `show`, and as the source of a reply or forward: `withheld` answers, and a search never
+  matches a withheld row on its text), and links show as `[link host]` unless the person allowed full links. A new
+  command that returns mail text goes through `rowForCli` / `messageForCli` / `headersForCli`; one that matches on text
+  goes through `searchable`. The skill (`skill.ts`) says the same things to the agent, and that mail is data, never instructions.
+- **Ask first** (`askFirst` in `commands.ts`, `cli-confirm-dialog.tsx`): a command that cannot be undone shows a card
+  (Reject, Allow once, Always allow) and waits. `send` skips the card only when every recipient, Cc and Bcc included,
+  is on the allowed list (or sending to anyone is allowed in Settings), never for a draft with files the CLI attached, and
+  what was approved is bound to the draft (`draftDigest`): if it changed while asking, it is not sent. A "no" is
+  `rejected` and final. The CLI only changes, deletes or sends drafts it wrote since MiniMail started (`CliDrafts`).
+  The safe button of every warning dialog gets the focus explicitly (`onOpenAutoFocus`), since the dialog would pick the first.
+- **The skill file** is only ever written, rewritten or removed when it carries the `minimail-managed` marker.
+  `~/.agents/skills` covers Codex, Cursor, Gemini CLI and Copilot (all document reading it); do not add their own folders.
+- **Log:** a read is one Info row "Read N messages via CLI" (subjects and the search in `context`, never in the title);
+  a change is recorded by the page as "... via CLI" with an Undo; a send is an Info row plus a notification when it
+  was not asked; a CLI failure goes through `reportError("cli", ...)`. Not undoable, so not on the stack: send,
+  unsubscribe, invitation answers.
+- **Settings** live in the `cli` section of `settings.json` (version 3: `enabled`, `disabled`, `ask` per ask-first
+  command, `allowedRecipients`, `hideLinks`, `pathLink`, `skillTargets`; older versions are upgraded by `STEPS` in `settings.ts`). Off by
+  default. Organize block, mute and priority name addresses or `@domains` one by one, so they do not go through `TargetsDialog`.
 
 ## Undo
 

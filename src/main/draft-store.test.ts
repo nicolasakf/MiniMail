@@ -8,6 +8,7 @@ import { MAX_SAVED_DRAFTS, type SavedDraft } from "@shared/types";
 
 import type { Cipher } from "./category-store";
 import { DraftStore } from "./draft-store";
+import { savedSection, sectionAt, seedSection } from "./test-settings";
 import { UiPrefsStore } from "./ui-prefs";
 
 function fakeCipher(available = true): Cipher {
@@ -126,18 +127,18 @@ describe("DraftStore", () => {
 });
 
 describe("UiPrefsStore", () => {
-  const path = () => join(dir, "ui-prefs.json");
+  const path = () => join(dir, "settings.json");
 
   it("starts with Smart, no unread filter and only the inbox shown", () => {
-    expect(new UiPrefsStore(path()).get()).toEqual({ view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [], onboarded: null });
+    expect(new UiPrefsStore(sectionAt(path(), "ui")).get()).toEqual({ view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [], onboarded: null });
   });
 
   it("remembers the view tab and the filters across launches, each change on its own", () => {
-    const store = new UiPrefsStore(path());
+    const store = new UiPrefsStore(sectionAt(path(), "ui"));
     store.set({ view: "sender" });
     store.set({ unreadOnly: true });
     store.set({ shownFolders: ["inbox", "trash", "spam"] });
-    expect(new UiPrefsStore(path()).get()).toEqual({
+    expect(new UiPrefsStore(sectionAt(path(), "ui")).get()).toEqual({
       view: "sender",
       unreadOnly: true,
       shownFolders: ["inbox", "trash", "spam"],
@@ -147,23 +148,23 @@ describe("UiPrefsStore", () => {
   });
 
   it("remembers which drafts are pinned, and ignores a damaged list", () => {
-    const store = new UiPrefsStore(path());
+    const store = new UiPrefsStore(sectionAt(path(), "ui"));
     store.set({ pinnedDrafts: ["acc|drafts|7", "local-draft:d1"] });
-    expect(new UiPrefsStore(path()).get().pinnedDrafts).toEqual(["acc|drafts|7", "local-draft:d1"]);
-    writeFileSync(path(), JSON.stringify({ version: 1, view: "list", pinnedDrafts: "nope" }));
-    expect(new UiPrefsStore(path()).get()).toMatchObject({ view: "list", pinnedDrafts: [] });
+    expect(new UiPrefsStore(sectionAt(path(), "ui")).get().pinnedDrafts).toEqual(["acc|drafts|7", "local-draft:d1"]);
+    seedSection(path(), "ui", { version: 1, view: "list", pinnedDrafts: "nope" });
+    expect(new UiPrefsStore(sectionAt(path(), "ui")).get()).toMatchObject({ view: "list", pinnedDrafts: [] });
   });
 
   it("falls back to defaults for a broken file, and for a single bad value only", () => {
-    writeFileSync(path(), "{broken");
-    expect(new UiPrefsStore(path()).get().view).toBe("category");
-    writeFileSync(path(), JSON.stringify({ version: 1, view: "nope", unreadOnly: true, shownFolders: ["spam"] }));
-    expect(new UiPrefsStore(path()).get()).toEqual({ view: "category", unreadOnly: true, shownFolders: ["spam"], pinnedDrafts: [], onboarded: true });
+    seedSection(path(), "ui", "{broken");
+    expect(new UiPrefsStore(sectionAt(path(), "ui")).get().view).toBe("category");
+    seedSection(path(), "ui", { version: 1, view: "nope", unreadOnly: true, shownFolders: ["spam"] });
+    expect(new UiPrefsStore(sectionAt(path(), "ui")).get()).toEqual({ view: "category", unreadOnly: true, shownFolders: ["spam"], pinnedDrafts: [], onboarded: true });
   });
 
   it("upgrades a version 1 file: the person used the app before, so the setup guide stays closed", () => {
-    writeFileSync(path(), JSON.stringify({ version: 1, view: "sender", unreadOnly: true, shownFolders: ["inbox", "spam"], pinnedDrafts: ["local-draft:d1"] }));
-    const store = new UiPrefsStore(path());
+    seedSection(path(), "ui", { version: 1, view: "sender", unreadOnly: true, shownFolders: ["inbox", "spam"], pinnedDrafts: ["local-draft:d1"] });
+    const store = new UiPrefsStore(sectionAt(path(), "ui"));
     expect(store.get()).toEqual({
       view: "sender",
       unreadOnly: true,
@@ -173,18 +174,18 @@ describe("UiPrefsStore", () => {
     });
     // The next write is in the new format and keeps the upgraded answer.
     store.set({ view: "list" });
-    expect(JSON.parse(readFileSync(path(), "utf8"))).toMatchObject({ version: 2, view: "list", onboarded: true });
-    expect(new UiPrefsStore(path()).get().onboarded).toBe(true);
+    expect(savedSection(path(), "ui")).toMatchObject({ version: 2, view: "list", onboarded: true });
+    expect(new UiPrefsStore(sectionAt(path(), "ui")).get().onboarded).toBe(true);
   });
 
   it("remembers whether the setup guide was started or finished", () => {
-    const store = new UiPrefsStore(path());
+    const store = new UiPrefsStore(sectionAt(path(), "ui"));
     expect(store.get().onboarded).toBeNull();
     store.set({ onboarded: false });
-    expect(new UiPrefsStore(path()).get().onboarded).toBe(false);
+    expect(new UiPrefsStore(sectionAt(path(), "ui")).get().onboarded).toBe(false);
     store.set({ onboarded: true });
-    expect(new UiPrefsStore(path()).get().onboarded).toBe(true);
-    writeFileSync(path(), JSON.stringify({ version: 2, onboarded: "yes" }));
-    expect(new UiPrefsStore(path()).get().onboarded).toBeNull();
+    expect(new UiPrefsStore(sectionAt(path(), "ui")).get().onboarded).toBe(true);
+    seedSection(path(), "ui", { version: 2, onboarded: "yes" });
+    expect(new UiPrefsStore(sectionAt(path(), "ui")).get().onboarded).toBeNull();
   });
 });

@@ -4,6 +4,7 @@ export const ONBOARDING_STEPS = [
   { id: "account", title: "Email" },
   { id: "ai", title: "AI key" },
   { id: "categories", title: "Categories", optional: true },
+  { id: "agent", title: "AI agent", optional: true },
 ] as const;
 
 export type OnboardingStepId = (typeof ONBOARDING_STEPS)[number]["id"];
@@ -36,7 +37,7 @@ export function firstOpenStep(accountCount: number, keySaved: boolean): Onboardi
   return "categories";
 }
 
-/** Whether "Continue" is available: an account is needed to go on, and so is the key. Categories ask for nothing. */
+/** Whether "Continue" is available: an account is needed to go on, and so is the key. Categories and the AI agent ask for nothing. */
 export function canContinue(step: OnboardingStepId, accountCount: number, keySaved: boolean): boolean {
   if (step === "account") return accountCount > 0;
   if (step === "ai") return keySaved;

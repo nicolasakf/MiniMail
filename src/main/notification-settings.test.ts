@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,11 +7,13 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@shared/notifications";
 
 import { NotificationSettingsStore } from "./notification-settings";
+import type { SettingsSection } from "./settings-file";
+import { sectionAt, seedSection } from "./test-settings";
 
-function fileWith(contents: unknown): string {
-  const path = join(mkdtempSync(join(tmpdir(), "minimail-notify-")), "notification-settings.json");
-  writeFileSync(path, JSON.stringify(contents));
-  return path;
+function fileWith(contents: unknown): SettingsSection {
+  const path = join(mkdtempSync(join(tmpdir(), "minimail-notify-")), "settings.json");
+  seedSection(path, "notifications", contents);
+  return sectionAt(path, "notifications");
 }
 
 describe("NotificationSettingsStore", () => {

@@ -1,6 +1,9 @@
 import type { ModelPurpose } from "./ai-models";
+import type { CliSettings, CliState } from "./cli";
+import type { PageReply, PageRequest } from "./cli-page";
 import type { AiProvider, ChatProvider } from "./ai-providers";
 import type { ComposeLibrary } from "./compose-library";
+import type { CompletionRequest, CompletionSettings } from "./completion";
 import type { ImapSettings } from "./imap-settings";
 import type {
   Account,
@@ -102,6 +105,8 @@ export interface MiniMailApi {
     setSortModel(model: string): Promise<CategoryState>;
     /** Chooses which folders' newly arrived mail is sorted automatically (none turns automatic sorting off). */
     setSortFolders(folders: SortFolder[]): Promise<CategoryState>;
+    /** Turns the composer's text completion on or off and sets how much it may write at once. */
+    setCompletion(settings: CompletionSettings): Promise<CategoryState>;
     /**
      * Makes one tiny call to `model` (saved or not) for that purpose, so a bad key, a wrong model id
      * or a network problem shows up now. Rejects with what went wrong.
@@ -116,7 +121,14 @@ export interface MiniMailApi {
      * Sorting again leaves such conversations where the user put them.
      */
     /** `ref` goes on the Log event, so the page can offer an Undo on it. */
-    assign(threads: string[], categoryId: string | null, ref?: string): Promise<void>;
+    assign(threads: string[], categoryId: string | null, ref?: string, via?: "cli"): Promise<void>;
+  };
+  completion: {
+    /**
+     * What the model suggests after the cursor, or "" when it has nothing to add (or a newer request
+     * from the same composer replaced this one). Rejects with what went wrong.
+     */
+    suggest(request: CompletionRequest): Promise<string>;
   };
   senders: {
     /** Addresses whose remote images load without asking (lowercase). */
@@ -170,6 +182,20 @@ export interface MiniMailApi {
     setSettings(settings: NotificationSettings): Promise<NotificationSettings>;
     /** Shows a sample notification so the user can check that the system lets MiniMail show them. */
     test(): Promise<void>;
+  };
+  cli: {
+    /** What the CLI may do, whether it is running, and where its skill is installed. */
+    get(): Promise<CliState>;
+    /**
+     * Replaces the settings and brings the computer in line with them (the socket, the `minimail`
+     * command and the skill for each agent ticked). Rejects when they could not be saved.
+     */
+    set(settings: CliSettings): Promise<CliState>;
+    /** The main process asks the page to do something for the CLI (see `PageRequest`). Answer with `pageReply`. */
+    onPageRequest(listener: (id: number, request: PageRequest) => void): () => void;
+    pageReply(reply: PageReply): void;
+    /** Tells the main process the page is listening, so it can send requests (the page announces it again after a reload). */
+    pageReady(): void;
   };
   events: {
     /** The journal: every error and the newest other events from the last 30 days, newest first. */

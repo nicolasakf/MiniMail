@@ -208,3 +208,74 @@ describe("taking a batch back", () => {
     expect(actions.revert(batch)).toBe(false);
   });
 });
+
+describe("commands asked for by something other than a click (the CLI)", () => {
+  it("says who asked in the Log, and only for that batch", async () => {
+    const recorded = vi.spyOn(await import("./events"), "recordAction").mockImplementation(() => undefined);
+    try {
+      const [one, two] = [mail("1"), mail("2")];
+      const send = vi.fn(async (_action: string, ids: string[]) => ids.map((id) => ({ id, status: "applied" as const })));
+      const actions = new MailActions(send, vi.fn(), vi.fn());
+      actions.enqueue("markRead", [one], false, undefined, undefined, "CLI");
+      actions.enqueue("pin", [two], false);
+      await tick();
+      await tick();
+      const titles = recorded.mock.calls.map((call) => call[1]);
+      expect(titles).toContain("Marked as read a message via CLI");
+      expect(titles).toContain("Pinned a message");
+    } finally {
+      recorded.mockRestore();
+    }
+  });
+});
+
+const applyAll = () => vi.fn(async (_action: string, ids: string[]) => ids.map((id) => ({ id, status: "applied" as const })));
+
+describe("whenSettled", () => {
+  it("resolves applied once the server answered every message of the batch", async () => {
+    const row = mail("1");
+    let finish!: (results: MailActionResult[]) => void;
+    const send = vi.fn(() => new Promise<MailActionResult[]>((resolve) => { finish = resolve; }));
+    const actions = new MailActions(send, vi.fn(), vi.fn());
+    const { batch } = actions.enqueue("archive", [row], false);
+    const settled = actions.whenSettled(batch, 1000);
+    let done: string | null = null;
+    void settled.then((value) => { done = value; });
+    await tick();
+    expect(done).toBeNull();
+    finish([{ id: row.id, status: "applied", nextId: "a|archive|9" }]);
+    expect(await settled).toBe("applied");
+  });
+
+  it("resolves failed when the server refused a message, and the Log has the reason", async () => {
+    const row = mail("1");
+    const send = vi.fn().mockResolvedValue([{ id: row.id, status: "failed", error: "Rejected" }]);
+    const actions = new MailActions(send, vi.fn(), vi.fn());
+    const { batch } = actions.enqueue("trash", [row], false);
+    expect(await actions.whenSettled(batch, 1000)).toBe("failed");
+    expect(actions.events[0]).toMatchObject({ detail: "1 — Rejected" });
+  });
+
+  it("resolves undone when the batch was cancelled before it was sent", async () => {
+    const row = mail("1");
+    const actions = new MailActions(applyAll(), vi.fn(), vi.fn());
+    const { batch } = actions.enqueue("archive", [row], true);
+    const settled = actions.whenSettled(batch, 1000);
+    actions.revert(batch);
+    expect(await settled).toBe("undone");
+  });
+
+  it("gives up after the time asked for while the batch is still waiting", async () => {
+    vi.useFakeTimers();
+    try {
+      const actions = new MailActions(applyAll(), vi.fn(), vi.fn());
+      const { batch } = actions.enqueue("archive", [mail("1")], true);
+      const settled = actions.whenSettled(batch, 500);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(await settled).toBe("timeout");
+      actions.flush();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

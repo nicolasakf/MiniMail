@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { SavedDraft } from "@shared/types";
 
-import { draftIdOf, draftMessage, draftThreads, isLocalDraftId, isLocalDraftThread, localDraftMessageId } from "./local-drafts";
+import { draftIdOf, draftMessage, draftsForThread, draftThreads, isLocalDraftId, isLocalDraftThread, localDraftMessageId } from "./local-drafts";
 
 const saved = (patch: Partial<SavedDraft> = {}): SavedDraft => ({
   id: "d1",
@@ -46,5 +46,23 @@ describe("local drafts as list rows", () => {
     ]);
     expect(threads.map((thread) => draftIdOf(thread.latest.id))).toEqual(["new", "old"]);
     expect(threads.every(isLocalDraftThread)).toBe(true);
+  });
+});
+
+describe("drafts at the end of a conversation", () => {
+  const reply = (id: string, nativeId: string, savedAt: string): SavedDraft =>
+    saved({ id, savedAt, mode: "reply", inReplyTo: { messageId: `<${nativeId}>`, nativeId, references: [], mode: "reply" } });
+  const owner = { name: "", email: "me@example.com" };
+  const thread = draftThreads([
+    { ...draftMessage(saved(), owner), id: "acc|inbox|1", threadId: "t" },
+    { ...draftMessage(saved(), owner), id: "acc|inbox|2", threadId: "t" },
+  ])[0];
+
+  it("finds the drafts that answer a message of the conversation, oldest first", () => {
+    const found = draftsForThread(
+      [reply("late", "acc|inbox|2", "2026-11-12T10:00:00.000Z"), reply("other", "acc|inbox|9", "2026-11-11T10:00:00.000Z"), reply("early", "acc|inbox|1", "2026-11-11T10:00:00.000Z"), saved()],
+      thread,
+    );
+    expect(found.map((draft) => draft.id)).toEqual(["early", "late"]);
   });
 });
