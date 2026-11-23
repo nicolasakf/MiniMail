@@ -59,6 +59,8 @@ export const IPC = {
   draftsDelete: "drafts:delete",
   prefsGet: "prefs:get",
   prefsSet: "prefs:set",
+  prefsImportLegacy: "prefs:import-legacy",
+  prefsChanged: "prefs:changed",
   notificationsGet: "notifications:get",
   notificationsSet: "notifications:set",
   notificationsTest: "notifications:test",

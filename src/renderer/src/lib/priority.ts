@@ -6,7 +6,6 @@ import { isBlockedEntry, type BlockKind } from "@shared/blocklist";
 import { senderDomain } from "@shared/categories";
 import {
   isPriorityEntry,
-  parsePriorityList,
   togglePriorityEntry,
   withoutBlocked,
   type PriorityKind,
@@ -14,45 +13,38 @@ import {
 } from "@shared/priority";
 
 import type { Thread } from "@shared/threads";
-import type { Contact } from "@shared/types";
+import type { Contact, UiPrefs } from "@shared/types";
+
+type StoredPriority = UiPrefs["priority"];
 
 import { threadContacts } from "./format";
 import { emailTargets, getBlockList, setBlocked, subscribeBlockList } from "./blocklist";
-import { countedTargets, recordAction, reportError } from "@/lib/events";
+import { savedPref, savePref, subscribePref } from "./saved-prefs";
+import { countedTargets, recordAction } from "@/lib/events";
 import { newUndoRef, undoStack } from "@/lib/undo-stack";
 
-const STORAGE_KEY = "minimail.priority";
-
-function read(): PriorityList {
-  try {
-    return parsePriorityList(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null"));
-  } catch (error) {
-    reportError("storage", "Could not read the priority senders", error);
-    return parsePriorityList(null);
-  }
+/**
+ * What the user marked as priority, saved in `settings.json` and shared by every part of the
+ * window, so marking a sender in a menu updates the cards at once.
+ */
+function marks(): StoredPriority {
+  return savedPref("priority");
 }
 
-/**
- * What the user marked as priority, kept on this computer and shared by every part of the
- * window, so marking a sender in a menu updates the cards at once. When storage is unavailable
- * the marks still hold until the app closes.
- */
-let current: PriorityList = read();
-const listeners = new Set<() => void>();
-
 function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
+  const stopMarks = subscribePref("priority", listener);
   const stopBlock = subscribeBlockList(listener);
   return () => {
-    listeners.delete(listener);
+    stopMarks();
     stopBlock();
   };
 }
 
 /** The marks together with the block list, rebuilt only when either changes (a stable snapshot). */
-let snapshot: PriorityList = { ...current, blocklist: getBlockList() };
+let snapshot: PriorityList = { ...marks(), blocklist: getBlockList() };
 function matching(): PriorityList {
   const blocklist = getBlockList();
+  const current = marks();
   if (snapshot.blocklist !== blocklist || snapshot.threads !== current.threads || snapshot.senders !== current.senders || snapshot.domains !== current.domains) {
     snapshot = { ...current, blocklist };
   }
@@ -64,15 +56,8 @@ export function usePriority(): PriorityList {
   return useSyncExternalStore(subscribe, matching);
 }
 
-function commit(next: PriorityList): void {
-  current = next;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-  } catch (error) {
-    reportError("storage", "Could not remember the priority senders", error);
-    // Storage can be unavailable; the mark holds until the app closes.
-  }
-  listeners.forEach((listener) => listener());
+function commit(next: StoredPriority): void {
+  savePref("priority", { threads: next.threads, senders: next.senders, domains: next.domains });
 }
 
 /**
@@ -100,7 +85,7 @@ function clearBlockFor(kind: PriorityKind, value: string): boolean {
  * which is refused (unblock the domain first).
  */
 export function togglePriority(kind: PriorityKind, value: string): void {
-  setPriority(kind, [value], !isPriorityEntry(current, kind, value));
+  setPriority(kind, [value], !isPriorityEntry(marks(), kind, value));
 }
 
 /**
@@ -115,9 +100,9 @@ export function setPriority(
 ): { applied: number; ref?: string } {
   const applied: string[] = [];
   for (const value of values) {
-    if (isPriorityEntry(current, kind, value) === on) continue;
+    if (isPriorityEntry(marks(), kind, value) === on) continue;
     if (on && !clearBlockFor(kind, value)) continue;
-    commit(togglePriorityEntry(current, kind, value));
+    commit(togglePriorityEntry(marks(), kind, value));
     applied.push(value);
   }
   if (applied.length === 0) return { applied: 0 };
@@ -132,7 +117,7 @@ export function setPriority(
     label: title,
     context,
     run: () => {
-      for (const value of applied) if (isPriorityEntry(current, kind, value) === on) commit(togglePriorityEntry(current, kind, value));
+      for (const value of applied) if (isPriorityEntry(marks(), kind, value) === on) commit(togglePriorityEntry(marks(), kind, value));
     },
   });
   return { applied: applied.length, ref };
@@ -145,17 +130,11 @@ export function setPriority(
 export function setBlockedClearingPriority(kind: BlockKind, values: readonly string[], blocked: boolean): void {
   setBlocked(kind, values, blocked);
   if (!blocked) return;
-  let next = current;
+  const before = marks();
+  let next = before;
   for (const value of values) next = withoutBlocked(next, kind, value);
-  if (next !== current) commit(next);
+  if (next !== before) commit(next);
 }
-
-// Another window (a detached composer shares the origin) can change the list.
-window.addEventListener("storage", (event) => {
-  if (event.key !== STORAGE_KEY) return;
-  current = read();
-  listeners.forEach((listener) => listener());
-});
 
 export interface PriorityChoice {
   kind: PriorityKind;

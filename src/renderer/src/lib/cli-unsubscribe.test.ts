@@ -2,8 +2,8 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { MessageSummary, UnsubscribeResult } from "@shared/types";
 
-// The helpers read the window's storage at load; give them a small one.
-vi.stubGlobal("window", { localStorage: { getItem: () => null, setItem: () => undefined }, addEventListener: () => undefined, minimail: {} });
+// The lists are saved through the main process; this stands in for it.
+vi.stubGlobal("window", { addEventListener: () => undefined, minimail: { prefs: { set: async () => undefined } } });
 
 let lib: typeof import("./cli-unsubscribe");
 beforeAll(async () => {

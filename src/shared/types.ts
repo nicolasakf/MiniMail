@@ -4,8 +4,11 @@
  */
 
 import type { AiProvider, ChatProvider, ProviderKeys } from "./ai-providers";
+import type { BlockList } from "./blocklist";
 import type { CompletionSettings } from "./completion";
 import type { ImapSettings } from "./imap-settings";
+import type { PriorityList } from "./priority";
+import type { UnsubscribedLists } from "./unsubscribe";
 
 export type Provider = "gmail" | "outlook" | "zoho" | "imap";
 
@@ -396,7 +399,20 @@ export type MailView = "category" | "sender" | "list";
 /** The folders whose mail the Inbox list can show: the inbox itself, and Archive, Trash and Spam. */
 export type ShownFolder = "inbox" | "archive" | "trash" | "spam";
 
-/** The list filters and view the app reopens with. */
+/** The color mode choice of Settings, Appearance. */
+export type ColorMode = "system" | "light" | "dark";
+
+/**
+ * The display choices of Settings, Appearance (text size, highlight color, layouts, ...) as plain
+ * values. The main process only stores them; the page checks each one when it reads them.
+ */
+export type AppearanceValues = Record<string, string | number | boolean | null>;
+
+/**
+ * The choices the app reopens with. They live in `settings.json`, never in the page's own storage:
+ * that is kept per address the page is loaded from, so a different way of starting the app
+ * (development, preview, the installed app) would not find them.
+ */
 export interface UiPrefs {
   /** The selected view tab: Smart, Sender or List. */
   view: MailView;
@@ -414,6 +430,20 @@ export interface UiPrefs {
    * a fresh install, which opens the guide when there is no account yet.
    */
   onboarded: boolean | null;
+  /** Settings, Appearance. `null` until one of its choices was changed. */
+  appearance: AppearanceValues | null;
+  /** Settings, Appearance, Color mode. `null` until it was chosen. */
+  theme: ColorMode | null;
+  /** The senders and domains the user blocked. */
+  blocklist: BlockList;
+  /** What the user marked as priority: conversations, senders and domains. */
+  priority: Omit<PriorityList, "blocklist">;
+  /** The mailing lists the user unsubscribed from, by list key, and when. */
+  unsubscribed: UnsubscribedLists;
+  /** The sender domains pinned to the top of the Sender view. */
+  pinnedDomains: string[];
+  /** The categories minimized to the dock on the right of the list. */
+  minimizedCategories: string[];
 }
 
 /** Most drafts kept at once; saving another drops the oldest. */

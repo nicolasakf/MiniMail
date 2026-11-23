@@ -35,6 +35,7 @@ import {
   offlineSettingsSchema,
   savedDraftSchema,
   eventReportSchema,
+  legacyPrefsSchema,
   uiPrefsPatchSchema,
   cliSettingsSchema,
   pageReplySchema,
@@ -109,14 +110,14 @@ export function registerIpc(options: {
    * wrote a catch for) and then rethrown unchanged; what the user changed is recorded too. Both
    * only append to memory, after the work is done, so they never slow an answer down.
    */
-  const handle = <Args extends unknown[], Result>(
+  const handleFrom = <Args extends unknown[], Result>(
     channel: string,
-    run: (...args: Args) => Promise<Result> | Result,
+    run: (event: IpcMainInvokeEvent, ...args: Args) => Promise<Result> | Result,
   ) => {
     ipcMain.handle(channel, async (event, ...args) => {
       try {
         assertTrustedSender(event, rendererUrl);
-        const result = await run(...(args as Args));
+        const result = await run(event, ...(args as Args));
         const done = doneTitle(channel);
         if (done) recordAction(ipcArea(channel), done);
         return result;
@@ -126,6 +127,10 @@ export function registerIpc(options: {
       }
     });
   };
+  const handle = <Args extends unknown[], Result>(
+    channel: string,
+    run: (...args: Args) => Promise<Result> | Result,
+  ) => handleFrom<Args, Result>(channel, (_event, ...args) => run(...args));
 
   handle(IPC.accountsList, () => service.listAccounts());
   handle(IPC.accountsDiscover, (email: unknown) => discoverAccountProvider(accountEmailSchema.parse(email)));
@@ -263,7 +268,22 @@ export function registerIpc(options: {
     return list;
   });
   handle(IPC.prefsGet, () => prefs.get());
-  handle(IPC.prefsSet, (patch: unknown) => prefs.set(uiPrefsPatchSchema.parse(patch)));
+  /** Tells every other window of a change, so each keeps showing what is saved. The window that made it already has it. */
+  const publishPrefs = (from: IpcMainInvokeEvent) => {
+    const saved = prefs.get();
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.webContents !== from.sender) window.webContents.send(IPC.prefsChanged, saved);
+    }
+  };
+  handleFrom(IPC.prefsSet, (event, patch: unknown) => {
+    prefs.set(uiPrefsPatchSchema.parse(patch));
+    publishPrefs(event);
+  });
+  handleFrom(IPC.prefsImportLegacy, (event, legacy: unknown) => {
+    const saved = prefs.importLegacy(legacyPrefsSchema.parse(legacy));
+    publishPrefs(event);
+    return saved;
+  });
   handle(IPC.logosGet, (requests: unknown) => logos.get(logoRequestsSchema.parse(requests)));
   handle(IPC.logosSettings, () => logoSettings.get());
   handle(IPC.logosSetSettings, (settings: unknown) => logoSettings.set(logoSettingsSchema.parse(settings)));

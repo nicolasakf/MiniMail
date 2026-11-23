@@ -1,36 +1,19 @@
-import { useCallback, useState } from "react";
-import { reportError } from "@/lib/events";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 
-const STORAGE_KEY = "minimail.minimizedCategories";
+import { savedPref, savePref, subscribePref } from "@/lib/saved-prefs";
 
-function load(): ReadonlySet<string> {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
-    return new Set(Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === "string") : []);
-  } catch (error) {
-    reportError("storage", "Could not read the minimized categories", error);
-    return new Set();
-  }
-}
+const subscribe = (listener: () => void) => subscribePref("minimizedCategories", listener);
+const snapshot = () => savedPref("minimizedCategories");
 
-/** The categories the user minimized to the dock on the right of the list; kept on this computer. */
+/** The categories the user minimized to the dock on the right of the list; saved in `settings.json`. */
 export function useMinimizedCategories() {
-  const [minimized, setMinimized] = useState<ReadonlySet<string>>(load);
+  const list = useSyncExternalStore(subscribe, snapshot);
+  const minimized: ReadonlySet<string> = useMemo(() => new Set(list), [list]);
 
   const setCategoryMinimized = useCallback((id: string, value: boolean) => {
-    setMinimized((previous) => {
-      if (previous.has(id) === value) return previous;
-      const next = new Set(previous);
-      if (value) next.add(id);
-      else next.delete(id);
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify([...next]));
-      } catch (error) {
-        reportError("storage", "Could not remember the minimized categories", error);
-        // Storage can be unavailable; the category stays minimized until the app closes.
-      }
-      return next;
-    });
+    const ids = savedPref("minimizedCategories");
+    if (ids.includes(id) === value) return;
+    savePref("minimizedCategories", value ? [...ids, id] : ids.filter((entry) => entry !== id));
   }, []);
 
   return { minimized, setCategoryMinimized };

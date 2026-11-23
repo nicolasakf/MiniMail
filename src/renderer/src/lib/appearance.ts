@@ -2,12 +2,12 @@ import { useSyncExternalStore } from "react";
 
 import { hexToHslTriple, normalizeHexColor, readableTextOn } from "./color";
 import { EMAIL_BACKGROUNDS, type EmailBackground } from "./email-html";
-import { reportError } from "@/lib/events";
+import { savedPref, savePref, subscribePref } from "./saved-prefs";
 
 /**
- * Display choices that belong to this computer and need no round trip to the main process: how
- * large the text is and whether lists show a preview of each message. Kept in the page's own
- * storage and applied before the first paint, so the app never flashes at the wrong size.
+ * Display choices: how large the text is, the highlight color, what lists show. Saved in
+ * `settings.json` with the other choices (`saved-prefs.ts`), read before the first paint and applied
+ * to the page then, so the app never flashes at the wrong size.
  */
 
 export const TEXT_SIZES = ["small", "default", "large", "larger"] as const;
@@ -73,36 +73,38 @@ export function effectiveCategoryLayout(appearance: Appearance): CategoryLayout 
   return appearance.splitView ? "horizontal" : appearance.categoryLayout;
 }
 
-const STORAGE_KEY = "minimail:appearance";
-
-function read(): Appearance {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Partial<Appearance>;
-    return {
-      textSize: TEXT_SIZES.includes(saved.textSize as TextSize) ? (saved.textSize as TextSize) : DEFAULT_APPEARANCE.textSize,
-      showPreviews: typeof saved.showPreviews === "boolean" ? saved.showPreviews : DEFAULT_APPEARANCE.showPreviews,
-      categoryLayout: CATEGORY_LAYOUTS.includes(saved.categoryLayout as CategoryLayout)
-        ? (saved.categoryLayout as CategoryLayout)
-        : DEFAULT_APPEARANCE.categoryLayout,
-      splitView: typeof saved.splitView === "boolean" ? saved.splitView : DEFAULT_APPEARANCE.splitView,
-      splitListWidth:
-        typeof saved.splitListWidth === "number" && saved.splitListWidth >= 200 && saved.splitListWidth <= 2000
-          ? Math.round(saved.splitListWidth)
-          : DEFAULT_APPEARANCE.splitListWidth,
-      accentColor: typeof saved.accentColor === "string" ? normalizeHexColor(saved.accentColor) : DEFAULT_APPEARANCE.accentColor,
-      emailWidth: EMAIL_WIDTHS.includes(saved.emailWidth as EmailWidth) ? (saved.emailWidth as EmailWidth) : DEFAULT_APPEARANCE.emailWidth,
-      emailBackground: EMAIL_BACKGROUNDS.includes(saved.emailBackground as EmailBackground)
-        ? (saved.emailBackground as EmailBackground)
-        : DEFAULT_APPEARANCE.emailBackground,
-    };
-  } catch (error) {
-    reportError("storage", "Could not read the appearance settings", error);
-    return { ...DEFAULT_APPEARANCE }; // Storage can be blocked; the defaults are fine.
-  }
+/** The appearance in a saved value: each choice is checked on its own, and one that is not valid takes the default. */
+export function parseAppearance(saved: Partial<Record<keyof Appearance, unknown>>): Appearance {
+  return {
+    textSize: TEXT_SIZES.includes(saved.textSize as TextSize) ? (saved.textSize as TextSize) : DEFAULT_APPEARANCE.textSize,
+    showPreviews: typeof saved.showPreviews === "boolean" ? saved.showPreviews : DEFAULT_APPEARANCE.showPreviews,
+    categoryLayout: CATEGORY_LAYOUTS.includes(saved.categoryLayout as CategoryLayout)
+      ? (saved.categoryLayout as CategoryLayout)
+      : DEFAULT_APPEARANCE.categoryLayout,
+    splitView: typeof saved.splitView === "boolean" ? saved.splitView : DEFAULT_APPEARANCE.splitView,
+    splitListWidth:
+      typeof saved.splitListWidth === "number" && saved.splitListWidth >= 200 && saved.splitListWidth <= 2000
+        ? Math.round(saved.splitListWidth)
+        : DEFAULT_APPEARANCE.splitListWidth,
+    accentColor: typeof saved.accentColor === "string" ? normalizeHexColor(saved.accentColor) : DEFAULT_APPEARANCE.accentColor,
+    emailWidth: EMAIL_WIDTHS.includes(saved.emailWidth as EmailWidth) ? (saved.emailWidth as EmailWidth) : DEFAULT_APPEARANCE.emailWidth,
+    emailBackground: EMAIL_BACKGROUNDS.includes(saved.emailBackground as EmailBackground)
+      ? (saved.emailBackground as EmailBackground)
+      : DEFAULT_APPEARANCE.emailBackground,
+  };
 }
 
-let current: Appearance = read();
-const listeners = new Set<() => void>();
+/** The saved choices, read again only when they change (a stable value for the screen). */
+let parsedFrom: unknown;
+let parsed: Appearance = DEFAULT_APPEARANCE;
+function current(): Appearance {
+  const saved = savedPref("appearance");
+  if (saved !== parsedFrom) {
+    parsedFrom = saved;
+    parsed = saved === null ? DEFAULT_APPEARANCE : parseAppearance(saved);
+  }
+  return parsed;
+}
 
 /** The CSS variables the highlight color drives: selection, unread dots and counts, links, focus rings. */
 const ACCENT_VARIABLES = ["--sidebar-primary", "--sidebar-primary-foreground", "--sidebar-ring", "--unread"] as const;
@@ -126,28 +128,24 @@ function applyToPage(appearance: Appearance): void {
   applyAccent(appearance.accentColor);
 }
 
-/** Applies the saved text size and highlight color; called once before the app renders. */
+/** Applies the saved text size and highlight color; called once before the app renders, and again when another window changes them. */
 export function applyAppearance(): void {
-  applyToPage(current);
+  applyToPage(current());
 }
 
 export function setAppearance(patch: Partial<Appearance>): void {
-  current = { ...current, ...patch };
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-  } catch (error) {
-    reportError("storage", "Could not remember the appearance settings", error);
-    // The choice still holds until the window closes.
-  }
-  applyToPage(current);
-  for (const listener of listeners) listener();
+  const next = { ...current(), ...patch };
+  savePref("appearance", next);
+  applyToPage(next);
 }
 
 function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  return subscribePref("appearance", listener);
 }
 
+// A change made in another window (the saved choices are shared) reaches this page too.
+subscribePref("appearance", applyAppearance);
+
 export function useAppearance(): Appearance {
-  return useSyncExternalStore(subscribe, () => current);
+  return useSyncExternalStore(subscribe, current);
 }

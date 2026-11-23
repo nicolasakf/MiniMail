@@ -2,6 +2,9 @@ import { useState } from "react";
 
 import { useTheme } from "next-themes";
 
+import { savePref } from "@/lib/saved-prefs";
+import type { ColorMode } from "@shared/types";
+
 import { Button } from "@/components/ui/button";
 import { ColorPicker } from "@/components/ui/color-picker";
 import { Separator } from "@/components/ui/separator";
@@ -80,7 +83,10 @@ export function AppearanceTab() {
                 { value: "light", label: "Light", preview: <ThemePreview mode="light" /> },
                 { value: "dark", label: "Dark", preview: <ThemePreview mode="dark" /> },
               ]}
-              onValueChange={setTheme}
+              onValueChange={(mode) => {
+                setTheme(mode);
+                savePref("theme", mode as ColorMode);
+              }}
             />
           </div>
         </section>

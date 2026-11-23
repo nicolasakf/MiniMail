@@ -1,5 +1,6 @@
 import { normalizeAlias, providerForEmailDomain } from "@shared/accounts";
 import { zohoSettings } from "@shared/imap-settings";
+import { defaultUiPrefs } from "@shared/prefs";
 import { trustKey } from "@shared/trust";
 import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "@shared/notifications";
 import { DEFAULT_OFFLINE_SETTINGS, type OfflineSettings } from "@shared/offline";
@@ -1046,7 +1047,8 @@ export function createDemoApi(): MiniMailApi {
     })),
     pathLink: { path: "~/.local/bin/minimail", installed: demoCli.enabled && demoCli.pathLink },
   });
-  let demoPrefs: UiPrefs = { view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [], onboarded: null };
+  // Kept in memory only: the demo has no settings file, and its page shares an address with the real app while developing.
+  let demoPrefs: UiPrefs = defaultUiPrefs();
   const aiKeys = noKeys();
   let sortProvider: AiProvider = "vercel";
   let codeProvider: ChatProvider = "vercel";
@@ -1380,11 +1382,15 @@ export function createDemoApi(): MiniMailApi {
     },
     prefs: {
       async get() {
-        return { ...demoPrefs, shownFolders: [...demoPrefs.shownFolders], pinnedDrafts: [...demoPrefs.pinnedDrafts] };
+        return structuredClone(demoPrefs);
       },
       async set(patch) {
         demoPrefs = { ...demoPrefs, ...patch };
       },
+      async importLegacy() {
+        return structuredClone(demoPrefs);
+      },
+      onChanged: () => () => undefined,
     },
     logos: {
       async get(requests) {

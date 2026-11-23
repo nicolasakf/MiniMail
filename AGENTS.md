@@ -174,6 +174,27 @@ data away.
 - The one allowed discard is a file that is corrupt or cannot be decrypted; it is reported (`reportError`)
   and the rebuild shows the same indicator.
 
+## Where things are saved: choices in files, only screen state in `localStorage`
+
+The page's `localStorage` is kept **per address the page is loaded from** (`http://localhost:5173` in `npm run dev`,
+`file://` in `npm run preview` and the installed app). Anything the person chose that sits there looks lost when the app
+is started another way, and the main process and the CLI cannot read it.
+
+- **Everything the person chose or built up is saved in a file by the main process**: settings, block / priority / mute
+  lists, pins, unsubscribed lists, appearance, color mode. Small choices are a section of `settings.json`
+  (`UiPrefsStore` in `main/ui-prefs.ts`; the page reads and writes them through `lib/saved-prefs.ts`: `savedPref`,
+  `savePref`, `subscribePref`, loaded once before the first render in `main.tsx`; the main process tells the other windows).
+  Mail-related or large data gets a file of its own, like the other stores.
+- **`localStorage` is only for the state of the screen**: a panel's width, what is folded open, the newest Log entry that was
+  looked at. Something nobody would mind losing. `src/storage-rules.test.ts` fails on any other file that touches it; adding
+  one to its list is a decision with a reason.
+- **Moving a choice out of the page's storage ships a takeover**: `legacy-prefs.ts` reads the old keys, `mergeLegacyPrefs`
+  (`shared/prefs.ts`) adds them to the file without replacing what is saved there, and the old keys are removed only after the
+  file is written. Each address the app was ever opened from is taken over the first time it is opened. The one exception is the color mode: its
+  library (`next-themes`) reads `localStorage`, so the saved mode is copied there before every start and the page's copy is never the source.
+- **A new field of `UiPrefs`** needs `.optional()` before its `transform` in `fileSchema`, since a file of an older version lacks it, a
+  default in `defaultUiPrefs`, and a test that opens the old format (`ui-prefs.test.ts`).
+
 ## Nothing fails silently
 
 Every failure, whatever it is, must reach **both** `main.log` and the Log popover. There

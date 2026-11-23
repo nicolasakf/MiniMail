@@ -37,6 +37,17 @@ import { COMPLETION_LENGTHS, COMPLETION_LIMITS } from "./completion";
 import { CODE_MODEL_PATTERN } from "./verification-code";
 import { MAX_ATTACHMENT_BYTES, MAX_DRAFT_ATTACHMENTS, SORT_FOLDERS } from "./types";
 import type { AddAccountInput, Category, Draft, ListQuery, MailView, SavedDraft, UiPrefs } from "./types";
+import { parseBlockList } from "./blocklist";
+import { parsePriorityList } from "./priority";
+import {
+  COLOR_MODES,
+  MAX_MINIMIZED_CATEGORIES,
+  MAX_PINNED_DOMAINS,
+  parseAppearanceValues,
+  parseStringList,
+  type LegacyPrefs,
+} from "./prefs";
+import { parseUnsubscribedLists } from "./unsubscribe";
 
 /**
  * Validation for everything the renderer sends to the main process. The renderer is
@@ -200,6 +211,24 @@ export const mailViewSchema: z.ZodType<MailView> = z.enum(["category", "sender",
 
 export const shownFoldersSchema = z.array(z.enum(["inbox", "archive", "trash", "spam"])).max(4);
 
+/**
+ * The lists of the saved choices are checked by the same functions that read them from the file:
+ * whatever is not well-formed is left out, and each list is cut to its limit.
+ */
+export const savedChoiceSchemas = {
+  appearance: z.unknown().transform((value, context) => {
+    const values = parseAppearanceValues(value);
+    if (values === null) context.addIssue({ code: "custom", message: "Appearance must be an object of plain values" });
+    return values ?? {};
+  }),
+  theme: z.enum(COLOR_MODES as [string, ...string[]]),
+  blocklist: z.unknown().transform(parseBlockList),
+  priority: z.unknown().transform(parsePriorityList),
+  unsubscribed: z.unknown().transform(parseUnsubscribedLists),
+  pinnedDomains: z.unknown().transform((value) => parseStringList(value, MAX_PINNED_DOMAINS)),
+  minimizedCategories: z.unknown().transform((value) => parseStringList(value, MAX_MINIMIZED_CATEGORIES)),
+};
+
 /** Any subset of the saved choices; what is left out keeps its value. */
 export const uiPrefsPatchSchema: z.ZodType<Partial<UiPrefs>> = z
   .object({
@@ -208,6 +237,21 @@ export const uiPrefsPatchSchema: z.ZodType<Partial<UiPrefs>> = z
     shownFolders: shownFoldersSchema,
     pinnedDrafts: z.array(z.string().min(1).max(2048)).max(500),
     onboarded: z.boolean(),
+    ...savedChoiceSchemas,
+  })
+  .partial()
+  .strict() as unknown as z.ZodType<Partial<UiPrefs>>;
+
+/** What the page found in its own storage, to be taken over once (see `mergeLegacyPrefs`). */
+export const legacyPrefsSchema: z.ZodType<LegacyPrefs> = z
+  .object({
+    appearance: z.unknown(),
+    theme: z.unknown(),
+    blocklist: z.unknown(),
+    priority: z.unknown(),
+    unsubscribed: z.unknown(),
+    pinnedDomains: z.unknown(),
+    minimizedCategories: z.unknown(),
   })
   .partial()
   .strict();

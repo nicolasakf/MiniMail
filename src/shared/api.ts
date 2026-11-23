@@ -32,6 +32,7 @@ import type { AppEvent, EventReport } from "./events";
 import type { LogoRequest, LogoSettings } from "./logos";
 import type { NotificationSettings, OpenConversationRequest } from "./notifications";
 import type { OfflineSettings } from "./offline";
+import type { LegacyPrefs } from "./prefs";
 
 /** Which sign-in methods this build can offer (OAuth needs client ids at build time). */
 export interface AccountCapabilities {
@@ -167,6 +168,13 @@ export interface MiniMailApi {
     get(): Promise<UiPrefs>;
     /** Remembers the given choices (the others keep their value). */
     set(patch: Partial<UiPrefs>): Promise<void>;
+    /**
+     * Adds what the page kept in its own storage before the choices lived in `settings.json`, and answers
+     * with all the choices. Rejects when it could not be saved; the page then leaves what it found where it is.
+     */
+    importLegacy(legacy: LegacyPrefs): Promise<UiPrefs>;
+    /** Another window of the app changed a choice (the window that made a change is not told of it). */
+    onChanged(listener: (prefs: UiPrefs) => void): () => void;
   };
   logos: {
     /**

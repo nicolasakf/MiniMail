@@ -3,12 +3,11 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { groupThreads } from "@shared/threads";
 import type { MessageSummary } from "@shared/types";
 
-// The lists live in the browser's storage and listen to the window, so give the modules a small one.
-const storage = new Map<string, string>();
+// The lists are saved through the main process; this stands in for it and keeps what was saved.
+const saved = new Map<string, unknown>();
 vi.stubGlobal("window", {
-  localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => void storage.set(key, value) },
   addEventListener: () => undefined,
-  minimail: {},
+  minimail: { prefs: { set: async (patch: Record<string, unknown>) => void Object.entries(patch).forEach(([key, value]) => saved.set(key, value)) } },
 });
 
 let counter = 0;
@@ -67,15 +66,14 @@ describe("priorityChoiceSections", () => {
 describe("setPriority", () => {
   it("marks several senders at once, then takes the marks back", () => {
     lib.setPriority("senders", ["ana@acme.com", "bob@acme.com"], true);
-    expect(storage.get("minimail.priority")).toContain("ana@acme.com");
-    expect(JSON.parse(storage.get("minimail.priority")!).senders).toEqual(["ana@acme.com", "bob@acme.com"]);
+    expect(saved.get("priority")).toMatchObject({ senders: ["ana@acme.com", "bob@acme.com"] });
     lib.setPriority("senders", ["ana@acme.com", "bob@acme.com"], false);
-    expect(JSON.parse(storage.get("minimail.priority")!).senders).toEqual([]);
+    expect(saved.get("priority")).toMatchObject({ senders: [] });
   });
 
   it("skips what is already in the wanted state", () => {
     lib.setPriority("threads", ["a:t1"], true);
     lib.setPriority("threads", ["a:t1", "a:t2"], true);
-    expect(JSON.parse(storage.get("minimail.priority")!).threads).toEqual(["a:t1", "a:t2"]);
+    expect(saved.get("priority")).toMatchObject({ threads: ["a:t1", "a:t2"] });
   });
 });

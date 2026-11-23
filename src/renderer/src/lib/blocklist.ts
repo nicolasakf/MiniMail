@@ -4,7 +4,6 @@ import { senderDomain } from "@shared/categories";
 import {
   blockKey,
   isBlockedEntry,
-  parseBlockList,
   toggleBlockEntry,
   type BlockKind,
   type BlockList,
@@ -13,34 +12,18 @@ import type { Thread } from "@shared/threads";
 import type { Contact } from "@shared/types";
 
 import { threadContacts } from "./format";
-import { reportError } from "@/lib/events";
-
-const STORAGE_KEY = "minimail.blocklist";
-
-function read(): BlockList {
-  try {
-    return parseBlockList(JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "null"));
-  } catch (error) {
-    reportError("storage", "Could not read the blocked senders", error);
-    return parseBlockList(null);
-  }
-}
+import { savedPref, savePref, subscribePref } from "./saved-prefs";
 
 /**
- * Who the user blocked, kept on this computer and shared by every part of the window, so blocking
- * a sender in a menu tints their name everywhere at once. When storage is unavailable the blocks
- * still hold until the app closes.
+ * Who the user blocked, saved in `settings.json` and shared by every part of the window, so blocking
+ * a sender in a menu tints their name everywhere at once.
  */
-let current: BlockList = read();
-const listeners = new Set<() => void>();
-
 export function subscribeBlockList(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  return subscribePref("blocklist", listener);
 }
 
 export function getBlockList(): BlockList {
-  return current;
+  return savedPref("blocklist");
 }
 
 export function useBlockList(): BlockList {
@@ -49,20 +32,13 @@ export function useBlockList(): BlockList {
 
 /** Blocks or unblocks one sender address or domain. */
 export function toggleBlock(kind: BlockKind, value: string): void {
-  current = toggleBlockEntry(current, kind, value);
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-  } catch (error) {
-    reportError("storage", "Could not remember the blocked senders", error);
-    // Storage can be unavailable; the block holds until the app closes.
-  }
-  listeners.forEach((listener) => listener());
+  savePref("blocklist", toggleBlockEntry(getBlockList(), kind, value));
 }
 
 /** Blocks (or, with `blocked` false, unblocks) every value of a kind that is not already so. */
 export function setBlocked(kind: BlockKind, values: readonly string[], blocked: boolean): void {
   for (const value of values) {
-    if (isBlockedEntry(current, kind, value) !== blocked) toggleBlock(kind, value);
+    if (isBlockedEntry(getBlockList(), kind, value) !== blocked) toggleBlock(kind, value);
   }
 }
 
@@ -234,10 +210,3 @@ export function priorityChoiceSections(
 ): BlockSection<MuteKind>[] {
   return conversationSections(isPriority, { on: "Mark", off: "Unmark" }, threads, own);
 }
-
-// Another window (a detached composer shares the origin) can change the list.
-window.addEventListener("storage", (event) => {
-  if (event.key !== STORAGE_KEY) return;
-  current = read();
-  listeners.forEach((listener) => listener());
-});

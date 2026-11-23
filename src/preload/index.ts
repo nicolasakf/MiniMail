@@ -113,6 +113,12 @@ const api: MiniMailApi = {
   prefs: {
     get: () => invoke(IPC.prefsGet),
     set: (patch) => invoke(IPC.prefsSet, patch),
+    importLegacy: (legacy) => invoke(IPC.prefsImportLegacy, legacy),
+    onChanged: (listener) => {
+      const handler = (_event: unknown, prefs: Parameters<typeof listener>[0]) => listener(prefs);
+      ipcRenderer.on(IPC.prefsChanged, handler);
+      return () => ipcRenderer.removeListener(IPC.prefsChanged, handler);
+    },
   },
   logos: {
     get: (requests) => invoke(IPC.logosGet, requests),

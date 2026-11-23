@@ -5,11 +5,10 @@ import type { MessageSummary } from "@shared/types";
 
 import type { TargetsAsk } from "./targets-confirm";
 
-// The block list lives in the browser's storage and listens to the window, so give the modules a small one.
+// The block list is saved through the main process; this stands in for it.
 vi.stubGlobal("window", {
-  localStorage: { getItem: () => null, setItem: () => undefined },
   addEventListener: () => undefined,
-  minimail: {},
+  minimail: { prefs: { set: async () => undefined } },
 });
 
 let counter = 0;

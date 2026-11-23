@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MAX_SAVED_DRAFTS, type SavedDraft } from "@shared/types";
 
+import { defaultUiPrefs } from "@shared/prefs";
+
 import type { Cipher } from "./category-store";
 import { DraftStore } from "./draft-store";
 import { savedSection, sectionAt, seedSection } from "./test-settings";
@@ -130,7 +132,7 @@ describe("UiPrefsStore", () => {
   const path = () => join(dir, "settings.json");
 
   it("starts with Smart, no unread filter and only the inbox shown", () => {
-    expect(new UiPrefsStore(sectionAt(path(), "ui")).get()).toEqual({ view: "category", unreadOnly: false, shownFolders: ["inbox"], pinnedDrafts: [], onboarded: null });
+    expect(new UiPrefsStore(sectionAt(path(), "ui")).get()).toEqual(defaultUiPrefs());
   });
 
   it("remembers the view tab and the filters across launches, each change on its own", () => {
@@ -139,11 +141,10 @@ describe("UiPrefsStore", () => {
     store.set({ unreadOnly: true });
     store.set({ shownFolders: ["inbox", "trash", "spam"] });
     expect(new UiPrefsStore(sectionAt(path(), "ui")).get()).toEqual({
+      ...defaultUiPrefs(),
       view: "sender",
       unreadOnly: true,
       shownFolders: ["inbox", "trash", "spam"],
-      pinnedDrafts: [],
-      onboarded: null,
     });
   });
 
@@ -159,13 +160,14 @@ describe("UiPrefsStore", () => {
     seedSection(path(), "ui", "{broken");
     expect(new UiPrefsStore(sectionAt(path(), "ui")).get().view).toBe("category");
     seedSection(path(), "ui", { version: 1, view: "nope", unreadOnly: true, shownFolders: ["spam"] });
-    expect(new UiPrefsStore(sectionAt(path(), "ui")).get()).toEqual({ view: "category", unreadOnly: true, shownFolders: ["spam"], pinnedDrafts: [], onboarded: true });
+    expect(new UiPrefsStore(sectionAt(path(), "ui")).get()).toEqual({ ...defaultUiPrefs(), unreadOnly: true, shownFolders: ["spam"], onboarded: true });
   });
 
   it("upgrades a version 1 file: the person used the app before, so the setup guide stays closed", () => {
     seedSection(path(), "ui", { version: 1, view: "sender", unreadOnly: true, shownFolders: ["inbox", "spam"], pinnedDrafts: ["local-draft:d1"] });
     const store = new UiPrefsStore(sectionAt(path(), "ui"));
     expect(store.get()).toEqual({
+      ...defaultUiPrefs(),
       view: "sender",
       unreadOnly: true,
       shownFolders: ["inbox", "spam"],
@@ -174,7 +176,7 @@ describe("UiPrefsStore", () => {
     });
     // The next write is in the new format and keeps the upgraded answer.
     store.set({ view: "list" });
-    expect(savedSection(path(), "ui")).toMatchObject({ version: 2, view: "list", onboarded: true });
+    expect(savedSection(path(), "ui")).toMatchObject({ version: 3, view: "list", onboarded: true });
     expect(new UiPrefsStore(sectionAt(path(), "ui")).get().onboarded).toBe(true);
   });
 

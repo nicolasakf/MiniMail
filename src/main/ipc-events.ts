@@ -63,6 +63,7 @@ const FAILED: Record<string, string> = {
   [IPC.draftsDelete]: "Could not delete the draft",
   [IPC.prefsGet]: "Could not read the saved view",
   [IPC.prefsSet]: "Could not save the view",
+  [IPC.prefsImportLegacy]: "Could not move the old saved choices to the settings file",
   [IPC.notificationsGet]: "Could not read the notification settings",
   [IPC.notificationsSet]: "Could not save the notification settings",
   [IPC.notificationsTest]: "Could not show a test notification",

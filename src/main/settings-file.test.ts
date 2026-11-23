@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DEFAULT_LOGO_SETTINGS } from "@shared/logos";
 import { DEFAULT_NOTIFICATION_SETTINGS } from "@shared/notifications";
+import { defaultUiPrefs } from "@shared/prefs";
 
 import { AiSettingsStore } from "./ai-settings";
 import { LogoSettingsStore } from "./logos/logo-settings";
@@ -33,6 +34,7 @@ describe("SettingsFile", () => {
     const file = new SettingsFile(path("settings.json"));
 
     expect(new UiPrefsStore(file.section("ui")).get()).toEqual({
+      ...defaultUiPrefs(),
       view: "sender",
       unreadOnly: true,
       shownFolders: ["inbox", "spam"],
@@ -76,7 +78,7 @@ describe("SettingsFile", () => {
     const file = new SettingsFile(path("settings.json"));
     expect(existsSync(path("settings.json"))).toBe(false);
     new UiPrefsStore(file.section("ui")).set({ view: "list" });
-    expect(saved()).toMatchObject({ version: 1, ui: { version: 2, view: "list" } });
+    expect(saved()).toMatchObject({ version: 1, ui: { version: 3, view: "list" } });
   });
 
   it("writes one section without touching the others", () => {

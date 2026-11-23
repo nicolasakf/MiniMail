@@ -3,12 +3,11 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "@shared/notifications";
 import type { Account, MailAction, MessageDetail, MessageSummary, SavedDraft } from "@shared/types";
 
-// The lists live in the browser's storage and listen to the window, so give the modules a small one.
-const storage = new Map<string, string>();
+// The lists are saved through the main process; this stands in for it and keeps what was saved.
+const saved = new Map<string, unknown>();
 vi.stubGlobal("window", {
-  localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => void storage.set(key, value) },
   addEventListener: () => undefined,
-  minimail: {},
+  minimail: { prefs: { set: async (patch: Record<string, unknown>) => void Object.entries(patch).forEach(([key, value]) => saved.set(key, value)) } },
 });
 
 function mail(id: string, email = "anna@example.com"): MessageSummary {
@@ -109,7 +108,7 @@ beforeEach(() => {
   draftSerial = 0;
   decision = "once";
   unsubscribed = (count) => ({ done: count, manual: [], failed: [], skipped: 0, alreadyDone: 0 });
-  storage.clear();
+  saved.clear();
   recorded?.mockRestore();
   recorded = vi.spyOn(events, "recordAction").mockImplementation(() => undefined);
   blocklist.setBlocked("senders", ["anna@example.com", "bob@example.com"], false);
