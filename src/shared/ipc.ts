@@ -62,6 +62,8 @@ export const IPC = {
   notificationsGet: "notifications:get",
   notificationsSet: "notifications:set",
   notificationsTest: "notifications:test",
+  offlineGet: "offline:get",
+  offlineSet: "offline:set",
   cliGet: "cli:get",
   cliSet: "cli:set",
   cliPageRequest: "cli:page-request",

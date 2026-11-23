@@ -31,6 +31,19 @@ Block, Mute and Priority that would act on **several** senders or domains ("Bloc
 in "…" to say so (`actsOnMany` in `lib/blocklist.ts`). Every place goes through `targetsAsk` (`lib/targets-confirm.ts`),
 so a new place for these commands must too.
 
+## Settings text: say what it is, not why it matters
+
+Descriptions and info tooltips in the Settings dialog state **what** a setting is or does, and nothing else.
+
+- Objective and short: one sentence, plain and factual. Say what it controls and, where it helps, its default or unit.
+- No persuasion or judgment: no "recommended", "useful", "important", "safer", "faster", "to keep your mail private".
+  Do not argue why the option is good or bad, or why the person should want it.
+- No tooltip or description when the label already says it, or when the thing is common knowledge (what Spam, Trash
+  or a sound is). Text is only for a fact the label does not give (what exactly is affected, a limit, a consequence that
+  is not obvious); it never repeats the label or explains a word the person already knows.
+- A real consequence is a fact and may be stated plainly ("Cannot be undone", "Downloads mail again"), without
+  emphasis or reassurance.
+
 ## The CLI for AI agents
 
 `minimail` (code in `src/main/cli/`) lets an AI agent on this computer use MiniMail, only as far as the person
@@ -72,6 +85,35 @@ category, priority, mute, block, the moves), Drafts (`draft new|reply|reply-all|
 - **Settings** live in the `cli` section of `settings.json` (version 3: `enabled`, `disabled`, `ask` per ask-first
   command, `allowedRecipients`, `hideLinks`, `pathLink`, `skillTargets`; older versions are upgraded by `STEPS` in `settings.ts`). Off by
   default. Organize block, mute and priority name addresses or `@domains` one by one, so they do not go through `TargetsDialog`.
+
+## Saved message text (open mail without the network)
+
+The text of a downloaded message is kept in `message-text.sqlite` (`body-store.ts`, `node:sqlite`, so Node 22.13 or
+newer), one row per message, its content encrypted with the keychain like the mail cache. The list rows stay in
+`mail-cache.json`; the row's flags and thread always come from the list, never from the saved text.
+
+- **Opening** goes memory, then the saved text (with the list's row), then the network; a message downloaded on open is
+  saved. **Ahead of time:** after each list of a chosen folder, `BodyPrefetcher` (`body-prefetch.ts`) downloads the mail that
+  is not saved, newest first, a small batch at a time. Which folders (Inbox by default; Archive, Trash, Spam are
+  optional) and what bounds it are set on the Advanced page (`OfflineSettings` in `shared/offline.ts`, on by default):
+  `limit` is `days` (a look-back, 30 by default), `size` (newest first until the file reaches `maxMegabytes`) or
+  `unlimited` (a gentle inline warning on the page). It only reaches the newest `MAIL_WINDOW` messages of each folder, the
+  ones the lists show. Providers do it in `prefetch`, which `get` shares its download with.
+- **Never an attachment file.** IMAP asks for the readable parts by number (`planBody` in `providers/imap-parts.ts`),
+  never `source: true`; files are listed by name and size, and `AttachmentInfo.id` is the IMAP part number, so
+  `attachment()` downloads that one part. Images the text embeds by `cid:` are only listed (`StoredBody.inline`) and are
+  fetched when a message is opened; the saved text keeps the `cid:` references.
+- **Keys:** account, folder (Pinned is the Inbox), native id and a scope (IMAP UIDVALIDITY, so a renumbered folder is
+  forgotten by `retire`). Moves and deletes `remove` the row. Drafts are never saved. A message with an Outlook invitation is
+  downloaded again each time, since its answer can change elsewhere.
+- **Format:** `meta.version` and `STEPS` in `body-store.ts` upgrade the table step by step; a file from a newer app is left
+  alone, one that cannot be read is set aside and reported, and a row that cannot be decrypted is dropped (it is only a
+  copy of the server's) and the message is downloaded again. The file is capped by the limit (`storeLimitBytes`: 2 GB
+  for days, the chosen size, none for unlimited; `BodyStore.setLimit`), least recently read first. Mail downloaded ahead
+  of time ranks by its own date and mail opened ranks as read now (`put`'s `rank`), so a full file drops the oldest mail
+  first, and the prefetcher skips mail older than everything kept (`hasRoomFor`) instead of churning.
+- **The `offline` settings section** is versioned (`STEPS` in `offline-settings.ts`; version 1 had only the switch and the
+  look-back): add a step with a test for the old format when it changes.
 
 ## Undo
 

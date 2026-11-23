@@ -5,6 +5,15 @@ import { MAX_EVENT_CONTEXT, MAX_EVENT_DETAIL, MAX_EVENT_TITLE } from "./events";
 import { MAX_ALIAS_LENGTH, MAX_AVATAR_BYTES, normalizeAlias } from "./accounts";
 import type { LogoRequest, LogoSettings } from "./logos";
 import {
+  MAX_LOOKBACK_DAYS,
+  MAX_MEGABYTES,
+  MIN_LOOKBACK_DAYS,
+  MIN_MEGABYTES,
+  OFFLINE_FOLDERS,
+  OFFLINE_LIMITS,
+  type OfflineSettings,
+} from "./offline";
+import {
   MAX_MUTED_SENDERS,
   MAX_MUTED_THREADS,
   MAX_NOTIFICATION_IDS,
@@ -236,6 +245,19 @@ export const logoSettingsSchema: z.ZodType<LogoSettings> = z.object({
   personPhotos: z.boolean(),
 });
 
+/** The Advanced page's choices about downloading mail ahead of time; the whole object is replaced on each change. */
+export const offlineSettingsSchema: z.ZodType<OfflineSettings> = z.object({
+  prefetch: z.boolean(),
+  folders: z
+    .array(z.enum(OFFLINE_FOLDERS))
+    .min(1)
+    .max(OFFLINE_FOLDERS.length)
+    .refine((folders) => new Set(folders).size === folders.length, "A folder is listed twice"),
+  limit: z.enum(OFFLINE_LIMITS),
+  lookbackDays: z.number().int().min(MIN_LOOKBACK_DAYS).max(MAX_LOOKBACK_DAYS),
+  maxMegabytes: z.number().int().min(MIN_MEGABYTES).max(MAX_MEGABYTES),
+});
+
 const accountNotificationShape = {
   enabled: z.boolean(),
   folders: z.array(z.enum(NOTIFY_FOLDERS)).max(NOTIFY_FOLDERS.length),
@@ -404,7 +426,7 @@ export const pageReplySchema: z.ZodType<PageReply> = z.union([
       outcome: z.enum(["applied", "failed", "undone", "timeout", "nothing"]),
       count: z.number().int().min(0),
       ref: z.string().max(200).optional(),
-      decision: z.enum(["reject", "once", "always"]).optional(),
+      decision: z.enum(["reject", "once", "always", "review"]).optional(),
       unsubscribe: z
         .object({
           done: z.number().int().min(0),

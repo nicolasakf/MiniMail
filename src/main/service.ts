@@ -5,6 +5,7 @@ import { buildContactIndex, type ContactEntry } from "@shared/contacts";
 import { makeMessageId, parseMessageId } from "@shared/ids";
 import { diffList } from "@shared/list-changes";
 import { MAIL_WINDOW } from "@shared/mail-window";
+import { storeLimitBytes, type OfflineSettings } from "@shared/offline";
 import { MOVE_DESTINATION } from "@shared/threads";
 import type {
   Account,
@@ -33,6 +34,8 @@ import {
   type OAuthIdentity,
   type OAuthTokens,
 } from "./oauth";
+import type { BodyPrefetcher } from "./body-prefetch";
+import type { BodyStore } from "./body-store";
 import type { Categorizer } from "./categorizer";
 import { sniffImage } from "./logos/icon-finder";
 import type { InvitationAnswers } from "./invitation-answers";
@@ -40,7 +43,7 @@ import type { MailCache } from "./mail-cache";
 import { GraphProvider } from "./providers/graph";
 import { ImapProvider } from "./providers/imap";
 import type { SummaryStore } from "./providers/summary-cache";
-import { describeError, type AttachmentFile, type MailAuth, type MailProvider } from "./providers/types";
+import { describeError, type AttachmentFile, type BodyView, type MailAuth, type MailProvider } from "./providers/types";
 import { recordAction, recordInfo, reportError } from "./events";
 import { perfLog, perfTime } from "./perf";
 import { unsubscribeFrom } from "./unsubscribe";
@@ -80,6 +83,10 @@ export class MailService {
     private readonly mailCache?: MailCache,
     /** How the user answered invitations on accounts whose server does not record it; omit to forget them. */
     private readonly invitationAnswers?: InvitationAnswers,
+    /** The text of downloaded messages, kept between launches; omit to download a message each time it is opened. */
+    private readonly bodyStore?: BodyStore,
+    /** Downloads recent Inbox mail ahead of time; omit to download only what is opened. */
+    private readonly prefetcher?: BodyPrefetcher,
   ) {}
 
   listAccounts(): Account[] {
@@ -216,6 +223,14 @@ export class MailService {
     await provider?.close();
     this.store.remove(accountId);
     this.mailCache?.dropAccount(accountId);
+    this.prefetcher?.forget(accountId);
+    this.bodyStore?.dropAccount(accountId);
+  }
+
+  /** Applies a change on the Advanced page: the new limit on the saved text, and a download of what each account already shows. */
+  offlineChanged(settings: OfflineSettings): void {
+    this.bodyStore?.setLimit(storeLimitBytes(settings));
+    for (const account of this.store.list()) this.prefetcher?.scheduleCached(account.id, this.providerFor(account));
   }
 
   async list(query: ListQuery): Promise<ListResult> {
@@ -253,6 +268,8 @@ export class MailService {
     settled.forEach((outcome, index) => {
       if (outcome.status === "fulfilled") {
         messages.push(...outcome.value);
+        // New mail (what a push or a refresh just read): download its text in the background, if the folder is one chosen.
+        void this.prefetcher?.schedule(accounts[index].id, this.providerFor(accounts[index]), query.folder, outcome.value);
         if (before) changes.push(diffList(accounts[index].id, before[index], outcome.value));
       } else {
         const message = describeError(outcome.reason);
@@ -549,6 +566,7 @@ export class MailService {
         account,
         this.storedCredentials(account),
         this.mailCache?.forAccount(account.id),
+        this.bodyStore?.forAccount(account.id),
       );
       this.providers.set(account.id, provider);
     }
@@ -559,10 +577,11 @@ export class MailService {
     account: Account,
     credentials: CredentialSource,
     persist?: SummaryStore,
+    bodies?: BodyView,
   ): MailProvider {
     return account.provider === "outlook"
-      ? new GraphProvider(account, () => credentials.accessToken(), persist)
-      : new ImapProvider(account, () => credentials.auth(), persist);
+      ? new GraphProvider(account, () => credentials.accessToken(), persist, undefined, bodies)
+      : new ImapProvider(account, () => credentials.auth(), persist, bodies);
   }
 
   /** Credentials that are fixed for the duration of the sign-in probe. */

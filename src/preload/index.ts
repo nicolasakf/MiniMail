@@ -124,6 +124,10 @@ const api: MiniMailApi = {
     setSettings: (settings) => invoke(IPC.notificationsSet, settings),
     test: () => invoke(IPC.notificationsTest),
   },
+  offline: {
+    settings: () => invoke(IPC.offlineGet),
+    setSettings: (settings) => invoke(IPC.offlineSet, settings),
+  },
   cli: {
     get: () => invoke(IPC.cliGet),
     set: (settings) => invoke(IPC.cliSet, settings),

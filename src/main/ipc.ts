@@ -32,6 +32,7 @@ import {
   logoRequestsSchema,
   logoSettingsSchema,
   notificationSettingsSchema,
+  offlineSettingsSchema,
   savedDraftSchema,
   eventReportSchema,
   uiPrefsPatchSchema,
@@ -60,6 +61,7 @@ import type { VerificationCodes } from "./verification-codes";
 import type { LogoService } from "./logos/logo-service";
 import type { LogoSettingsStore } from "./logos/logo-settings";
 import type { NotificationSettingsStore } from "./notification-settings";
+import type { OfflineSettingsStore } from "./offline-settings";
 import type { Notifier } from "./notifier";
 import type { TrustedSenders } from "./trusted-senders";
 import { oauthCapabilities, type OAuthConfig } from "./oauth";
@@ -80,6 +82,7 @@ export function registerIpc(options: {
   attachmentFiles: AttachmentFiles;
   notifier: Notifier;
   notificationSettings: NotificationSettingsStore;
+  offlineSettings: OfflineSettingsStore;
   categorizer: Categorizer;
   completer: Completer;
   aiSettings: AiSettingsStore;
@@ -99,7 +102,7 @@ export function registerIpc(options: {
   cli: CliController;
   pageBridge: PageBridge;
 }): void {
-  const { service, attachmentFiles, notifier, notificationSettings, categorizer, completer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, journal, oauthConfig, rendererUrl, openExternal, openLog, cli, pageBridge } = options;
+  const { service, attachmentFiles, notifier, notificationSettings, offlineSettings, categorizer, completer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, journal, oauthConfig, rendererUrl, openExternal, openLog, cli, pageBridge } = options;
 
   /**
    * Registers a handler. Whatever it throws is recorded (so no failure goes unseen, even one nobody
@@ -271,6 +274,12 @@ export function registerIpc(options: {
     return saved;
   });
   handle(IPC.notificationsTest, () => notifier.test());
+  handle(IPC.offlineGet, () => offlineSettings.get());
+  handle(IPC.offlineSet, (settings: unknown) => {
+    const saved = offlineSettings.set(offlineSettingsSchema.parse(settings));
+    service.offlineChanged(saved); // A new limit applies, and more folders or a longer look-back start downloading at once.
+    return saved;
+  });
   handle(IPC.openExternal, (url: unknown) => openExternal(z.string().parse(url)));
 
   handle(IPC.eventsList, () => journal.list());

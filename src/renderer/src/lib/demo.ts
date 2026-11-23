@@ -2,6 +2,7 @@ import { normalizeAlias, providerForEmailDomain } from "@shared/accounts";
 import { zohoSettings } from "@shared/imap-settings";
 import { trustKey } from "@shared/trust";
 import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "@shared/notifications";
+import { DEFAULT_OFFLINE_SETTINGS, type OfflineSettings } from "@shared/offline";
 import { DEFAULT_CLI_SETTINGS, SKILL_TARGETS, type CliSettings, type CliState } from "@shared/cli";
 import { DEFAULT_LOGO_SETTINGS, isFreemail, logoKey, type LogoRequest, type LogoSettings } from "@shared/logos";
 import type { AccountCapabilities, MiniMailApi } from "@shared/api";
@@ -718,6 +719,7 @@ export function createDemoApi(): MiniMailApi {
   let demoLibrary: Awaited<ReturnType<MiniMailApi["composeLibrary"]["get"]>> = { signatures: [] };
   let demoDrafts: SavedDraft[] = [];
   let demoNotifications: NotificationSettings = structuredClone(DEFAULT_NOTIFICATION_SETTINGS);
+  let demoOffline: OfflineSettings = { ...DEFAULT_OFFLINE_SETTINGS };
   let demoCli: CliSettings = structuredClone(DEFAULT_CLI_SETTINGS);
   const demoCliState = (): CliState => ({
     settings: structuredClone(demoCli),
@@ -1192,6 +1194,15 @@ export function createDemoApi(): MiniMailApi {
       onPageRequest: () => () => undefined,
       pageReply: () => undefined,
       pageReady: () => undefined,
+    },
+    offline: {
+      async settings() {
+        return { ...demoOffline };
+      },
+      async setSettings(next) {
+        demoOffline = { ...next };
+        return { ...demoOffline };
+      },
     },
     notifications: {
       async settings() {

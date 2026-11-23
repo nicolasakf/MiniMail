@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Account, MailFolder } from "@shared/types";
@@ -13,13 +17,23 @@ const server = vi.hoisted(() => ({
     auth?: string;
     /** Gmail labels (X-GM-LABELS), sent only when a fetch asks for them. */
     labels?: string[];
+    /** The MIME structure the server reports; a single plain-text part by default. */
+    structure?: unknown;
+    /** The raw content of each part by number ("text" for a message with one part). */
+    parts?: Record<string, string>;
   }[],
   /** Serve Gmail's folders: no \Archive, "All Mail" (\All) instead. */
   gmailFolders: false,
   /** The uids asked for in every preview download (partial body), in order. */
   previewRequests: [] as number[][],
-  /** The uids asked for in every full-message download. */
-  fullFetches: [] as number[][],
+  /** The uids asked for by each command that opens messages (their structure, envelope and flags). */
+  openFetches: [] as number[][],
+  /** Each download of part contents: the uid and the part numbers asked for. */
+  partFetches: [] as { uid: number; keys: string[] }[],
+  /** Each download of one part by itself (an attachment): the uid and the part number. */
+  partDownloads: [] as { uid: number; part: string }[],
+  /** Downloads of the whole raw message: nothing but sending and replying should ever need one. */
+  wholeMessages: [] as number[][],
   /** What reached the server, in order, to check who waited for whom. */
   events: [] as string[],
   /** Called as a preview download starts; lets a test act "while it runs". */
@@ -70,6 +84,27 @@ vi.mock("imapflow", () => {
     async search() {
       return [];
     }
+    async fetchOne(uid: string, query: { bodyParts?: (string | { key: string })[]; source?: unknown }) {
+      const message = server.messages.find((candidate) => candidate.uid === Number(uid));
+      if (!message) return false;
+      if (query.source === true) {
+        server.wholeMessages.push([message.uid]);
+        return { uid: message.uid, source: Buffer.from("raw") };
+      }
+      const keys = (query.bodyParts ?? []).map((part) => (typeof part === "string" ? part : part.key));
+      server.partFetches.push({ uid: message.uid, keys });
+      server.events.push(`parts:${message.uid}`);
+      const content = message.parts ?? { text: `Hello ${message.uid}` };
+      return { uid: message.uid, bodyParts: new Map(keys.flatMap((key) => (key in content ? [[key, Buffer.from(content[key])] as const] : []))) };
+    }
+    async download(uid: string, part: string) {
+      server.partDownloads.push({ uid: Number(uid), part });
+      const message = server.messages.find((candidate) => candidate.uid === Number(uid));
+      const content = message?.parts?.[part];
+      if (content === undefined) return {};
+      const { Readable } = await import("node:stream");
+      return { meta: { filename: "report.pdf", contentType: "application/pdf" }, content: Readable.from([Buffer.from(content)]) };
+    }
     async *fetch(range: string | number[], query: { source?: unknown; headers?: unknown; labels?: boolean }) {
       // A number array is uids; "n:*" and "n:m" are sequence ranges (1-based, inclusive).
       const [from, to] = Array.isArray(range) ? [0, 0] : range.split(":");
@@ -77,15 +112,18 @@ vi.mock("imapflow", () => {
         ? server.messages.filter((message) => range.includes(message.uid))
         : server.messages.slice(Math.max(0, Number(from) - 1), to === "*" ? undefined : Number(to));
       const asked = Array.isArray(range) ? [...range] : [];
+      const opening = Array.isArray(query.headers) && query.headers.includes("references");
       if (query.source === true) {
-        server.fullFetches.push(asked);
+        server.wholeMessages.push(asked);
+      } else if (opening) {
+        server.openFetches.push(asked);
         server.events.push(`get:${asked.join(",")}`);
       } else if (query.source) {
         server.previewRequests.push(asked);
         server.events.push(`previews:${asked.join(",")}`);
         server.onPreviewFetch?.();
       }
-      if (query.headers) {
+      if (query.headers && !opening) {
         server.events.push(`headers:${rows.map((message) => message.uid).join(",")}`);
         for (const message of rows) {
           const header = message.auth ? `Authentication-Results: ${message.auth}\r\n` : "";
@@ -112,7 +150,8 @@ vi.mock("imapflow", () => {
             messageId: `<${message.uid}@example.com>`,
           },
           internalDate: message.date,
-          bodyStructure: { type: "text/plain" },
+          bodyStructure: message.structure ?? { type: "text/plain" },
+          ...(opening ? { headers: Buffer.from("References: <0@example.com> <1@example.com>\r\n\r\n") } : {}),
           source: Buffer.from(
             `Subject: ${message.subject}\r\n${message.auth ? `Authentication-Results: ${message.auth}\r\n` : ""}\r\nHello ${message.uid}`,
           ),
@@ -139,6 +178,8 @@ vi.mock("imapflow", () => {
   return { ImapFlow: FakeImapFlow };
 });
 
+import { BodyStore } from "./body-store";
+import type { Cipher } from "./category-store";
 import { ImapProvider, isArchivedInGmail, nextBatchSize } from "./providers/imap";
 import { describeError } from "./providers/types";
 import { nativeIdOf, patchSummaries, type CachedFolder, type SummaryStore } from "./providers/summary-cache";
@@ -172,7 +213,10 @@ beforeEach(() => {
   server.dropLocks = 0;
   server.closed = 0;
   server.previewRequests = [];
-  server.fullFetches = [];
+  server.openFetches = [];
+  server.partFetches = [];
+  server.partDownloads = [];
+  server.wholeMessages = [];
   server.events = [];
   server.onPreviewFetch = undefined;
   server.lockTail = Promise.resolve();
@@ -491,12 +535,14 @@ describe("nextBatchSize", () => {
 });
 
 describe("ImapProvider opening messages", () => {
-  it("downloads a whole conversation in one command", async () => {
+  it("asks for a whole conversation's structure in one command, then each message's text", async () => {
     const provider = launch();
     await provider.list("inbox", 100);
 
     const opened = await provider.get("inbox", ["1", "2", "3"]);
-    expect(server.fullFetches).toEqual([[1, 2, 3]]);
+    expect(server.openFetches).toEqual([[1, 2, 3]]);
+    expect(server.partFetches.map((fetch) => fetch.uid)).toEqual([1, 2, 3]);
+    expect(server.wholeMessages).toEqual([]);
     expect(opened.map((message) => message.subject)).toEqual(["Message 1", "Message 2", "Message 3"]);
     expect(opened[0].text).toContain("Hello 1");
   });
@@ -512,7 +558,7 @@ describe("ImapProvider opening messages", () => {
     await provider.get("inbox", ["1", "2"]);
     await provider.get("inbox", ["2", "3"]);
 
-    expect(server.fullFetches).toEqual([[1, 2], [3]]);
+    expect(server.openFetches).toEqual([[1, 2], [3]]);
   });
 
   it("keeps opened messages in step with actions", async () => {
@@ -522,7 +568,7 @@ describe("ImapProvider opening messages", () => {
 
     await provider.act("markRead", "inbox", ["1"]);
     expect((await provider.get("inbox", ["1"]))[0].unread).toBe(false);
-    expect(server.fullFetches).toHaveLength(1);
+    expect(server.openFetches).toHaveLength(1);
 
     await provider.act("archive", "inbox", ["1"]);
     expect(await provider.get("inbox", ["1"])).toEqual([]);
@@ -612,5 +658,198 @@ describe("Gmail Archive (All Mail)", () => {
   it("leaves accounts with a real Archive folder unfiltered", async () => {
     server.messages = [mail(1, ["\\Inbox"]), mail(2, [])];
     expect(uidsOf(await launch().list("archive", 10))).toEqual(["2", "1"]);
+  });
+});
+
+describe("ImapProvider with saved messages", () => {
+  /** A message with a file and a text part, as a mail reader would receive a report. */
+  const withReport = {
+    structure: {
+      type: "multipart/mixed",
+      childNodes: [
+        { part: "1", type: "text/plain", encoding: "7bit", size: 8, parameters: { charset: "utf-8" } },
+        {
+          part: "2",
+          type: "application/pdf",
+          encoding: "base64",
+          size: 12,
+          disposition: "attachment",
+          dispositionParameters: { filename: "report.pdf" },
+        },
+      ],
+    },
+    parts: { "1": "Body one", "2": "PDFDATA" },
+  };
+  /** A message whose HTML shows a logo that travels inside the message. */
+  const withLogo = {
+    structure: {
+      type: "multipart/related",
+      childNodes: [
+        { part: "1", type: "text/html", encoding: "7bit", size: 40, parameters: { charset: "utf-8" } },
+        { part: "2", type: "image/png", encoding: "base64", size: 8, id: "<logo>", disposition: "inline" },
+      ],
+    },
+    parts: { "1": '<p>Hi</p><img src="cid:logo">', "2": Buffer.from("PNG!").toString("base64") },
+  };
+
+  const cipher: Cipher = {
+    isEncryptionAvailable: () => true,
+    encryptString: (plain) => Buffer.from(`sealed:${plain}`, "utf8").reverse(),
+    decryptString: (data) => Buffer.from(data).reverse().toString("utf8").slice("sealed:".length),
+  };
+  let dir: string;
+  let saved: BodyStore;
+  let rows: ReturnType<typeof memoryStore>;
+  /** A launch of the app: the same saved lists and saved messages, a fresh provider with nothing in memory. */
+  const relaunch = () => new ImapProvider(account, async () => ({ pass: "x" }), rows, saved.forAccount("acc1"));
+  const network = () => ({ opened: server.openFetches.length, parts: server.partFetches.length });
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "minimail-imap-bodies-"));
+    saved = new BodyStore(join(dir, "text.sqlite"), cipher);
+    rows = memoryStore();
+    Object.assign(server.messages[0], withReport);
+    Object.assign(server.messages[1], withLogo);
+  });
+
+  afterEach(() => {
+    saved.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("keeps a message when it is opened, and opens it later without the network", async () => {
+    await relaunch().list("inbox", 100);
+    const first = await relaunch().get("inbox", ["1"]);
+    expect(first[0].text).toBe("Body one");
+    expect(network()).toEqual({ opened: 1, parts: 1 });
+
+    // The next launch has nothing in memory but the saved list and the saved text.
+    const again = await relaunch().get("inbox", ["1"]);
+    expect(again[0].text).toBe("Body one");
+    expect(again[0].subject).toBe("Message 1");
+    expect(network()).toEqual({ opened: 1, parts: 1 });
+  });
+
+  it("downloads the text of mail ahead of time and never a file", async () => {
+    const provider = relaunch();
+    await provider.list("inbox", 100);
+
+    expect(await provider.prefetch("inbox", ["1", "2", "3"])).toBe(3);
+    // Message 1 has a PDF as part 2: only part 1 was asked for. The whole raw message never was.
+    expect(server.partFetches.find((fetch) => fetch.uid === 1)?.keys).toEqual(["1"]);
+    expect(server.partFetches.flatMap((fetch) => fetch.keys)).not.toContain("2");
+    expect(server.partDownloads).toEqual([]);
+    expect(server.wholeMessages).toEqual([]);
+
+    const before = network();
+    const opened = await relaunch().get("inbox", ["1"]);
+    expect(network()).toEqual(before);
+    expect(opened[0].text).toBe("Body one");
+    // The file is listed by name and size, ready to download when asked for.
+    expect(opened[0].attachments).toEqual([{ id: "2", filename: "report.pdf", contentType: "application/pdf", size: 9 }]);
+  });
+
+  it("ranks mail downloaded ahead of time by its date, and mail that was opened as read just now", async () => {
+    const provider = relaunch();
+    await provider.list("inbox", 100);
+    await provider.prefetch("inbox", ["1", "2"]);
+    // Dated 1 and 2 November 2026: the file would drop these before anything opened lately.
+    expect(saved.stats().oldest).toBe(Date.UTC(2026, 10, 1));
+
+    await provider.get("inbox", ["3"]);
+    expect(saved.stats().oldest).toBe(Date.UTC(2026, 10, 1));
+
+    // Make room for one message only: the one that was opened stays, the ones dated November go.
+    const { bytes, messages } = saved.stats();
+    expect(messages).toBe(3);
+    saved.setLimit(Math.round((bytes / 3) * 1.4));
+    expect(saved.stats().messages).toBe(1);
+    expect(saved.stats().oldest).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it("does not download again what is already kept", async () => {
+    const provider = relaunch();
+    await provider.list("inbox", 100);
+    await provider.prefetch("inbox", ["1", "2", "3"]);
+    const before = network();
+
+    expect(await provider.prefetch("inbox", ["1", "2", "3"])).toBe(0);
+    expect(network()).toEqual(before);
+  });
+
+  it("downloads only the one part a file is, when it is asked for", async () => {
+    const provider = relaunch();
+    await provider.list("inbox", 100);
+    const opened = await provider.get("inbox", ["1"]);
+
+    const file = await provider.attachment("inbox", "1", opened[0].attachments[0].id);
+    expect(file.filename).toBe("report.pdf");
+    expect(file.data.toString()).toBe("PDFDATA");
+    expect(server.partDownloads).toEqual([{ uid: 1, part: "2" }]);
+    expect(server.wholeMessages).toEqual([]);
+  });
+
+  it("leaves embedded images for the moment a message is opened, and keeps the text as it came", async () => {
+    const provider = relaunch();
+    await provider.list("inbox", 100);
+    await provider.prefetch("inbox", ["2"]);
+    expect(server.partFetches.flatMap((fetch) => fetch.keys)).not.toContain("2");
+
+    const opened = await relaunch().get("inbox", ["2"]);
+    const logo = `data:image/png;base64,${Buffer.from("PNG!").toString("base64")}`;
+    expect(opened[0].html).toBe(`<p>Hi</p><img src="${logo}">`);
+    // Only the image was downloaded now, and the saved text still points at it.
+    expect(server.partFetches.at(-1)).toEqual({ uid: 2, keys: ["2"] });
+    expect(saved.forAccount("acc1").get("inbox", "2", "1")?.html).toBe('<p>Hi</p><img src="cid:logo">');
+  });
+
+  it("shows the list's flags, not the ones the message had when it was saved", async () => {
+    const provider = relaunch();
+    await provider.list("inbox", 100);
+    await provider.get("inbox", ["1"]);
+    await provider.act("markRead", "inbox", ["1"]);
+
+    expect((await relaunch().get("inbox", ["1"]))[0].unread).toBe(false);
+  });
+
+  it("forgets the text of a message that moved", async () => {
+    const provider = relaunch();
+    await provider.list("inbox", 100);
+    await provider.get("inbox", ["1"]);
+    expect(saved.forAccount("acc1").get("inbox", "1", "1")).toBeDefined();
+
+    await provider.act("archive", "inbox", ["1"]);
+    expect(saved.forAccount("acc1").get("inbox", "1", "1")).toBeUndefined();
+  });
+
+  it("keeps the text through a flag change", async () => {
+    const provider = relaunch();
+    await provider.list("inbox", 100);
+    await provider.get("inbox", ["1"]);
+    await provider.act("pin", "inbox", ["1"]);
+    expect(saved.forAccount("acc1").get("inbox", "1", "1")).toBeDefined();
+  });
+
+  it("does not trust saved text once the server has renumbered the folder", async () => {
+    const provider = relaunch();
+    await provider.list("inbox", 100);
+    await provider.get("inbox", ["1"]);
+
+    server.uidValidity = 2n;
+    const afterRenumbering = relaunch();
+    await afterRenumbering.list("inbox", 100);
+    expect(saved.forAccount("acc1").get("inbox", "1", "1")).toBeUndefined();
+
+    const before = network();
+    await afterRenumbering.get("inbox", ["1"]);
+    expect(network().opened).toBe(before.opened + 1);
+  });
+
+  it("downloads a message not in the list's window, and keeps it", async () => {
+    const provider = relaunch();
+    const opened = await provider.get("inbox", ["3"]);
+    expect(opened[0].text).toBe("Hello 3");
+    // No list was read, so the folder's numbering was learned from the download itself.
+    expect(saved.forAccount("acc1").get("inbox", "3", "1")?.text).toBe("Hello 3");
   });
 });

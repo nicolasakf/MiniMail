@@ -31,6 +31,7 @@ import type { ContactEntry } from "./contacts";
 import type { AppEvent, EventReport } from "./events";
 import type { LogoRequest, LogoSettings } from "./logos";
 import type { NotificationSettings, OpenConversationRequest } from "./notifications";
+import type { OfflineSettings } from "./offline";
 
 /** Which sign-in methods this build can offer (OAuth needs client ids at build time). */
 export interface AccountCapabilities {
@@ -182,6 +183,11 @@ export interface MiniMailApi {
     setSettings(settings: NotificationSettings): Promise<NotificationSettings>;
     /** Shows a sample notification so the user can check that the system lets MiniMail show them. */
     test(): Promise<void>;
+  };
+  offline: {
+    settings(): Promise<OfflineSettings>;
+    /** Replaces the settings; answers with what was stored. Rejects invalid values. */
+    setSettings(settings: OfflineSettings): Promise<OfflineSettings>;
   };
   cli: {
     /** What the CLI may do, whether it is running, and where its skill is installed. */

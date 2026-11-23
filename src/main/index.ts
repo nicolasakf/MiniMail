@@ -9,6 +9,7 @@ import { app, BrowserWindow, dialog, net, Notification, powerMonitor, safeStorag
 import { senderDomain } from "@shared/categories";
 import { IPC } from "@shared/ipc";
 import type { OpenConversationRequest } from "@shared/notifications";
+import { storeLimitBytes } from "@shared/offline";
 
 import { AiSettingsStore } from "./ai-settings";
 import { AttachmentFiles } from "./attachment-files";
@@ -49,7 +50,10 @@ import { POLL_INTERVAL_MS, Polling } from "./polling";
 import { SettingsFile } from "./settings-file";
 import { UiPrefsStore } from "./ui-prefs";
 import { TrustedSenders } from "./trusted-senders";
+import { BodyPrefetcher } from "./body-prefetch";
+import { BodyStore } from "./body-store";
 import { MailCache } from "./mail-cache";
+import { OfflineSettingsStore } from "./offline-settings";
 import { MailService } from "./service";
 import { AccountStore } from "./store";
 
@@ -112,6 +116,7 @@ let cliController: CliController | null = null;
 let service: MailService | null = null;
 let categoryStore: CategoryStore | null = null;
 let mailCache: MailCache | null = null;
+let bodyStore: BodyStore | null = null;
 let logoCache: LogoCache | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
 let delivery: ComposeDelivery | null = null;
@@ -202,7 +207,11 @@ function createWindow(): void {
     if (polling.focused(net.isOnline())) window.webContents.send(IPC.mailChanged);
   });
   // What the CLI asked of the page is lost when the page reloads or the window closes; the page announces itself again.
-  window.webContents.on("did-start-loading", () => pageBridge?.pageGone("The MiniMail window reloaded."));
+  // Only a reload of the page itself: "did-start-loading" also fires for the iframe that shows a message, and
+  // the page does not announce itself again then, so the CLI would wait for it until it timed out.
+  window.webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) pageBridge?.pageGone("The MiniMail window reloaded.");
+  });
   window.on("closed", () => {
     if (mainWindow === window) mainWindow = null;
     pageBridge?.pageGone("The MiniMail window was closed.");
@@ -333,6 +342,10 @@ if (!app.requestSingleInstanceLock()) {
       model: () => ({ provider: aiSettings.codeProvider(), apiKey: keys.get(aiSettings.codeProvider()), model: aiSettings.completion().model }),
     });
     mailCache = new MailCache(join(userData, "mail-cache.json"), safeStorage);
+    const offlineSettings = new OfflineSettingsStore(settings.section("offline"));
+    const savedText = new BodyStore(join(userData, "message-text.sqlite"), safeStorage, storeLimitBytes(offlineSettings.get()));
+    bodyStore = savedText;
+    const prefetcher = new BodyPrefetcher(() => offlineSettings.get(), () => net.isOnline(), Date.now, (date) => savedText.hasRoomFor(date));
     perfLog("stores loaded", `${store.list().length} accounts`);
     service = new MailService(
       store,
@@ -341,6 +354,8 @@ if (!app.requestSingleInstanceLock()) {
       categorizer,
       mailCache,
       new InvitationAnswers(join(userData, "invitation-answers.json")),
+      bodyStore,
+      prefetcher,
     );
     attachmentFiles = new AttachmentFiles({
       tempRoot: join(app.getPath("temp"), "minimail-attachments"),
@@ -489,6 +504,7 @@ if (!app.requestSingleInstanceLock()) {
       attachmentFiles,
       notifier,
       notificationSettings,
+      offlineSettings,
       categorizer,
       completer,
       aiSettings,
@@ -544,6 +560,7 @@ if (!app.requestSingleInstanceLock()) {
     setDockBadge(0);
     categoryStore?.flush();
     mailCache?.flush();
+    bodyStore?.close();
     void attachmentFiles?.cleanup();
     logoCache?.flush();
     void service?.dispose();

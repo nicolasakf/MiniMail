@@ -1,4 +1,4 @@
-import { ImapFlow, type FetchMessageObject, type MessageStructureObject } from "imapflow";
+import { ImapFlow, type FetchMessageObject, type MessageAddressObject, type MessageStructureObject } from "imapflow";
 import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
 import nodemailer, { type SendMailOptions } from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
@@ -17,7 +17,7 @@ import { parseUnsubscribe } from "@shared/unsubscribe";
 import { makeMessageId } from "@shared/ids";
 import { zohoSettings, type ImapSettings, type MailServer } from "@shared/imap-settings";
 import { MAIL_WINDOW } from "@shared/mail-window";
-import { MAX_INLINE_IMAGE_BYTES } from "@shared/types";
+import { MAX_ATTACHMENT_BYTES, MAX_INLINE_IMAGE_BYTES } from "@shared/types";
 import type {
   Account,
   Contact,
@@ -31,9 +31,21 @@ import type {
   MessageSummary,
 } from "@shared/types";
 
+import { withDeadline } from "../deadline";
 import { perfLog } from "../perf";
+import { decodeBinary, decodeText, embedImages, MAX_TEXT_PART_BYTES, planBody, usesCidImages } from "./imap-parts";
 import { nativeIdOf, patchSummaries, type SummaryStore } from "./summary-cache";
-import { describeError, makeSnippet, type AttachmentFile, type MailAuth, type MailProvider } from "./types";
+import {
+  describeError,
+  detailFrom,
+  makeSnippet,
+  type AttachmentFile,
+  type BodyView,
+  type InlineRef,
+  type MailAuth,
+  type MailProvider,
+  type StoredBody,
+} from "./types";
 import { recordInfo, reportError } from "../events";
 import { isNetworkOnline } from "../network";
 
@@ -58,16 +70,6 @@ export function nextBatchSize(msPerMessage: number): number {
 const MAX_REMEMBERED = 60;
 /** Messages per header-only command when backfilling sender authentication. */
 const HEADER_BATCH = 50;
-
-/**
- * The files a message lists as attachments, in the order `AttachmentInfo.id` counts them. Inline
- * images are part of the body, and the calendar part is shown as an invitation instead.
- */
-export function listedAttachments(parsed: ParsedMail): ParsedMail["attachments"] {
-  return parsed.attachments.filter(
-    (attachment) => !attachment.related && !/^text\/calendar/i.test(attachment.contentType),
-  );
-}
 
 /** The calendar event in a message, if it has a `text/calendar` part. */
 function calendarEventOf(parsed: ParsedMail): IcsEvent | null {
@@ -100,8 +102,19 @@ export function endpointsFor(account: Account): Endpoints {
   throw new Error(`${account.provider} is not an IMAP provider.`);
 }
 
-function imapOptions(server: MailServer, auth: MailAuth) {
+/**
+ * How long a command may go without a single byte from the server before the connection counts as
+ * dead (imapflow's own default is five minutes). Only the connection that runs commands uses it:
+ * the watcher sits idle on purpose.
+ */
+const COMMAND_STALL_MS = 30_000;
+
+/** The longest one list may take in all, retries included, before it fails instead of spinning on. */
+export const LIST_DEADLINE_MS = 5 * 60_000;
+
+function imapOptions(server: MailServer, auth: MailAuth, extra: { socketTimeout?: number } = {}) {
   return {
+    ...extra,
     host: server.host,
     port: server.port,
     secure: server.security === "tls",
@@ -131,6 +144,12 @@ function contactsFrom(field: AddressObject | AddressObject[] | undefined): Conta
       .filter((entry) => Boolean(entry.address))
       .map((entry) => ({ name: entry.name ?? "", email: entry.address ?? "" })),
   );
+}
+
+function contactsFromEnvelope(entries: MessageAddressObject[] | undefined): Contact[] {
+  return (entries ?? [])
+    .filter((entry) => Boolean(entry.address))
+    .map((entry) => ({ name: entry.name ?? "", email: entry.address ?? "" }));
 }
 
 /** First `text/calendar` part's content-type line (with method), if the message has one. */
@@ -167,19 +186,6 @@ function headerString(parsed: ParsedMail, name: string): string | undefined {
     return String((value as { text: unknown }).text);
   }
   return undefined;
-}
-
-/** Replaces `cid:` image references with data URIs so inline images render offline. */
-function inlineCidImages(html: string, parsed: ParsedMail): string {
-  let result = html;
-  for (const attachment of parsed.attachments) {
-    if (!attachment.cid || !attachment.contentType.startsWith("image/")) continue;
-    if (attachment.size > MAX_INLINE_IMAGE_BYTES) continue;
-    const cid = attachment.cid.replace(/^<|>$/g, "");
-    const dataUri = `data:${attachment.contentType};base64,${attachment.content.toString("base64")}`;
-    result = result.split(`cid:${cid}`).join(dataUri);
-  }
-  return result;
 }
 
 /** True for the errors imapflow raises when the socket is gone (the server closed it, or it timed out). */
@@ -220,7 +226,7 @@ class ImapConnection {
 
     this.connecting = (async () => {
       const auth = await this.getAuth();
-      const client = new ImapFlow(imapOptions(this.server, auth));
+      const client = new ImapFlow(imapOptions(this.server, auth, { socketTimeout: COMMAND_STALL_MS }));
       // Errors surface on the next command; without a listener Node would crash the app.
       client.on("error", () => {
         if (this.client === client) this.client = null;
@@ -271,6 +277,13 @@ class ImapConnection {
     } catch {
       // expected: the connection is already gone, which is what closing it was for.
     }
+  }
+
+  /** Drops the connection now, so a command stuck on it fails at once and the next one starts on a new one. */
+  abort(): void {
+    const client = this.client;
+    this.client = null;
+    if (client) this.discard(client);
   }
 
   async close(): Promise<void> {
@@ -470,6 +483,8 @@ export class ImapProvider implements MailProvider {
     private readonly getAuth: () => Promise<MailAuth>,
     /** Keeps the last list between launches; omit for a memory-only cache. */
     private readonly persist?: SummaryStore,
+    /** Keeps the text of downloaded messages between launches; omit to download a message each time it is opened. */
+    private readonly bodies?: BodyView,
   ) {
     if (account.imapSettings) {
       this.settings = account.imapSettings;
@@ -545,7 +560,12 @@ export class ImapProvider implements MailProvider {
   }
 
   list(folder: MailFolder, limit: number): Promise<MessageSummary[]> {
-    return this.serialized(folder, () => this.listNow(folder, limit));
+    // One list that never ends would hold every later list of this folder behind it, so each has a deadline.
+    return this.serialized(folder, () =>
+      withDeadline(this.listNow(folder, limit), LIST_DEADLINE_MS, "The server took too long to answer.", () =>
+        this.connection.abort(),
+      ),
+    );
   }
 
   private async listNow(folder: MailFolder, limit: number): Promise<MessageSummary[]> {
@@ -593,6 +613,8 @@ export class ImapProvider implements MailProvider {
     if (!window) return [];
     const { path, uidValidity, flags: windowFlags } = window;
     this.validity.set(folder, uidValidity);
+    // The server renumbered the folder: text saved under the old numbers belongs to other messages now.
+    this.bodies?.retire(folder, uidValidity);
 
     // This session's copy, else last launch's if the server still numbers messages the same way.
     let known = this.cache.get(folder);
@@ -744,6 +766,17 @@ export class ImapProvider implements MailProvider {
     }
   }
 
+  /** The list's row for a message: this session's, else the copy from a previous launch. */
+  private rowOf(folder: MailFolder, nativeId: string): MessageSummary | undefined {
+    const uid = Number(nativeId);
+    return this.cache.get(folder)?.get(uid) ?? this.persist?.load(folder)?.messages.find((row) => nativeIdOf(row) === nativeId);
+  }
+
+  /** The numbering the ids of a folder belong to, once this session or an earlier one has seen the folder. */
+  private scopeOf(folder: MailFolder): string | undefined {
+    return this.validity.get(folder) ?? this.persist?.load(folder)?.uidValidity;
+  }
+
   async get(folder: MailFolder, nativeIds: string[]): Promise<MessageDetail[]> {
     const started = performance.now();
     const lap = (what: string, extra = "") =>
@@ -752,74 +785,188 @@ export class ImapProvider implements MailProvider {
         `${Math.round(performance.now() - started)}ms into get${extra}`,
       );
 
-    // Messages never change once delivered, so one opened recently is served from memory.
+    // Messages never change once delivered: one opened recently is served from memory, one downloaded
+    // before from the saved text (with the list's row for the parts that do change, like the flags).
     const found = new Map<string, MessageDetail>();
+    const needImages = new Map<string, StoredBody>();
     const missing: number[] = [];
+    const scope = this.scopeOf(folder);
     for (const nativeId of nativeIds) {
       const remembered = this.details.get(detailKey(folder, nativeId));
-      if (remembered) found.set(nativeId, remembered);
-      else if (Number.isInteger(Number(nativeId))) missing.push(Number(nativeId));
+      if (remembered) {
+        found.set(nativeId, remembered);
+        continue;
+      }
+      const row = scope === undefined ? undefined : this.rowOf(folder, nativeId);
+      const saved = row && scope !== undefined ? this.bodies?.get(folder, nativeId, scope) : undefined;
+      if (row && saved) {
+        found.set(nativeId, detailFrom(row, saved));
+        if (usesCidImages(saved.html) && saved.inline.length > 0) needImages.set(nativeId, saved);
+        else this.remember(folder, nativeId, found.get(nativeId)!);
+      } else if (Number.isInteger(Number(nativeId))) {
+        missing.push(Number(nativeId));
+      }
     }
-    lap("started", `, ${found.size} remembered, ${missing.length} to download`);
+    lap("started", `, ${found.size} remembered or saved, ${missing.length} to download`);
 
     if (missing.length > 0) {
+      const downloaded = await this.download(folder, missing, true, lap);
+      for (const [nativeId, detail] of downloaded) {
+        found.set(nativeId, detail);
+        this.remember(folder, nativeId, detail);
+      }
+    }
+
+    if (needImages.size > 0) {
       await this.connection.use(async (client) => {
         const paths = await this.resolveFolders(client);
         const path = paths[folder === "pinned" ? "inbox" : folder];
         if (!path) return;
-
         const lock = await client.getMailboxLock(path, { readOnly: true });
-        lap("mailbox lock acquired");
         try {
-          // One command for the whole conversation: servers with slow round trips pay once.
-          for await (const message of client.fetch(
-            missing,
-            {
-              uid: true,
-              flags: true,
-              envelope: true,
-              internalDate: true,
-              bodyStructure: true,
-              threadId: true,
-              source: true,
-            },
-            { uid: true },
-          )) {
-            if (!message.source) continue;
-            const summary = await this.summarize(folder, message);
-            const parsed = await simpleParser(message.source);
-            const detail: MessageDetail = {
-              ...summary,
-              cc: contactsFrom(parsed.cc),
-              replyTo: contactsFrom(parsed.replyTo)[0] ?? null,
-              messageId: parsed.messageId ?? null,
-              references: normalizeReferences(parsed.references),
-              html: parsed.html ? inlineCidImages(parsed.html, parsed) : null,
-              text: parsed.text ?? null,
-              attachments: listedAttachments(parsed).map((attachment, index) => ({
-                id: String(index),
-                filename: attachment.filename ?? "attachment",
-                contentType: attachment.contentType,
-                size: attachment.size,
-              })),
-              invitation: this.invitationOf(parsed),
-            };
-            found.set(String(message.uid), detail);
-            this.remember(folder, String(message.uid), detail);
+          for (const [nativeId, saved] of needImages) {
+            const detail = found.get(nativeId);
+            if (!detail) continue;
+            const html = await this.embeddedImages(client, Number(nativeId), saved.html ?? "", saved.inline);
+            const opened = { ...detail, html };
+            found.set(nativeId, opened);
+            this.remember(folder, nativeId, opened);
           }
-          lap("downloaded and parsed", `, ${found.size} message(s)`);
         } finally {
           lock.release();
         }
       });
+      lap("embedded images", `, ${needImages.size} message(s)`);
     }
     return nativeIds.flatMap((nativeId) => found.get(nativeId) ?? []);
   }
 
-  /** The invitation in a message; the user's answer is filled in later, from what they chose here. */
-  private invitationOf(parsed: ParsedMail): Invitation | null {
-    const event = calendarEventOf(parsed);
-    return event ? invitationFromIcs(event) : null;
+  /**
+   * Downloads the text of these messages and keeps it (never the attachments or the embedded images,
+   * which are only listed). Opening a message in the next few seconds waits for the batch at most.
+   */
+  async prefetch(folder: MailFolder, nativeIds: string[]): Promise<number> {
+    const scope = this.scopeOf(folder);
+    if (!this.bodies || scope === undefined) return 0;
+    const wanted = this.bodies.missing(folder, nativeIds, scope).map(Number).filter((uid) => Number.isInteger(uid));
+    if (wanted.length === 0) return 0;
+    return (await this.download(folder, wanted, false)).size;
+  }
+
+  /**
+   * One command for the batch (envelope, flags, structure and a preview), then one for the readable parts
+   * of each message: its text, its HTML and its invitation. Files and embedded images are never asked for
+   * here; with `embed`, the images the text uses are fetched after it, for the message being opened.
+   */
+  private async download(
+    folder: MailFolder,
+    uids: number[],
+    embed: boolean,
+    lap: (what: string, extra?: string) => void = () => undefined,
+  ): Promise<Map<string, MessageDetail>> {
+    const opened = new Map<string, MessageDetail>();
+    await this.connection.use(async (client) => {
+      const paths = await this.resolveFolders(client);
+      const path = paths[folder === "pinned" ? "inbox" : folder];
+      if (!path) return;
+
+      const lock = await client.getMailboxLock(path, { readOnly: true });
+      lap("mailbox lock acquired");
+      try {
+        const scope = String(client.mailbox ? client.mailbox.uidValidity : "");
+        const heads: FetchMessageObject[] = [];
+        for await (const message of client.fetch(
+          uids,
+          {
+            uid: true,
+            flags: true,
+            envelope: true,
+            internalDate: true,
+            bodyStructure: true,
+            threadId: true,
+            source: { maxLength: PREVIEW_BYTES },
+            headers: ["references"],
+          },
+          { uid: true },
+        )) {
+          heads.push(message);
+        }
+        for (const message of heads) {
+          const plan = planBody(message.bodyStructure);
+          const readable = [...plan.html, ...plan.text, ...(plan.calendar ? [plan.calendar] : [])];
+          const response = readable.length
+            ? await client.fetchOne(
+                String(message.uid),
+                { bodyParts: readable.map((part) => ({ key: part.key, maxLength: MAX_TEXT_PART_BYTES })) },
+                { uid: true },
+              )
+            : undefined;
+          // The message left the folder between the two commands.
+          if (response === false) continue;
+          const parts = response?.bodyParts;
+          const read = (list: typeof plan.html): string | null =>
+            list.length ? list.map((part) => decodeText(parts?.get(part.key) ?? Buffer.alloc(0), part.encoding, part.charset)).join("\n") : null;
+
+          const summary = await this.summarize(folder, message);
+          const references = firstHeader(message.headers?.toString("latin1") ?? "", "references");
+          const event = plan.calendar
+            ? parseIcs(decodeText(parts?.get(plan.calendar.key) ?? Buffer.alloc(0), plan.calendar.encoding, plan.calendar.charset))
+            : null;
+          const body: StoredBody = {
+            cc: contactsFromEnvelope(message.envelope?.cc),
+            replyTo: contactsFromEnvelope(message.envelope?.replyTo)[0] ?? null,
+            messageId: message.envelope?.messageId ?? null,
+            references: normalizeReferences(references),
+            html: read(plan.html),
+            text: read(plan.text),
+            attachments: plan.attachments,
+            invitation: event ? invitationFromIcs(event) : null,
+            inline: plan.inline.map(({ id, contentType, size, cid, encoding }) => ({ id, contentType, size, cid, encoding })),
+          };
+          this.bodies?.put(folder, String(message.uid), scope, body, embed ? undefined : Date.parse(summary.date));
+          const html =
+            embed && usesCidImages(body.html) && body.inline.length > 0
+              ? await this.embeddedImages(client, message.uid, body.html ?? "", body.inline)
+              : body.html;
+          opened.set(String(message.uid), detailFrom(summary, body, html));
+        }
+        lap("downloaded", `, ${opened.size} message(s)`);
+      } finally {
+        lock.release();
+      }
+    });
+    return opened;
+  }
+
+  /**
+   * The text with the images it embeds by `cid:` put in, for the ones small enough to be worth it. The
+   * images are the only parts of a message beyond its text that are ever downloaded for the page, and
+   * only when it is opened: a list of them is kept with the text, so nothing of them is fetched ahead of time.
+   */
+  private async embeddedImages(client: ImapFlow, uid: number, html: string, refs: readonly InlineRef[]): Promise<string> {
+    let bytes = 0;
+    const chosen = refs
+      .filter(
+        (ref) =>
+          ref.cid !== undefined &&
+          html.includes(`cid:${ref.cid}`) &&
+          /^image\/(?:png|jpeg|gif|webp|bmp)$/i.test(ref.contentType) &&
+          ref.size <= MAX_INLINE_IMAGE_BYTES,
+      )
+      .slice(0, 25)
+      .filter((ref) => {
+        bytes += ref.size;
+        return bytes <= MAX_ATTACHMENT_BYTES;
+      });
+    if (chosen.length === 0) return html;
+    const response = await client.fetchOne(String(uid), { bodyParts: chosen.map((ref) => ref.id) }, { uid: true });
+    const parts = response ? response.bodyParts : undefined;
+    if (!parts) return html;
+    const images = chosen.flatMap((ref) => {
+      const raw = parts.get(ref.id);
+      return raw && ref.cid ? [{ cid: ref.cid, contentType: ref.contentType, data: decodeBinary(raw, ref.encoding) }] : [];
+    });
+    return embedImages(html, images);
   }
 
   /** Downloads and parses one message in full. */
@@ -844,10 +991,31 @@ export class ImapProvider implements MailProvider {
   }
 
   async attachment(folder: MailFolder, nativeId: string, attachmentId: string): Promise<AttachmentFile> {
-    const parsed = await this.fetchParsed(folder, nativeId);
-    const file = listedAttachments(parsed)[Number(attachmentId)];
+    const uid = Number(nativeId);
+    if (!Number.isInteger(uid)) throw new Error("This message is no longer available.");
+    let file: AttachmentFile | undefined;
+    await this.connection.use(async (client) => {
+      const paths = await this.resolveFolders(client);
+      const path = paths[folder === "pinned" ? "inbox" : folder];
+      if (!path) return;
+      const lock = await client.getMailboxLock(path, { readOnly: true });
+      try {
+        // Only this part crosses the network, not the message it came with.
+        const { meta, content } = await client.download(String(uid), attachmentId, { uid: true });
+        if (!content) return;
+        const chunks: Buffer[] = [];
+        for await (const chunk of content) chunks.push(Buffer.from(chunk as Uint8Array));
+        file = {
+          filename: meta?.filename ?? "attachment",
+          contentType: meta?.contentType ?? "application/octet-stream",
+          data: Buffer.concat(chunks),
+        };
+      } finally {
+        lock.release();
+      }
+    });
     if (!file) throw new Error("This attachment is no longer in the message.");
-    return { filename: file.filename ?? "attachment", contentType: file.contentType, data: file.content };
+    return file;
   }
 
   async respondToInvitation(folder: MailFolder, nativeId: string, response: InvitationResponse): Promise<void> {
@@ -944,6 +1112,8 @@ export class ImapProvider implements MailProvider {
 
     const applied = results.filter((result) => result.status === "applied").map((result) => result.id);
     if (applied.length > 0) {
+      // A moved or deleted message has other ids (or none) where it went: what was saved under these is of no use.
+      if (action !== "markRead" && action !== "markUnread" && action !== "pin" && action !== "unpin") this.bodies?.remove(folder, applied);
       this.patchCache(action, folder, applied);
       if (folder === "pinned") this.patchCache(action, "inbox", applied);
       if (folder === "inbox") this.patchCache(action, "pinned", applied);

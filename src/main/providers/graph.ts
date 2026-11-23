@@ -23,8 +23,17 @@ import type {
 import { logEvent } from "../log";
 import { reportError } from "../events";
 import { RequestGate, type Lane } from "./request-gate";
-import { patchSummaries, type DeltaState, type SummaryStore } from "./summary-cache";
-import { describeError, makeSnippet, type AttachmentFile, type MailProvider } from "./types";
+import { nativeIdOf, patchSummaries, type DeltaState, type SummaryStore } from "./summary-cache";
+import {
+  describeError,
+  detailFrom,
+  makeSnippet,
+  type AttachmentFile,
+  type BodyView,
+  type InlineRef,
+  type MailProvider,
+  type StoredBody,
+} from "./types";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
 
@@ -317,6 +326,8 @@ export class GraphProvider implements MailProvider {
     private readonly persist?: SummaryStore,
     private readonly wait: (ms: number) => Promise<void> = (ms) =>
       new Promise((resolve) => setTimeout(resolve, ms)),
+    /** Keeps the text of downloaded messages between launches; omit to download a message each time it is opened. */
+    private readonly bodies?: BodyView,
   ) {}
 
   async verify(): Promise<void> {
@@ -613,15 +624,70 @@ export class GraphProvider implements MailProvider {
     return (this.cache.get(folder) ?? this.persist?.load(folder)?.messages ?? []).slice(0, MAIL_WINDOW);
   }
 
+  /** The list's row for a message: this session's, else the copy from a previous launch. */
+  private rowOf(folder: MailFolder, nativeId: string): MessageSummary | undefined {
+    const rows = this.cache.get(folder) ?? this.persist?.load(folder)?.messages ?? [];
+    return rows.find((row) => nativeIdOf(row) === nativeId);
+  }
+
+  /** Runs `task` for each id, a few at a time and in the order asked for: a long conversation must not trip Graph's throttling. */
+  private async inBatches<T>(nativeIds: readonly string[], task: (nativeId: string) => Promise<T>): Promise<T[]> {
+    const results: T[] = [];
+    for (let start = 0; start < nativeIds.length; start += GET_CONCURRENCY) {
+      results.push(...(await Promise.all(nativeIds.slice(start, start + GET_CONCURRENCY).map(task))));
+    }
+    return results;
+  }
+
   async get(folder: MailFolder, nativeIds: string[]): Promise<MessageDetail[]> {
+    // A message downloaded before is read from the saved text, with the list's row for what changes (the flags).
+    // An invitation is always asked for again: the answer to it can be given in another app.
+    const opened = new Map<string, { summary: MessageSummary; body: StoredBody }>();
+    const toDownload: string[] = [];
+    for (const nativeId of nativeIds) {
+      const row = this.rowOf(folder, nativeId);
+      const saved = row ? this.bodies?.get(folder, nativeId, "") : undefined;
+      if (row && saved && saved.invitation === null) opened.set(nativeId, { summary: row, body: saved });
+      else toDownload.push(nativeId);
+    }
+    for (const [nativeId, found] of await this.downloaded(folder, toDownload)) opened.set(nativeId, found);
+
+    // Images the text embeds are the only attachments ever downloaded for the page, and only when it is opened.
+    return this.inBatches(
+      nativeIds.filter((nativeId) => opened.has(nativeId)),
+      async (nativeId) => {
+        const { summary, body } = opened.get(nativeId)!;
+        return detailFrom(summary, body, await this.embeddedImages(nativeId, body.html, body.inline));
+      },
+    );
+  }
+
+  /**
+   * Downloads the text of these messages and keeps it (never the attachments or the embedded images,
+   * which are only listed). Messages already kept are skipped.
+   */
+  async prefetch(folder: MailFolder, nativeIds: string[]): Promise<number> {
+    if (!this.bodies) return 0;
+    const wanted = this.bodies.missing(folder, nativeIds, "");
+    return (await this.downloaded(folder, wanted, "background")).size;
+  }
+
+  /** Downloads and keeps these messages' text, answering with each one's row and text; an id Graph no longer has is left out. */
+  private async downloaded(
+    folder: MailFolder,
+    nativeIds: readonly string[],
+    lane: Lane = "foreground",
+  ): Promise<Map<string, { summary: MessageSummary; body: StoredBody }>> {
+    const found = new Map<string, { summary: MessageSummary; body: StoredBody }>();
     const select =
       `${LIST_FIELDS},body,ccRecipients,replyTo&$expand=attachments($select=id,name,contentType,size,isInline),${EXPAND_LAST_VERB}`;
-    const fetchOne = async (nativeId: string): Promise<MessageDetail> => {
+    await this.inBatches(nativeIds, async (nativeId) => {
       const raw = await this.request(
         "GET",
         `/me/messages/${encodeURIComponent(nativeId)}?$select=${select}`,
         undefined,
         { Prefer: 'outlook.body-content-type="html"' },
+        lane,
       );
       const message = messageSchema.parse(raw);
       const summary = this.summarize(message, folder);
@@ -631,34 +697,22 @@ export class GraphProvider implements MailProvider {
         .filter(Boolean);
 
       const isHtml = message.body?.contentType.toLowerCase() === "html";
-      const invitation = summary.signal === "invitation" ? await this.invitationOf(nativeId, summary.subject) : null;
-      let html = isHtml ? (message.body?.content ?? null) : null;
-      if (html && /\bcid:/i.test(html)) {
-        let bytes = 0;
-        const inline = (message.attachments ?? []).filter((file) =>
-          file.isInline && /^image\/(?:png|jpeg|gif|webp|bmp)$/i.test(file.contentType ?? "") &&
-          file.size != null && file.size <= MAX_INLINE_IMAGE_BYTES).slice(0, 25);
-        for (const file of inline) {
-          bytes += file.size ?? 0;
-          if (bytes > MAX_ATTACHMENT_BYTES) break;
-          const path = `/me/messages/${encodeURIComponent(nativeId)}/attachments/${encodeURIComponent(file.id)}`;
-          const parsed = attachmentFileSchema.safeParse(await this.request("GET", path).catch((error) => { reportError("sync", "Could not load an inline image of a message", error); return null; }));
-          if (!parsed.success) continue;
-          const { contentBytes, contentType, contentId } = parsed.data;
-          if (!contentBytes || !contentId || !contentType || !/^image\/(?:png|jpeg|gif|webp|bmp)$/i.test(contentType)
-            || !/^[a-z\d+/]+={0,2}$/i.test(contentBytes) || contentBytes.length > Math.ceil(MAX_INLINE_IMAGE_BYTES / 3) * 4) continue;
-          const cid = contentId.replace(/^<|>$/g, "");
-          html = html.replace(/(\bsrc\s*=\s*)(["'])cid:([^"']+)\2/gi, (match, prefix: string, quote: string, value: string) =>
-            value === cid ? `${prefix}${quote}data:${contentType};base64,${contentBytes}${quote}` : match);
-        }
-      }
-      return {
-        ...summary,
+      const inline: InlineRef[] = (message.attachments ?? [])
+        .filter(
+          (file) =>
+            file.isInline &&
+            /^image\/(?:png|jpeg|gif|webp|bmp)$/i.test(file.contentType ?? "") &&
+            file.size != null &&
+            file.size <= MAX_INLINE_IMAGE_BYTES,
+        )
+        .slice(0, 25)
+        .map((file) => ({ id: file.id, contentType: file.contentType ?? "", size: file.size ?? 0 }));
+      const body: StoredBody = {
         cc: (message.ccRecipients ?? []).map(toContact),
         replyTo: message.replyTo?.[0] ? toContact(message.replyTo[0]) : null,
         messageId: message.internetMessageId ?? null,
         references: references ?? [],
-        html,
+        html: isHtml ? (message.body?.content ?? null) : null,
         text: isHtml ? null : (message.body?.content ?? null),
         attachments: (message.attachments ?? [])
           .filter((attachment) => !attachment.isInline)
@@ -668,35 +722,52 @@ export class GraphProvider implements MailProvider {
             contentType: attachment.contentType ?? "application/octet-stream",
             size: attachment.size ?? 0,
           })),
-        invitation,
+        invitation: summary.signal === "invitation" ? await this.invitationOf(nativeId, summary.subject, lane) : null,
+        inline,
       };
-    };
+      this.bodies?.put(folder, nativeId, "", body, lane === "background" ? Date.parse(summary.date) : undefined);
+      found.set(nativeId, { summary, body });
+    });
+    return found;
+  }
 
-    // A few at a time, in the order asked for: a long conversation must not trip Graph's throttling.
-    const details: MessageDetail[] = [];
-    for (let start = 0; start < nativeIds.length; start += GET_CONCURRENCY) {
-      details.push(
-        ...(await Promise.all(nativeIds.slice(start, start + GET_CONCURRENCY).map(fetchOne))),
-      );
+  /** The text with the images it embeds by `cid:` put in, for the ones small enough to be worth it. */
+  private async embeddedImages(nativeId: string, html: string | null, refs: readonly InlineRef[]): Promise<string | null> {
+    if (!html || !/\bcid:/i.test(html) || refs.length === 0) return html;
+    let result = html;
+    let bytes = 0;
+    for (const file of refs) {
+      bytes += file.size;
+      if (bytes > MAX_ATTACHMENT_BYTES) break;
+      const path = `/me/messages/${encodeURIComponent(nativeId)}/attachments/${encodeURIComponent(file.id)}`;
+      const parsed = attachmentFileSchema.safeParse(await this.request("GET", path).catch((error) => { reportError("sync", "Could not load an inline image of a message", error); return null; }));
+      if (!parsed.success) continue;
+      const { contentBytes, contentType, contentId } = parsed.data;
+      if (!contentBytes || !contentId || !contentType || !/^image\/(?:png|jpeg|gif|webp|bmp)$/i.test(contentType)
+        || !/^[a-z\d+/]+={0,2}$/i.test(contentBytes) || contentBytes.length > Math.ceil(MAX_INLINE_IMAGE_BYTES / 3) * 4) continue;
+      const cid = contentId.replace(/^<|>$/g, "");
+      result = result.replace(/(\bsrc\s*=\s*)(["'])cid:([^"']+)\2/gi, (match, prefix: string, quote: string, value: string) =>
+        value === cid ? `${prefix}${quote}data:${contentType};base64,${contentBytes}${quote}` : match);
     }
-    return details;
+    return result;
   }
 
   /** The meeting request or cancellation in a message, with its calendar event; null for any other message. */
-  private async eventMessage(nativeId: string): Promise<z.infer<typeof eventMessageSchema>> {
+  private async eventMessage(nativeId: string, lane: Lane = "foreground"): Promise<z.infer<typeof eventMessageSchema>> {
     const raw = await this.request(
       "GET",
       `/me/messages/${encodeURIComponent(nativeId)}?$expand=${encodeURIComponent("microsoft.graph.eventMessage/event")}`,
       undefined,
       { Prefer: 'outlook.timezone="UTC"' },
+      lane,
     );
     return eventMessageSchema.parse(raw);
   }
 
-  private async invitationOf(nativeId: string, subject: string): Promise<Invitation | null> {
+  private async invitationOf(nativeId: string, subject: string, lane: Lane = "foreground"): Promise<Invitation | null> {
     let found: z.infer<typeof eventMessageSchema>;
     try {
-      found = await this.eventMessage(nativeId);
+      found = await this.eventMessage(nativeId, lane);
     } catch (error) {
       // Reading the event needs the calendar permission, which accounts added before it was asked for lack.
       // The message is still an invitation then, so the card shows it; answering explains what is missing.
@@ -821,6 +892,8 @@ export class GraphProvider implements MailProvider {
       await Promise.all(Array.from({ length: Math.min(ACT_CONCURRENCY, nativeIds.length) }, worker));
       const applied = new Set(results.filter((result) => result.status === "applied").map(({ id }) => id));
       if (applied.size) {
+        // A moved message has another id where it went, and a deleted one has none: what was saved under it is of no use.
+        if (action !== "markRead" && action !== "markUnread" && action !== "pin" && action !== "unpin") this.bodies?.remove(folder, [...applied]);
         this.patchCache(action, folder, applied);
         if (folder === "inbox") this.patchCache(action, "pinned", applied);
         if (folder === "pinned") this.patchCache(action, "inbox", applied);

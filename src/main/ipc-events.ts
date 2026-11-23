@@ -66,6 +66,8 @@ const FAILED: Record<string, string> = {
   [IPC.notificationsGet]: "Could not read the notification settings",
   [IPC.notificationsSet]: "Could not save the notification settings",
   [IPC.notificationsTest]: "Could not show a test notification",
+  [IPC.offlineGet]: "Could not read the offline settings",
+  [IPC.offlineSet]: "Could not save the offline settings",
   [IPC.cliGet]: "Could not read the CLI settings",
   [IPC.cliSet]: "Could not save the CLI settings",
   [IPC.openExternal]: "Could not open the link",
@@ -107,6 +109,7 @@ const DONE: Record<string, string> = {
   [IPC.draftsDelete]: "Deleted a draft",
   [IPC.notificationsSet]: "Changed the notification settings",
   [IPC.notificationsTest]: "Showed a test notification",
+  [IPC.offlineSet]: "Changed the offline settings",
   [IPC.openExternal]: "Opened a link",
 };
 

@@ -11,7 +11,7 @@ import { migrate, NewerFileError } from "./migrate";
 const SETTINGS_VERSION = 1;
 
 /** The kinds of choices kept in `settings.json`. */
-export type SettingsSectionName = "ui" | "notifications" | "ai" | "logos" | "cli";
+export type SettingsSectionName = "ui" | "notifications" | "ai" | "logos" | "cli" | "offline";
 
 /**
  * Until `settings.json` existed, each section was a file of its own. Their content is taken over
@@ -22,7 +22,7 @@ const LEGACY_FILES: Readonly<Partial<Record<SettingsSectionName, string>>> = {
   notifications: "notification-settings.json",
   ai: "ai-settings.json",
   logos: "logo-settings.json",
-  // `cli` is newer than the one-file-per-section days: it never had a file of its own.
+  // `cli` and `offline` are newer than the one-file-per-section days: they never had a file of their own.
 };
 
 const containerSchema = z.object({ version: z.number().int().min(1) }).passthrough();
@@ -36,8 +36,8 @@ export interface SettingsSection {
 
 /**
  * The choices the person made, in one small plain file (`settings.json`, no mail data and no
- * secrets: keys live in `AiKeyStore`). It is `{ version, ui, notifications, ai, logos, cli }`; a section that is
- * missing (`cli` in a file written before it existed) simply has its defaults.
+ * secrets: keys live in `AiKeyStore`). It is `{ version, ui, notifications, ai, logos, cli, offline }`; a section that is
+ * missing (`cli` or `offline` in a file written before they existed) simply has its defaults.
  *
  * - First start after the change: the four old files are read into it, then renamed to
  *   `<name>.migrated` so nothing is lost. A file that cannot be read is set aside as `.corrupt` and reported.

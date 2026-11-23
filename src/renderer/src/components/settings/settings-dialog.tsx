@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { Bell, Palette, Sparkles, SquareTerminal, Tags, User, Users, type LucideIcon } from "lucide-react";
+import { Bell, Palette, SlidersHorizontal, Sparkles, SquareTerminal, Tags, User, Users, type LucideIcon } from "lucide-react";
 
 import type { Account, AiStatus, Category, CategoryState } from "@shared/types";
 
@@ -9,13 +9,14 @@ import { CategoriesPanel } from "@/components/mail/categories-panel";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
+import { AdvancedTab } from "./advanced-tab";
 import { AiFeaturesTab } from "./ai-features-tab";
 import { CliTab } from "./cli-tab";
 import { AppearanceTab } from "./appearance-tab";
 import { NotificationsTab } from "./notifications-tab";
 import { SendersTab } from "./senders-tab";
 
-export const SETTINGS_TABS = ["appearance", "accounts", "categories", "ai-features", "senders", "notifications", "cli"] as const;
+export const SETTINGS_TABS = ["appearance", "accounts", "categories", "ai-features", "senders", "notifications", "cli", "advanced"] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 const NAV: { id: SettingsTab; title: string; icon: LucideIcon }[] = [
@@ -26,6 +27,7 @@ const NAV: { id: SettingsTab; title: string; icon: LucideIcon }[] = [
   { id: "senders", title: "Senders", icon: User },
   { id: "notifications", title: "Notifications", icon: Bell },
   { id: "cli", title: "CLI", icon: SquareTerminal },
+  { id: "advanced", title: "Advanced", icon: SlidersHorizontal },
 ];
 
 interface SettingsDialogProps {
@@ -130,7 +132,7 @@ export function SettingsDialog({
       >
         <DialogHeader className="sr-only">
           <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>Appearance, accounts, categories, AI features, senders, notifications and the command line for AI agents.</DialogDescription>
+          <DialogDescription>Appearance, accounts, categories, AI features, senders, notifications, the command line for AI agents and advanced choices.</DialogDescription>
         </DialogHeader>
         <div className="flex min-h-0 flex-1 gap-3 p-3">
           <nav
@@ -167,6 +169,7 @@ export function SettingsDialog({
             {page("senders", <SendersTab accounts={accounts} />)}
             {page("notifications", <NotificationsTab accounts={accounts} categories={categories} onOpenSenders={() => show("senders")} />)}
             {page("cli", <CliTab />)}
+            {page("advanced", <AdvancedTab />)}
           </div>
         </div>
       </DialogContent>
