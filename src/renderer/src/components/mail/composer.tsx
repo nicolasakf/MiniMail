@@ -2,7 +2,7 @@ import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState }
 import { createPortal } from "react-dom";
 
 import type { Editor } from "@tiptap/core";
-import { ALargeSmall, Maximize2, Minimize2, Minus, Paperclip, SquareArrowOutUpRight, Trash2, X } from "lucide-react";
+import { ALargeSmall, ArrowLeftToLine, ArrowRightToLine, Maximize2, Minimize2, Minus, Paperclip, SquareArrowOutUpRight, Trash2, X } from "lucide-react";
 
 import type { Account } from "@shared/types";
 
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { useCompletionSettings } from "@/hooks/use-completion-settings";
 import { api } from "@/lib/api";
 import { buildCompletionContext } from "@/lib/completion";
+import { DEFAULT_COMPOSER_LAYOUT, panelSize, useComposerLayout, type ComposerLayout } from "@/lib/composer-layout";
 import type { ComposeSeed } from "@/lib/compose";
 import { cleanEditorHtml } from "@/lib/rich-compose";
 import { toast } from "@/lib/toast";
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 
 import { SignatureMenu, SignatureSheet, useSignatureLibrary, type SignatureDraft } from "./compose-library";
 import { ComposerFields } from "./composer-fields";
+import { ResizeHandles } from "./composer-resize";
 import { AttachmentList, DropOverlay, ErrorNotice, MinimizedPill, QuotedText, ScheduleNotice, SendButton } from "./composer-parts";
 import { useComposerSession } from "./composer-session";
 import { ToolButton } from "./composer-ui";
@@ -79,6 +81,18 @@ export function Composer({ seed, accounts, onClose, detached, minimized, tray, t
     },
   });
   const { fields, set, locked, error, setError } = session;
+  const { layout, commit: commitLayout } = useComposerLayout();
+  // While dragging, the size goes straight to the panel: going through state would render the whole
+  // composer (editor and fields included) on every pointer move, which made resizing lag.
+  const previewLayout = (size: Partial<ComposerLayout>) => {
+    const style = panel.current?.style;
+    if (style) Object.assign(style, panelSize({ ...layout, ...size }, Boolean(trayBusy)));
+  };
+  const onRight = layout.side === "right";
+
+  // The window's own close button: the main process holds the window open until the draft is kept.
+  const closeFromWindow = useEffectEvent(() => void session.requestClose());
+  useEffect(() => (detached ? api.composerWindow.onCloseRequested(closeFromWindow) : undefined), [detached]);
   useEffect(() => {
     if (!minimized) dismissFailToast();
   }, [minimized]);
@@ -234,12 +248,10 @@ export function Composer({ seed, accounts, onClose, detached, minimized, tray, t
                 "corner-squircle electron-no-drag fixed z-40 border border-border shadow-[0_24px_70px_-12px_rgb(0_0_0/0.55)] duration-200 animate-in fade-in-0 slide-in-from-bottom-3",
                 expanded
                   ? cn("inset-x-6 top-6 mx-auto max-w-[1040px]", trayBusy ? "bottom-[76px]" : "bottom-6")
-                  : cn(
-                      "right-4 w-[min(660px,calc(100vw-32px))]",
-                      trayBusy ? "bottom-[76px] h-[min(640px,calc(100dvh-92px))]" : "bottom-4 h-[min(640px,calc(100dvh-32px))]",
-                    ),
+                  : cn(onRight ? "right-4" : "left-4", trayBusy ? "bottom-[76px]" : "bottom-4"),
               ),
         )}
+        style={detached || expanded ? undefined : panelSize(layout, Boolean(trayBusy))}
         onFocus={(event) => {
           if (event.target instanceof HTMLElement) lastFocus.current = event.target;
         }}
@@ -275,9 +287,20 @@ export function Composer({ seed, accounts, onClose, detached, minimized, tray, t
           void session.addFiles(Array.from(event.dataTransfer.files));
         }}
       >
+        {!detached && !expanded && (
+          <ResizeHandles side={layout.side} layout={layout} trayBusy={Boolean(trayBusy)} onPreview={previewLayout} onCommit={commitLayout}
+            onReset={(axes) => commitLayout({
+              ...(axes !== "height" ? { width: DEFAULT_COMPOSER_LAYOUT.width } : {}),
+              ...(axes !== "width" ? { height: DEFAULT_COMPOSER_LAYOUT.height } : {}),
+            })} />
+        )}
         {!detached && (
           <header className="flex h-12 shrink-0 items-center gap-0.5 pl-5 pr-2.5">
             <h2 className="min-w-0 flex-1 truncate text-[13px] font-semibold">{title}</h2>
+            <ToolButton label={onRight ? "Move to the left" : "Move to the right"} className="size-7 rounded-lg"
+              disabled={expanded} onClick={() => commitLayout({ side: onRight ? "left" : "right" })}>
+              {onRight ? <ArrowLeftToLine /> : <ArrowRightToLine />}
+            </ToolButton>
             <ToolButton label="Minimize" className="size-7 rounded-lg" disabled={locked}
               onClick={() => onMinimizedChange?.(true)}><Minus /></ToolButton>
             <ToolButton label={expanded ? "Compact view" : "Expand"} className="size-7 rounded-lg"
