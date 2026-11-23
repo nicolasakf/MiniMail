@@ -182,7 +182,8 @@ export const GroupRow = memo(function GroupRow({
       </span>
 
       <div
-        className="flex h-7 min-w-0 flex-1 gap-x-2.5 overflow-hidden"
+        // Scrolls sideways (trackpad, or shift + wheel) to reach the senders that do not fit.
+        className="flex h-7 min-w-0 flex-1 gap-x-2.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {shown.map((chip) => (
           <div
@@ -222,8 +223,10 @@ export const GroupRow = memo(function GroupRow({
   );
 });
 
-/** Senders listed on a card; a category with more shows its newest ones. */
+/** Senders visible on a card before its list scrolls; the rest (up to `MAX_CHIPS`) are reached by scrolling. */
 const CARD_SENDERS = 5;
+/** One sender line on a card: `h-7`. */
+const CARD_SENDER_HEIGHT_PX = 28;
 
 interface GroupCardProps {
   group: GroupItem;
@@ -249,7 +252,7 @@ export const GroupCard = memo(function GroupCard({
   onToggleRead,
   onMenu,
 }: GroupCardProps) {
-  const shown = group.chips.slice(0, CARD_SENDERS);
+  const shown = group.chips.slice(0, MAX_CHIPS);
   const readLabel = group.hasUnread ? "Mark all as read" : "Mark all as unread";
 
   return (
@@ -301,7 +304,11 @@ export const GroupCard = memo(function GroupCard({
         </div>
       </div>
 
-      <div className="flex flex-col px-1.5">
+      <div
+        // Scrolls down to the older senders; a long name is cut with "…" rather than scrolled sideways.
+        className="flex flex-col overflow-y-auto overflow-x-hidden px-1.5 [scrollbar-width:thin]"
+        style={{ maxHeight: CARD_SENDERS * CARD_SENDER_HEIGHT_PX }}
+      >
         {shown.map((chip) => (
           <div key={chip.key} className="flex items-center gap-1">
             <button
