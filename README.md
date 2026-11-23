@@ -34,6 +34,14 @@ That way your mail stays findable, and the app around it stays simple and lightw
 
 ![The MiniMail window: a row of category cards (Invitations, Notifications, Verification codes, Receipts and Newsletters) above the conversation list, grouped by Pinned, Yesterday, This Week, Last Week and November, with the folder buttons, Smart, Sender and List views, and the compose button in the toolbar.](docs/images/app.svg)
 
+## Bring your own AI agent
+
+MiniMail has no chat assistant built in. It has a `minimail` CLI instead, so the agent you already use (Claude Code, Codex, Cursor, Gemini CLI, Copilot) can work with your mail: "find the invoice from last March", "archive every newsletter from this week", "draft a reply to Ana and let me check it".
+
+Every app is adding its own little AI agent. Soon you would have a hundred of them, each with its own chat window, its own memory and its own bill, and none of them knowing what the others know. People don't want that. They want **one agent that knows their work, and the apps and services they use connected to it.** So MiniMail is made to be connected to, not to be one more agent.
+
+Your agent is also the one you chose and pay for, and it can combine your mail with everything else it can reach: your calendar, your code, your notes.
+
 ## Run it
 
 ```bash
