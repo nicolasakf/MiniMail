@@ -142,6 +142,9 @@ function HeaderIconButton({
   );
 }
 
+/** How long a half turn of the refresh icon takes (`duration-300` below). */
+const TURN_MS = 300;
+
 /**
  * Reloads the mail on screen. The icon turns half a turn at a time: it keeps turning while a reload
  * runs, and a half turn that has started always finishes, even when the reload ends first.
@@ -158,18 +161,40 @@ export function RefreshButton({
 }) {
   const [halfTurns, setHalfTurns] = useState(0);
   const turning = useRef(false);
+  const refreshingNow = useRef(refreshing);
+  refreshingNow.current = refreshing;
+  const guard = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const finish = () => {
+    clearTimeout(guard.current);
+    turning.current = false;
+    // Still reloading: the next half turn follows at once.
+    if (refreshingNow.current) turn();
+  };
 
   const turn = () => {
     if (turning.current) return;
     turning.current = true;
     setHalfTurns((count) => count + 1);
+    // A half turn that starts before the icon was ever painted (the first load) has nothing to
+    // transition from, so `transitionend` never comes; this timer ends it just after it would.
+    guard.current = setTimeout(finish, TURN_MS + 60);
   };
 
   // A reload that starts without a click here (a shortcut, a poll) turns the icon too.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `turn` only touches a ref and a setter.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `turn` only touches refs and a setter.
   useEffect(() => {
     if (refreshing) turn();
   }, [refreshing]);
+
+  // Leaving (or React replaying the mount in development) drops the timer, so it must drop the flag too.
+  useEffect(
+    () => () => {
+      clearTimeout(guard.current);
+      turning.current = false;
+    },
+    [],
+  );
 
   return (
     <HeaderIconButton
@@ -183,11 +208,7 @@ export function RefreshButton({
       <RefreshCw
         className="size-[18px] transition-transform duration-300 ease-linear"
         style={{ transform: `rotate(${halfTurns * 180}deg)` }}
-        onTransitionEnd={() => {
-          turning.current = false;
-          // Still reloading: the next half turn follows at once.
-          if (refreshing) turn();
-        }}
+        onTransitionEnd={finish}
       />
     </HeaderIconButton>
   );
