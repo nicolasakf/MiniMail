@@ -80,6 +80,16 @@ async function framed(chrome, file, { html, width, height, dpr }) {
   await chrome.shot(file, { clip: { x: 0, y: 0, width, height }, transparent: true });
 }
 
+/** The three window buttons, at the top left of a 1560 by 930 window. */
+const LIGHTS = [27, 47, 67]
+  .map((x, i) => `<i style="position:absolute;left:${x - 6}px;top:21px;width:12px;height:12px;border-radius:50%;background:${["#ff5f57", "#febc2e", "#28c840"][i]};box-shadow:inset 0 0 0 .5px rgba(0,0,0,.2)"></i>`)
+  .join("");
+
+/** The app window as the README shows it: zoomed to 130%, drawn 1560 by 930 units with a narrow margin so it fills the page's width. */
+const ZOOM = 1.3;
+const APP = { width: Math.round(1560 / ZOOM), height: Math.round(930 / ZOOM), dpr: 1.25 * ZOOM };
+const APP_SHADOW = "0 0 0 1px rgba(60,50,40,.16), 0 18px 34px -12px rgba(40,30,20,.36), 0 5px 12px rgba(40,30,20,.14)";
+
 const WINDOW_SHADOW = "0 0 0 1px rgba(60,50,40,.16), 0 34px 70px -14px rgba(40,30,20,.38), 0 10px 22px rgba(40,30,20,.16)";
 
 function toWebp(png, webp, quality = 90) {
@@ -239,15 +249,18 @@ try {
       console.log("categories clip", clip);
       await chrome.shot(`${TMP}/categories-raw.png`, { clip });
       await chrome.eval(`document.querySelectorAll('[data-readme-pill]').forEach(el => el.remove()); true`);
-      await chrome.viewport(1560, 930, 1.25);
+      await chrome.viewport(APP.width, APP.height, APP.dpr);
     }
 
     if (wants("app")) {
+      await chrome.viewport(APP.width, APP.height, APP.dpr);
       await chrome.key("Escape", "Escape", 27);
       await chrome.sleep(600);
       await chrome.key("ArrowDown", "ArrowDown", 40);
       await chrome.sleep(400);
-      await chrome.shot(`${TMP}/app-raw.png`, { clip: { x: 0, y: 0, width: 1560, height: 930 } });
+      await chrome.move(0, 0);
+      await chrome.sleep(300);
+      await chrome.shot(`${TMP}/app-raw.png`, { clip: { x: 0, y: 0, width: APP.width, height: APP.height } });
     }
 
     if (clip) {
@@ -260,14 +273,11 @@ try {
       toWebp(`${TMP}/categories.png`, `${OUT}/categories.webp`);
     }
     if (wants("app")) {
-      const lights = [27, 47, 67]
-        .map((x, i) => `<i style="position:absolute;left:${x - 6}px;top:21px;width:12px;height:12px;border-radius:50%;background:${["#ff5f57", "#febc2e", "#28c840"][i]};box-shadow:inset 0 0 0 .5px rgba(0,0,0,.2)"></i>`)
-        .join("");
       await framed(chrome, `${TMP}/app.png`, {
-        width: 1680,
-        height: 1050,
+        width: 1600,
+        height: 990,
         dpr: 1.25,
-        html: `<div style="position:absolute;left:60px;top:36px;width:1560px;height:930px;border-radius:22px;overflow:hidden;box-shadow:${WINDOW_SHADOW}"><img src="app-raw.png" style="display:block;width:100%;height:100%">${lights}<div style="position:absolute;inset:0;border-radius:22px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.4)"></div></div>`,
+        html: `<div style="position:absolute;left:20px;top:14px;width:1560px;height:930px;border-radius:22px;overflow:hidden;box-shadow:${APP_SHADOW}"><img src="app-raw.png" style="display:block;width:100%;height:100%">${LIGHTS}<div style="position:absolute;inset:0;border-radius:22px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.4)"></div></div>`,
       });
       toWebp(`${TMP}/app.png`, `${OUT}/app.webp`);
     }

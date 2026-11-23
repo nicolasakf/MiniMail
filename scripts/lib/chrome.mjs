@@ -97,6 +97,9 @@ export async function launch({ port = 9333, profile } = {}) {
     async type(text) {
       await send("Input.insertText", { text });
     },
+    async move(x, y) {
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+    },
     async click(x, y) {
       await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
       await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
