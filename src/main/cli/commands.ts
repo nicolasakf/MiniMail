@@ -820,6 +820,8 @@ async function askFirst(ctx: CliContext, card: ConfirmCard, what: string): Promi
   const decision = await ctx.backend.confirm(card);
   if (decision === "no-answer") throw new CliError("failed", `Nobody answered the question in MiniMail in time, so ${what} was not done.`);
   if (decision === "reject") throw new CliError("rejected", `The person said no in MiniMail, so ${what} was not done. Do not try again unless they ask you to.`);
+  // "Open in the composer": the person takes the draft over, so it is not sent from here.
+  if (decision === "review") throw new CliError("rejected", `The person opened the draft in MiniMail's composer to look it over, so ${what} was not done. They will send it themselves if they want to. Do not try again unless they ask you to.`);
   return decision;
 }
 
@@ -867,6 +869,7 @@ async function send(ctx: CliContext, args: Args) {
       ctx,
       {
         action: "send",
+        draftId: id,
         from: ctx.backend.accounts().find((account) => account.id === saved.accountId)?.email ?? saved.accountId,
         to,
         cc: names(saved.cc),

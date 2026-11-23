@@ -6,6 +6,8 @@ import {
   CLI_COMMANDS,
   CLI_GROUPS,
   MAX_ALLOWED_RECIPIENTS,
+  SKILL_TARGET_IDS,
+  SKILL_TARGETS,
   normalizeAllowedRecipient,
   type AskCommand,
   type AskMode,
@@ -18,10 +20,10 @@ import {
 } from "@shared/cli";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { useCli } from "@/hooks/use-cli";
 import { cn } from "@/lib/utils";
@@ -31,44 +33,55 @@ import { SettingsPageHeader, SettingsSectionTitle, SettingsSegmentedField, Setti
 type Change = (change: (settings: CliSettings) => CliSettings) => Promise<void>;
 
 /**
- * One checkbox per agent the skill can be installed for. The skill is a short file that teaches the
- * agent to use the CLI; MiniMail only changes files it wrote.
+ * The switch that allows the CLI. Turning it on asks, next to the switch, whether the skill (a short
+ * file that teaches an agent to use the command and to treat mail as untrusted) may also be installed
+ * for all the agents MiniMail knows: `~/.agents/skills` (Codex, Cursor, Gemini CLI, Copilot and others)
+ * and `~/.claude/skills`. Turning it on starts with no skill; "Install" adds both, and the skill goes
+ * with the CLI when it is turned off. Settings and the setup guide share it.
  */
-export function CliSkillTargets({
-  state,
-  onToggle,
-  disabled,
-}: {
-  state: CliState;
-  onToggle: (id: SkillTargetId, on: boolean) => void;
-  disabled?: boolean;
-}) {
+export function CliAllowField({ id, state, update }: { id: string; state: CliState | null; update: Change }) {
+  const [asking, setAsking] = useState(false);
   return (
-    <ul aria-label="Agents to install the skill for" className="space-y-2">
-      {state.skills.map((skill) => {
-        const chosen = state.settings.skillTargets.includes(skill.id);
-        const failed = state.settings.enabled && chosen && !skill.installed;
-        return (
-          <li key={skill.id} className={cn("corner-squircle flex items-start gap-3 rounded-md border p-3", disabled && "opacity-60")}>
-            <Checkbox
-              id={`skill-${skill.id}`}
-              className="mt-0.5"
-              checked={chosen}
-              disabled={disabled}
-              onCheckedChange={(checked) => onToggle(skill.id, checked === true)}
-            />
-            <label htmlFor={`skill-${skill.id}`} className="min-w-0 flex-1 cursor-pointer space-y-0.5">
-              <span className="block text-sm font-medium">{skill.label}</span>
-              <span className="block font-mono text-xs text-muted-foreground">
-                {skill.folder}
-                {!skill.detected && <span className="font-sans"> (not found on this computer)</span>}
-              </span>
-              {failed && <span className="block text-xs text-red-500">Not installed. The Log says why.</span>}
-            </label>
-          </li>
-        );
-      })}
-    </ul>
+    <Popover open={asking} onOpenChange={setAsking}>
+      <PopoverAnchor asChild>
+        <div>
+          <SettingsSwitchField
+            id={id}
+            label="Allow the MiniMail CLI"
+            description="Off: nothing listens and nothing is installed. On: any program running as you can use the command."
+            checked={state?.settings.enabled ?? false}
+            disabled={state === null}
+            onCheckedChange={(enabled) => {
+              void update((current) => ({ ...current, enabled, skillTargets: enabled ? [] : current.skillTargets }));
+              setAsking(enabled);
+            }}
+          />
+        </div>
+      </PopoverAnchor>
+      <PopoverContent align="end" side="bottom" className="w-72 space-y-3 p-3">
+        <div className="space-y-1">
+          <p className="text-sm font-semibold">Also install the skill for all your agents?</p>
+          <p className="text-xs text-muted-foreground">
+            Writes a skill file for Claude Code, Codex, Cursor and others in {SKILL_TARGETS.map((target) => target.folder).join(" and ")}. MiniMail only changes files it wrote.
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => setAsking(false)}>
+            Not now
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              void update((current) => ({ ...current, skillTargets: [...SKILL_TARGET_IDS] }));
+              setAsking(false);
+            }}
+          >
+            Install
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -108,7 +121,7 @@ function AllowedRecipients({ settings, update }: { settings: CliSettings; update
       <div className="space-y-0.5">
         <p className="text-sm font-medium">Send without asking to</p>
         <p className="text-xs text-muted-foreground">
-          A message goes out without asking only when everyone on it, Cc and Bcc too, is on this list. A draft with files the agent attached always asks first.
+          Sends without asking only when everyone on the message, Cc and Bcc included, is on this list. Drafts with files the agent attached always ask.
           {anyone && " Not used while sending to anyone is allowed."}
         </p>
       </div>
@@ -222,7 +235,7 @@ function AskGroup({ group, settings, update }: { group: CliGroupDef; settings: C
                   <code className="block truncate font-mono text-xs font-medium">{entry.usage}</code>
                   <p className="text-xs text-muted-foreground">{entry.summary}</p>
                   {command === "send" && settings.ask.send === "always" && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400">Anyone: if an email tricks the agent, it can send your mail to a stranger. Choosing people is safer.</p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400">Sending to anyone is allowed without asking.</p>
                   )}
                 </div>
                 <div className="w-56 shrink-0">
@@ -340,24 +353,18 @@ export function CliTab() {
     <div className="space-y-6">
       <SettingsPageHeader title="CLI" />
       <p className="max-w-2xl text-sm text-muted-foreground">
-        Let AI agents on this computer, such as Claude Code or Codex, look through your mail with the <code className="font-mono text-xs">minimail</code> command. They can only do what is switched on here, and MiniMail never gives them sign-in codes.
+        AI agents on this computer, such as Claude Code or Codex, can use the <code className="font-mono text-xs">minimail</code> command. They can only do what is switched on here. Messages with sign-in codes are withheld.
       </p>
 
       <div className="max-w-2xl space-y-3">
-        <SettingsSwitchField
-          id="cli-enabled"
-          label="Allow the MiniMail CLI"
-          description="Off means nothing listens and nothing is installed. Any program running as you can use the command while this is on."
-          checked={settings.enabled}
-          onCheckedChange={(enabled) => void update((current) => ({ ...current, enabled }))}
-        />
+        <CliAllowField id="cli-enabled" state={state} update={update} />
       </div>
 
       <div className={cn("max-w-2xl space-y-6", off && "pointer-events-none opacity-50")} aria-disabled={off}>
         <SettingsSwitchField
           id="cli-path"
           label="Use minimail in your terminal"
-          description={`Adds a link at ${state.pathLink.path}. Make sure that folder is on your PATH. Removed when you turn the CLI off.`}
+          description={`Adds a link at ${state.pathLink.path}, which must be on your PATH.`}
           checked={settings.pathLink}
           onCheckedChange={(pathLink) => void update((current) => ({ ...current, pathLink }))}
         />
@@ -374,36 +381,16 @@ export function CliTab() {
         <SettingsSwitchField
           id="cli-hide-links"
           label="Hide links in mail"
-          description="Shows each link as [link host], so a password reset or sign-in link never reaches the agent."
+          description="Shows each link as [link host]."
           checked={settings.hideLinks}
           onCheckedChange={(hide) => (hide ? void update((current) => ({ ...current, hideLinks: true })) : setAskLinks(true))}
         />
         {!settings.hideLinks && (
           <p className="-mt-3 text-xs text-amber-600 dark:text-amber-400">
-            Full links are shown. The agent decides which ones are safe to open, and a mail written to trick it can try to change its mind.
+            Full links are shown to the agent.
           </p>
         )}
 
-        <Separator />
-
-        <section className="space-y-3">
-          <div className="space-y-0.5">
-            <SettingsSectionTitle title="Install the skill for" />
-            <p className="text-xs text-muted-foreground">
-              A short file that teaches the agent to use the command and to treat mail as untrusted. It is removed when you turn the CLI off, and MiniMail only changes files it wrote.
-            </p>
-          </div>
-          <CliSkillTargets
-            state={state}
-            disabled={off}
-            onToggle={(id, on) =>
-              void update((current) => ({
-                ...current,
-                skillTargets: on ? [...new Set([...current.skillTargets, id])] : current.skillTargets.filter((target) => target !== id),
-              }))
-            }
-          />
-        </section>
       </div>
 
       <FullLinksDialog

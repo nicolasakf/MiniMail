@@ -65,7 +65,7 @@ import { AccountMark } from "./account-mark";
 import { SenderAvatar } from "./sender-avatar";
 import { noteShownError } from "@/lib/events";
 import { seedFromDraft, useDrafts } from "@/lib/drafts";
-import { draftsForThread } from "@/lib/local-drafts";
+import { draftIdOf, draftsForThread, isLocalDraftId } from "@/lib/local-drafts";
 
 interface ThreadViewProps {
   mailActions: MailActions;
@@ -571,7 +571,9 @@ export function ThreadView({
   const [findQuery, setFindQuery] = useState("");
   const findInput = useRef<HTMLInputElement>(null);
 
-  const idsKey = thread.messages.map((message) => message.id).join(",");
+  /** The messages that are on a mail server: a draft written here is shown as the draft row instead, never fetched. */
+  const mailMessages = useMemo(() => thread.messages.filter((message) => !isLocalDraftId(message.id)), [thread.messages]);
+  const idsKey = mailMessages.map((message) => message.id).join(",");
 
   useEffect(() => {
     let cancelled = false;
@@ -580,10 +582,10 @@ export function ThreadView({
     setError(null);
     // Open the newest message and anything unread; keep the rest collapsed.
     setExpanded(
-      new Set(thread.messages.filter((message, index, all) => index === all.length - 1 || message.unread).map((message) => message.id)),
+      new Set(mailMessages.filter((message, index, all) => index === all.length - 1 || message.unread).map((message) => message.id)),
     );
     // Older messages stay folded, unless one of them is unread: that one must not be hidden.
-    setShowEarlier(thread.messages.slice(0, -FOLD_KEEP).some((message) => message.unread));
+    setShowEarlier(mailMessages.slice(0, -FOLD_KEEP).some((message) => message.unread));
     // The "slow" notice counts from the last arrival, so it only shows while the server is stuck.
     let slowTimer: ReturnType<typeof setTimeout> | undefined;
     const waitForServer = () => {
@@ -593,11 +595,11 @@ export function ThreadView({
     };
     waitForServer();
     const asked = performance.now();
-    if (import.meta.env.DEV) console.log(`[perf] open conversation: asking for ${thread.messages.length} message(s), newest first`);
+    if (import.meta.env.DEV) console.log(`[perf] open conversation: asking for ${mailMessages.length} message(s), newest first`);
     void (async () => {
       try {
         // One message at a time, newest first: each shows as soon as it arrives, the older ones follow.
-        for (const { id } of [...thread.messages].reverse()) {
+        for (const { id } of [...mailMessages].reverse()) {
           const [detail] = await withTimeout(
             api.mail.get([id]),
             GIVE_UP_AFTER_MS,
@@ -710,10 +712,10 @@ export function ThreadView({
     const holding = [...loaded.values()].filter((message) => containsText(messageText(message), findQuery)).map((message) => message.id);
     setExpanded((previous) => (holding.every((id) => previous.has(id)) ? previous : new Set([...previous, ...holding])));
     // Folded-away older messages are shown too when one of them holds the word.
-    if (holding.some((id) => thread.messages.findIndex((message) => message.id === id) < foldedCountFor(thread.messages.length, showEarlier))) {
+    if (holding.some((id) => mailMessages.findIndex((message) => message.id === id) < foldedCountFor(mailMessages.length, showEarlier))) {
       setShowEarlier(true);
     }
-  }, [findOpen, findQuery, loaded, showEarlier, thread.messages]);
+  }, [findOpen, findQuery, loaded, showEarlier, mailMessages]);
 
   const closeFind = () => {
     setFindOpen(false);
@@ -722,7 +724,7 @@ export function ThreadView({
 
   /** What has arrived, in conversation order (oldest first). */
   const details = useMemo(
-    () => thread.messages.flatMap((message) => loaded.get(message.id) ?? []),
+    () => mailMessages.flatMap((message) => loaded.get(message.id) ?? []),
     // idsKey stands for the message list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [idsKey, loaded],
@@ -737,7 +739,7 @@ export function ThreadView({
   }, [details, thread.id, thread.unread, onAction, mailActions]);
 
   /** How many of the oldest messages are folded into the "Show earlier" row. */
-  const foldedCount = foldedCountFor(thread.messages.length, showEarlier);
+  const foldedCount = foldedCountFor(mailMessages.length, showEarlier);
   const latest = details[details.length - 1];
   const actions = useMemo(() => actionsForThread(folder, thread), [folder, thread]);
   const owner = accountFor(accounts, thread.accountId);
@@ -755,7 +757,16 @@ export function ThreadView({
   // The category, priority, mute and block menus sit after Pin and read, then a divider and the moves (Inbox, Archive, ...).
   /** Sent and Drafts hold the user's own mail, which is never priority mail and is never blocked. */
   const savedDrafts = useDrafts();
-  const draftsHere = useMemo(() => draftsForThread(savedDrafts, thread), [savedDrafts, thread]);
+  const draftsHere = useMemo(() => {
+    const replies = draftsForThread(savedDrafts, thread);
+    // A draft that is the open conversation itself (a new message, or one opened from the Drafts list).
+    const own = thread.messages.flatMap((message) => {
+      const id = draftIdOf(message.id);
+      const draft = id === null ? undefined : savedDrafts.find((item) => item.id === id);
+      return draft && !replies.some((item) => item.id === draft.id) ? [draft] : [];
+    });
+    return [...replies, ...own].sort((a, b) => a.savedAt.localeCompare(b.savedAt));
+  }, [savedDrafts, thread]);
   const priorityShown = folder !== "sent" && folder !== "drafts";
   const categoryMenuBefore = useMemo(
     () => actions.find(({ action }) => MOVE_ACTIONS.has(action))?.action ?? null,
@@ -815,7 +826,7 @@ export function ThreadView({
   /** A reply, with the conversation before it so the text suggestions can read it. */
   const replySeed = (message: MessageDetail, mode: "reply" | "replyAll" | "forward"): ComposeSeed => ({
     ...buildReplySeed(message, mode, accounts),
-    earlier: earlierMessages(thread.messages, details, message.id),
+    earlier: earlierMessages(mailMessages, details, message.id),
   });
   const startCompose = (mode: "reply" | "replyAll" | "forward") => {
     if (latest) onCompose(replySeed(latest, mode));
@@ -846,8 +857,8 @@ export function ThreadView({
   // Listed once the whole conversation is here, so the list does not grow while older messages arrive.
   const artifacts = useMemo(() => (finished ? collectArtifacts(details) : null), [finished, details]);
   const expecting = {
-    attachments: !error && thread.messages.some((message) => message.hasAttachments),
-    invitations: !error && thread.messages.some((message) => message.signal === "invitation"),
+    attachments: !error && mailMessages.some((message) => message.hasAttachments),
+    invitations: !error && mailMessages.some((message) => message.signal === "invitation"),
   };
   const { emailWidth } = useAppearance();
 
@@ -1002,7 +1013,7 @@ export function ThreadView({
               {normalizeSubject(thread.latest.subject)}
             </h1>
             <p className="mb-6 text-sm text-muted-foreground">
-              {thread.count} {thread.count === 1 ? "message" : "messages"}
+              {mailMessages.length === 0 ? "Draft" : `${thread.count} ${thread.count === 1 ? "message" : "messages"}`}
               {accounts.length > 1 && owner ? ` · ${accountLabel(owner)}` : ""}
             </p>
 
@@ -1026,7 +1037,7 @@ export function ThreadView({
                   Show {foldedCount} earlier {foldedCount === 1 ? "message" : "messages"}
                 </button>
               )}
-              {thread.messages.map((summary, index) => {
+              {mailMessages.map((summary, index) => {
                 if (index < foldedCount) return null;
                 // The header comes from the list, so it is there at once; the body and the cc line arrive with the download.
                 const message = loaded.get(summary.id);

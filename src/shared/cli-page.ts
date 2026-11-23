@@ -35,6 +35,8 @@ export interface DraftChanges {
 export type ConfirmCard =
   | {
       action: "send";
+      /** The draft being sent, so the card can open it in the composer. */
+      draftId: string;
       from: string;
       to: string[];
       cc: string[];
@@ -54,7 +56,8 @@ export type ConfirmCard =
   | { action: "unsubscribe"; lists: { sender: string; email: string; messages: number }[]; skipped: number }
   | { action: "invitation"; answer: "accept" | "maybe" | "decline"; title: string; when: string | null; organizer: string | null; location: string | null };
 
-export type ConfirmDecision = "reject" | "once" | "always";
+/** "review" is a send card's "open it in the composer": the agent is told no, and the person looks over the draft and sends it themselves. */
+export type ConfirmDecision = "reject" | "once" | "always" | "review";
 
 /** How an unsubscribe went, per list. A sender that only has a web page is reported, never opened for the agent. */
 export interface UnsubscribeOutcome {

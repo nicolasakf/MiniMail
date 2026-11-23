@@ -950,6 +950,16 @@ describe("send", () => {
     expect(drafts.list()).toHaveLength(1);
   });
 
+  it("does not send when the person opens the draft in the composer, and the card names that draft", async () => {
+    const { run, backend, drafts } = withDraft({ settings: askMode("ask"), decision: "review" });
+    const answer = await run("send", ["draft-1"]);
+    expect(answer).toMatchObject({ ok: false, error: { code: "rejected" } });
+    expect(JSON.stringify(answer)).toContain("composer");
+    expect(cardOf(backend)).toMatchObject({ draftId: "draft-1" });
+    expect(backend.send).not.toHaveBeenCalled();
+    expect(drafts.list()).toHaveLength(1);
+  });
+
   it("does not send when nobody answers in time", async () => {
     const { run, backend } = withDraft({ settings: askMode("ask"), decision: "no-answer" });
     const answer = await run("send", ["draft-1"]);

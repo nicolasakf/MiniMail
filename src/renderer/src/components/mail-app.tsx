@@ -72,7 +72,7 @@ import { newMessageSeed, type ComposeSeed } from "@/lib/compose";
 import { refreshContacts } from "@/lib/contact-cache";
 import { deleteDraft, listDrafts, newDraftId, removeServerDraft, saveDraft, seedFromDraft, seedFromServerDraft, useDrafts } from "@/lib/drafts";
 import { setDraftsPinned, usePinnedDrafts } from "@/lib/pinned-drafts";
-import { draftIdOf, draftMessage, draftThreads, isLocalDraftId } from "@/lib/local-drafts";
+import { draftIdOf, draftMessage, draftThreads, isLocalDraftId, isLocalDraftThread } from "@/lib/local-drafts";
 import { contactLabel, FOLDER_TITLES } from "@/lib/format";
 import { isTypingTarget } from "@/lib/keyboard";
 import { DELETE_FOREVER_CONFIRM } from "@/lib/delete-confirm";
@@ -234,6 +234,7 @@ export function MailApp() {
     threads: allThreads,
     loading,
     syncing,
+    pendingAccounts,
     errors,
     query,
     setQuery,
@@ -631,28 +632,48 @@ export function MailApp() {
     return { items: rest, dockGroups: docked };
   }, [focused, openGroup, folder, inDrill, threads, listThreads, now, categories, pinnedCollapsed, collapsedDates, minimized, categoryLayout, minimizedExpanded]);
   const navigable = useMemo(() => items.filter((item) => item.type !== "section"), [items]);
-  /** Split view: the selected conversation is read beside the list instead of replacing it. */
-  const split = appearance.splitView && !(onDashboard && !drill) && !(accountsLoaded && accounts.length === 0);
+  /**
+   * Split view: the selected conversation is read beside the list instead of replacing it. The Drafts
+   * tab always has it, whatever the setting says, so a draft looks the same everywhere (the
+   * conversation it answers, ending with the draft) and the setting only changes the other folders.
+   */
+  const split =
+    (appearance.splitView || (folder === "drafts" && !inDrill)) &&
+    !(onDashboard && !drill) &&
+    !(accountsLoaded && accounts.length === 0);
   const openThread = useMemo(
     // Looked up unfiltered: reading a conversation must not make it vanish from under the reader.
     () =>
       openThreadId
         ? ((inDrill ? drillThreads : allThreads).find((thread) => thread.id === openThreadId) ??
+          // A draft written here is not in the server's list: it is found among the Drafts rows.
+          localDraftThreads.find((thread) => thread.id === openThreadId) ??
           (held?.thread.id === openThreadId ? held.thread : undefined))
         : undefined,
-    [openThreadId, inDrill, drillThreads, allThreads, held],
+    [openThreadId, inDrill, drillThreads, allThreads, localDraftThreads, held],
   );
   useEffect(() => {
     if (held && held.thread.id !== openThreadId) setHeld(null);
   }, [held, openThreadId]);
   // A folder list loads only its own folder, so the rest of a conversation (the user's replies in
   // Sent, what they received in the Inbox or Archive) is added when a conversation opens.
-  const conversationMail = useConversationMail(openThread !== undefined && folder !== "drafts");
-  /** The open conversation with all its messages; actions still use `openThread` itself. */
-  const viewedThread = useMemo(
-    () => (openThread ? withRelatedMessages(openThread, conversationMail) : undefined),
-    [openThread, conversationMail],
-  );
+  /** The draft written here that the split view's pane shows, if that is what is open. */
+  const paneDraftId = openThread && isLocalDraftThread(openThread) ? draftIdOf(openThread.latest.id) : null;
+  const paneDraft = paneDraftId ? savedDrafts.find((draft) => draft.id === paneDraftId) : undefined;
+  const conversationMail = useConversationMail(openThread !== undefined && (folder !== "drafts" || paneDraft !== undefined));
+  /**
+   * The open conversation with all its messages; actions still use `openThread` itself. A draft
+   * written here is shown as the conversation it answers, ending with the draft, as in the email view.
+   */
+  const viewedThread = useMemo(() => {
+    if (!openThread) return undefined;
+    if (!paneDraft) return withRelatedMessages(openThread, conversationMail);
+    const original = paneDraft.inReplyTo ? conversationMail.find((message) => message.id === paneDraft.inReplyTo?.nativeId) : undefined;
+    const conversation = original ? groupThreads([original])[0] : undefined;
+    if (!conversation) return openThread;
+    // The toolbar acts on the draft (pin, delete), so the pin is the draft's and reading it marks nothing.
+    return { ...withRelatedMessages(conversation, conversationMail), pinned: openThread.pinned, unread: false };
+  }, [openThread, paneDraft, conversationMail]);
 
   // Keep a valid keyboard selection as the list changes underneath it.
   useEffect(() => {
@@ -2475,6 +2496,9 @@ export function MailApp() {
         syncing={
           syncing || dashboardMail.syncing ? (allThreads.length === 0 && !onDashboard ? "downloading" : "checking") : undefined
         }
+        // The Dashboard lists every account at once, so while it loads all of them are waiting.
+        pendingAccounts={dashboardMail.syncing ? new Set(accounts.map((account) => account.id)) : pendingAccounts}
+        failedAccounts={new Set([...errors, ...dashboardMail.errors].map((error) => error.accountId))}
         retryFor={retryEvent}
       />
 
@@ -2763,14 +2787,17 @@ export function MailApp() {
         ai={ai}
         onAccountsChanged={() => void reloadAccounts()}
         onCategoryState={setCategoryState}
-        onFinish={(openCategories) => {
-          onboarding.finish();
-          if (openCategories) editCategories();
-        }}
+        onFinish={onboarding.finish}
       />
 
       {/* Asks before the CLI does something that cannot be taken back. */}
-      <CliConfirmDialog />
+      <CliConfirmDialog
+        onOpenDraft={(draftId) => {
+          const draft = listDrafts().find((item) => item.id === draftId);
+          if (draft) startCompose(seedFromDraft(draft));
+          else toast.error("That draft is gone. It may have been deleted.");
+        }}
+      />
     </div>
   );
 }

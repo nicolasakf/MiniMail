@@ -365,10 +365,18 @@ interface CategoriesPanelProps {
   ai: AiStatus | null;
   /** Receives the new state after a save, so the list and filters update right away. */
   onState: (state: CategoryState) => void;
+  /**
+   * Inside the setup guide: just the list and its buttons, without the page title, the key prompt
+   * (the guide has asked for the key already), the settings below the list (folders, model) or
+   * anything about sorting mail again (nothing has been sorted yet).
+   */
+  embedded?: boolean;
+  /** Tells the parent whether the list has changes that are not saved yet, so it can hold back a step. */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 /** Create, rename, delete and redefine categories, and connect the AI that sorts mail into them. */
-export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProps) {
+export function CategoriesPanel({ categories, ai, onState, embedded = false, onDirtyChange }: CategoriesPanelProps) {
   const [draft, setDraft] = useState<Category[]>(() => categories.map((category) => ({ ...category })));
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -379,6 +387,10 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
 
   const problems = useMemo(() => categoryProblems(draft), [draft]);
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(categories), [draft, categories]);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+    return () => onDirtyChange?.(false);
+  }, [dirty, onDirtyChange]);
   const missingDefaults = DEFAULT_CATEGORIES.filter(
     (candidate) => !draft.some((category) => category.id === candidate.id),
   );
@@ -414,9 +426,14 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
 
   const changes = useMemo(() => categoryChanges(categories, draft), [categories, draft]);
 
-  /** Without a key nothing can be sorted, so there is nothing to advise. */
+  /**
+   * Without a key nothing can be sorted, so there is nothing to advise. The setup guide never asks
+   * either: nothing has been sorted yet, so there is nothing to sort again; it takes the dialog's own
+   * default (a deleted category's mail has no category, the rest is left alone).
+   */
   const onSave = () => {
-    if (ai?.configured && needsResort(changes)) setAsking(true);
+    if (embedded) void save(changes.deleted.length > 0 ? "none" : "keep");
+    else if (ai?.configured && needsResort(changes)) setAsking(true);
     else void save("keep");
   };
 
@@ -435,16 +452,7 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
     }
   };
 
-  return (
-    <div className="flex max-w-2xl flex-col gap-4 p-6">
-      <SettingsPageHeader title="Categories" />
-
-      <KeyGate
-        ai={ai}
-        onState={onState}
-        purpose="sorting"
-        intro="MiniMail sorts your mail into categories with TypeSafe AI's Jev, reached through the Vercel AI Gateway, OpenRouter or TypeSafe's own API: pick one and add its key. You can pick another model later under Advanced."
-      >
+  const editor = (
         <div className="space-y-4">
           <section className="space-y-3" aria-label="Category list">
             {draft.length === 0 && (
@@ -492,7 +500,7 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
                   Restore {missingDefaults.map((c) => c.name.toLowerCase()).join(", ")}
                 </Button>
               )}
-              {ai?.configured && <SortAgainMenu open={sortOpen} onOpenChange={setSortOpen} />}
+              {ai?.configured && !embedded && <SortAgainMenu open={sortOpen} onOpenChange={setSortOpen} />}
               <div className="ml-auto flex gap-2">
                 <Button
                   type="button"
@@ -534,10 +542,24 @@ export function CategoriesPanel({ categories, ai, onState }: CategoriesPanelProp
             onCancel={() => setAsking(false)}
           />
 
-          <SortFoldersField ai={ai} onState={onState} />
+          {!embedded && <SortFoldersField ai={ai} onState={onState} />}
 
-          <AdvancedSection ai={ai} onState={onState} />
+          {!embedded && <AdvancedSection ai={ai} onState={onState} />}
         </div>
+  );
+
+  if (embedded) return editor;
+  return (
+    <div className="flex max-w-2xl flex-col gap-4 p-6">
+      <SettingsPageHeader title="Categories" />
+
+      <KeyGate
+        ai={ai}
+        onState={onState}
+        purpose="sorting"
+        intro="MiniMail sorts your mail into categories with TypeSafe AI's Jev, reached through the Vercel AI Gateway, OpenRouter or TypeSafe's own API: pick one and add its key. You can pick another model later under Advanced."
+      >
+        {editor}
       </KeyGate>
     </div>
   );

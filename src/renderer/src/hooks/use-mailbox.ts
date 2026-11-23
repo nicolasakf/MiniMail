@@ -80,6 +80,8 @@ export function useMailbox(
   const [loading, setLoading] = useState(true);
   /** A list the person asked for is still waiting on the servers; whatever is on screen is the saved copy. */
   const [syncing, setSyncing] = useState(false);
+  /** The accounts whose servers have not answered the list being synced yet (the rail spinner names them). */
+  const [pendingAccounts, setPendingAccounts] = useState<ReadonlySet<string>>(() => new Set());
   const [errors, setErrors] = useState<AccountError[]>([]);
   const [query, setQuery] = useState("");
   const [actionVersion, redrawActions] = useState(0);
@@ -159,16 +161,20 @@ export function useMailbox(
         setErrors([]);
         setLoading(false);
         setSyncing(false);
+        setPendingAccounts(new Set());
         return;
       }
       runningSince.current = performance.now();
-      if (!silent) setSyncing(true);
       if (reload || (!silent && messagesRef.current.length === 0)) setLoading(true);
 
       const targets = scope === "all" ? [...accountIds.current] : [scope];
       const verification = actions.verification();
       const requestedAccounts = [...new Set([...targets, ...verification.keys()])]
         .filter((id) => accountIds.current.includes(id));
+      if (!silent) {
+        setSyncing(true);
+        setPendingAccounts(new Set(requestedAccounts));
+      }
       const started = performance.now();
       const live = new Map<string, MessageSummary[]>();
       const fromDisk = new Map<string, MessageSummary[]>();
@@ -264,6 +270,12 @@ export function useMailbox(
           setMessages((onScreen) => mergeAccountRows(targets, [live, fromDisk], onScreen));
           // Failed lists were recorded by the main process; the banner below is for the person looking.
           setErrors((previous) => mergeErrors(previous, answered));
+          setPendingAccounts((pending) => {
+            if (!pending.has(accountId)) return pending;
+            const rest = new Set(pending);
+            rest.delete(accountId);
+            return rest;
+          });
           setLoading(false);
           perf(`account ${answered.size}/${targets.length} answered`);
         }),
@@ -275,6 +287,7 @@ export function useMailbox(
       }
       setLoading(false);
       setSyncing(false);
+      setPendingAccounts(new Set());
       runningSince.current = null;
       if (rerun.current) {
         rerun.current = false;
@@ -456,6 +469,7 @@ export function useMailbox(
     threads,
     loading,
     syncing,
+    pendingAccounts,
     errors,
     query,
     setQuery,

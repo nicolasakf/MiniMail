@@ -1,13 +1,11 @@
 import { useState } from "react";
 
-import { Check, KeyRound, SquareTerminal } from "lucide-react";
+import { Check, KeyRound } from "lucide-react";
 
-import { iconFor } from "@shared/categories";
 import type { Account, AiStatus, Category, CategoryState } from "@shared/types";
 
 import { Button } from "@/components/ui/button";
-import { CliSkillTargets } from "@/components/settings/cli-tab";
-import { SettingsSwitchField } from "@/components/settings/fields";
+import { CliAllowField } from "@/components/settings/cli-tab";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useCli } from "@/hooks/use-cli";
 import { api } from "@/lib/api";
@@ -15,7 +13,7 @@ import { canContinue, firstOpenStep, ONBOARDING_STEPS, type OnboardingStepId } f
 import { cn } from "@/lib/utils";
 
 import { AccountsPanel } from "./accounts-panel";
-import { CategoryIcon } from "./category-icon";
+import { CategoriesPanel } from "./categories-panel";
 import { AiProviderField } from "./key-gate";
 
 interface OnboardingDialogProps {
@@ -25,8 +23,8 @@ interface OnboardingDialogProps {
   ai: AiStatus | null;
   onAccountsChanged: () => void;
   onCategoryState: (state: CategoryState) => void;
-  /** Closes the guide for good; `editCategories` also opens Settings on the Categories page. */
-  onFinish: (editCategories: boolean) => void;
+  /** Closes the guide for good (finished or skipped). */
+  onFinish: () => void;
 }
 
 /** The steps as a row: done ones carry a check, the current one is filled. */
@@ -56,7 +54,6 @@ function Stepper({ current }: { current: OnboardingStepId }) {
             </span>
             <span className={cn(active ? "font-medium" : "text-muted-foreground")}>
               {step.title}
-              {"optional" in step && step.optional && <span className="text-muted-foreground"> (optional)</span>}
             </span>
           </li>
         );
@@ -76,48 +73,20 @@ function StepIntro({ title, children }: { title: string; children: string }) {
 
 /**
  * The last step: let an AI agent on this computer read mail through the `minimail` command. It is the
- * same switch and the same choice of agents as the CLI page in Settings (they share `useCli`), and
- * nothing happens until the person turns it on.
+ * same switch as the CLI page in Settings (they share `CliAllowField`, which also asks about installing
+ * the skill), and nothing happens until the person turns it on.
  */
 function AgentStep() {
   const { state, update } = useCli();
-  const enabled = state?.settings.enabled ?? false;
   return (
     <div className="space-y-5 px-6 py-5">
       <StepIntro title="Connect MiniMail with your AI agent">
-        Let an AI agent on this computer, such as Claude Code or Codex, look through your mail with a command. It can read and search your mail, tidy it (archive, mark as read, block) and write drafts for you to look over. Sending a message, unsubscribing and answering invitations ask you first, and MiniMail never gives it sign-in codes.
+        Let an AI agent on this computer, like Claude Code or Codex, read and tidy your mail and write drafts. It asks you first before sending, unsubscribing or answering invitations, and never sees sign-in codes.
       </StepIntro>
       {api.system.demo && (
         <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">Browser demo: nothing is installed on this computer.</p>
       )}
-      <SettingsSwitchField
-        id="onboarding-cli"
-        label="Allow the MiniMail CLI"
-        description="You can switch it off any time. Nothing is installed or listening while it is off."
-        checked={enabled}
-        disabled={state === null}
-        onCheckedChange={(next) => void update((current) => ({ ...current, enabled: next }))}
-      />
-      {state && enabled && (
-        <section aria-label="Install the skill" className="space-y-3">
-          <div className="flex items-center gap-2">
-            <SquareTerminal className="size-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold">Which agent do you use?</h3>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            MiniMail adds a short skill file for each one you tick. It teaches the agent to use the command and to treat mail as untrusted.
-          </p>
-          <CliSkillTargets
-            state={state}
-            onToggle={(id, on) =>
-              void update((current) => ({
-                ...current,
-                skillTargets: on ? [...new Set([...current.skillTargets, id])] : current.skillTargets.filter((target) => target !== id),
-              }))
-            }
-          />
-        </section>
-      )}
+      <CliAllowField id="onboarding-cli" state={state} update={update} />
       <p className="text-xs text-muted-foreground">Everything about it is in Settings, under CLI.</p>
     </div>
   );
@@ -140,6 +109,8 @@ export function OnboardingDialog({
 }: OnboardingDialogProps) {
   const keySaved = ai?.configured ?? false;
   const [step, setStep] = useState<OnboardingStepId>(() => firstOpenStep(accounts.length, keySaved));
+  /** Edits to the categories that are not saved: leaving the step would lose them, so it waits. */
+  const [unsavedCategories, setUnsavedCategories] = useState(false);
   const position = ONBOARDING_STEPS.findIndex((candidate) => candidate.id === step);
   const last = position === ONBOARDING_STEPS.length - 1;
   const previous = ONBOARDING_STEPS[position - 1];
@@ -203,26 +174,8 @@ export function OnboardingDialog({
               <StepIntro title="Make the categories yours">
                 Mail is filed into these categories. Each one is described in plain language, and the AI sorts by that description. Keep them, or rename, rewrite, add and remove them.
               </StepIntro>
-              <ul aria-label="Your categories" className="space-y-2">
-                {categories.map((category) => (
-                  <li
-                    key={category.id}
-                    className="corner-squircle flex items-center gap-3 rounded-xl border border-border bg-card/30 p-2"
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="corner-squircle flex size-8 shrink-0 items-center justify-center rounded-lg"
-                      style={{ background: `hsl(${category.hue} 70% 55% / 0.16)`, color: `hsl(${category.hue} 70% 62%)` }}
-                    >
-                      <CategoryIcon icon={iconFor(category)} className="size-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium leading-tight">{category.name}</p>
-                      <p className="line-clamp-1 text-xs text-muted-foreground">{category.criteria}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <CategoriesPanel embedded categories={categories} ai={ai} onState={onCategoryState} onDirtyChange={setUnsavedCategories} />
+              {unsavedCategories && <p className="text-xs text-muted-foreground">Save or revert your changes to carry on.</p>}
               <p className="text-xs text-muted-foreground">You can change them any time in Settings, under Categories.</p>
             </div>
           )}
@@ -231,30 +184,25 @@ export function OnboardingDialog({
         </div>
 
         <div className="flex items-center gap-2 border-t border-border px-6 py-3">
-          <Button type="button" variant="ghost" size="sm" className="-ml-2 text-muted-foreground" onClick={() => onFinish(false)}>
+          <Button type="button" variant="ghost" size="sm" className="-ml-2 text-muted-foreground" onClick={() => onFinish()}>
             Skip setup
           </Button>
           <div className="ml-auto flex items-center gap-2">
             {previous && (
-              <Button type="button" variant="ghost" size="sm" onClick={() => setStep(previous.id)}>
+              <Button type="button" variant="ghost" size="sm" disabled={unsavedCategories} onClick={() => setStep(previous.id)}>
                 Back
               </Button>
             )}
             {last ? (
-              <Button type="button" size="sm" onClick={() => onFinish(false)}>
+              <Button type="button" size="sm" disabled={unsavedCategories} onClick={() => onFinish()}>
                 Start using MiniMail
               </Button>
             ) : (
               <>
-                {step === "categories" && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => onFinish(true)}>
-                    Edit categories
-                  </Button>
-                )}
                 <Button
                   type="button"
                   size="sm"
-                  disabled={!canContinue(step, accounts.length, keySaved)}
+                  disabled={!canContinue(step, accounts.length, keySaved) || unsavedCategories}
                   onClick={() => next && setStep(next.id)}
                 >
                   Continue

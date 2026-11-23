@@ -1,6 +1,6 @@
 import { useRef } from "react";
 
-import { Paperclip, SquareTerminal } from "lucide-react";
+import { Paperclip, SquareArrowOutUpRight, SquareTerminal } from "lucide-react";
 
 import type { ConfirmCard } from "@shared/cli-page";
 
@@ -50,7 +50,7 @@ function wording(card: ConfirmCard): { title: string; description: string; alway
 function Body({ card }: { card: ConfirmCard }) {
   if (card.action === "send") {
     return (
-      <dl className="space-y-2">
+      <dl className="min-w-0 space-y-2">
         <Row label="From">{card.from}</Row>
         <Row label="To">{card.to.join(", ") || "no one"}</Row>
         {card.cc.length > 0 && <Row label="Cc">{card.cc.join(", ")}</Row>}
@@ -58,7 +58,7 @@ function Body({ card }: { card: ConfirmCard }) {
         {card.sendAt && <Row label="When">{new Date(card.sendAt).toLocaleString()}</Row>}
         <Row label="Subject">{card.subject || "(no subject)"}</Row>
         {card.preview && (
-          <div className="corner-squircle max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md border bg-muted/40 p-3 font-mono text-xs">{card.preview}</div>
+          <div className="corner-squircle max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 font-mono text-xs">{card.preview}</div>
         )}
         {card.files.length > 0 && (
           <Row label="Files">
@@ -105,8 +105,9 @@ function Body({ card }: { card: ConfirmCard }) {
 /**
  * The card that asks before the CLI does something that cannot be taken back. It shows exactly what will
  * happen. Reject is the way out (Escape and clicking outside mean the same), so an answer is never assumed.
+ * A message can also be opened in the composer instead (`onOpenDraft`): the agent is told no and the person sends it.
  */
-export function CliConfirmDialog() {
+export function CliConfirmDialog({ onOpenDraft }: { onOpenDraft: (draftId: string) => void }) {
   const { card, answer } = useCliConfirm();
   const reject = useRef<HTMLButtonElement>(null);
   if (!card) return null;
@@ -114,7 +115,8 @@ export function CliConfirmDialog() {
   return (
     <Dialog open onOpenChange={(open) => !open && answer("reject")}>
       <DialogContent
-        className="max-w-lg"
+        // A grid column grows to its widest child; pin it to the dialog's width so long lines wrap instead of spilling out.
+        className="max-w-xl grid-cols-[minmax(0,1fr)]"
         onInteractOutside={(event) => event.preventDefault()}
         // Saying no is the safe answer, so it is the one with the focus.
         onOpenAutoFocus={(event) => {
@@ -130,13 +132,26 @@ export function CliConfirmDialog() {
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <Body card={card} />
-        <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end sm:gap-2">
+        <DialogFooter className="flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end sm:gap-2">
           <Button ref={reject} type="button" variant="outline" onClick={() => answer("reject")}>
             Reject
           </Button>
           <Button type="button" onClick={() => answer("once")}>
             Allow once
           </Button>
+          {card.action === "send" && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                // The agent is told no; the person now owns the draft and sends it from the composer.
+                answer("review");
+                onOpenDraft(card.draftId);
+              }}
+            >
+              <SquareArrowOutUpRight /> Open in composer
+            </Button>
+          )}
           {always && (
             <Button type="button" variant="outline" onClick={() => answer("always")}>
               {always}

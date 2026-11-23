@@ -1,5 +1,6 @@
-import { ChartColumn, LoaderCircle, Mail, NotebookPen, Send, Settings, type LucideIcon } from "lucide-react";
+import { Check, ChartColumn, CircleAlert, LoaderCircle, Mail, NotebookPen, Send, Settings, type LucideIcon } from "lucide-react";
 
+import { accountLabel } from "@shared/accounts";
 import type { AppEvent } from "@shared/events";
 import type { Account, MailFolder } from "@shared/types";
 
@@ -80,6 +81,10 @@ interface RailProps {
    * spinner as sorting, so there is one place to look.
    */
   syncing?: "downloading" | "checking";
+  /** While `syncing`: the accounts whose server has not answered yet. The others have. */
+  pendingAccounts?: ReadonlySet<string>;
+  /** The accounts whose last list failed; the spinner's card says they could not be reached. */
+  failedAccounts?: ReadonlySet<string>;
   /** The Retry that belongs to an event raised by this page, if one is still available. */
   retryFor: (event: AppEvent) => (() => void) | undefined;
 }
@@ -88,6 +93,41 @@ const SYNCING_TEXT = {
   downloading: "Downloading your mail from the server. It will appear here as it arrives.",
   checking: "Checking the server. What you see is the copy saved on this computer; it updates when the server answers.",
 } as const;
+
+/** One line per account in the spinner's card: waiting, answered, or failed. */
+function AccountSyncList({
+  accounts,
+  pending,
+  failed,
+}: {
+  accounts: readonly Account[];
+  pending: ReadonlySet<string>;
+  failed: ReadonlySet<string>;
+}) {
+  if (accounts.length < 2) return null;
+  return (
+    <ul className="mt-1.5 space-y-0.5">
+      {accounts.map((account) => {
+        const state = pending.has(account.id) ? "loading" : failed.has(account.id) ? "failed" : "loaded";
+        return (
+          <li key={account.id} className="flex items-center gap-1.5">
+            {state === "loading" ? (
+              <LoaderCircle aria-hidden className="size-3 shrink-0 animate-spin" />
+            ) : state === "failed" ? (
+              <CircleAlert aria-hidden className="size-3 shrink-0 text-amber-400" />
+            ) : (
+              <Check aria-hidden className="size-3 shrink-0 text-emerald-500" />
+            )}
+            <span className="min-w-0 flex-1 truncate">{accountLabel(account)}</span>
+            <span className="shrink-0 opacity-70">
+              {state === "loading" ? "Checking" : state === "failed" ? "Failed" : "Up to date"}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 function activityLabel(sorting: number, syncing: "downloading" | "checking" | undefined): string {
   const parts: string[] = [];
@@ -106,6 +146,9 @@ export function Rail({
   aiOff,
   sorting = 0,
   syncing,
+  pendingAccounts,
+  failedAccounts,
+  accounts,
   retryFor,
 }: RailProps) {
   const isMac = useIsMac();
@@ -166,6 +209,13 @@ export function Rail({
               </TooltipTrigger>
               <TooltipContent side="right" className="max-w-64">
                 {syncing && <p>{SYNCING_TEXT[syncing]}</p>}
+                {syncing && (
+                  <AccountSyncList
+                    accounts={accounts}
+                    pending={pendingAccounts ?? new Set()}
+                    failed={failedAccounts ?? new Set()}
+                  />
+                )}
                 {sorting > 0 && (
                   <p>
                     Sorting {sorting} new {sorting === 1 ? "email" : "emails"} into your categories. They will appear
