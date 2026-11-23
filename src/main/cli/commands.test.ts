@@ -715,6 +715,57 @@ describe("help", () => {
   });
 });
 
+describe("help for one command", () => {
+  const text = async (run: ReturnType<typeof setup>["run"], command: string, positional: string[] = [], flags: Record<string, string | true> = { help: true }) => {
+    const answer = await run(command, positional, flags);
+    return answer.ok ? (answer.text ?? "") : `error: ${answer.error.message}`;
+  };
+
+  it("describes the usage, arguments, options and examples of a command", async () => {
+    const help = await text(setup().run, "list");
+    for (const part of ["Usage", "minimail list <folder>", "Arguments", "<folder>", "Options", "--limit <n>", "--unread", "-h, --help", "Examples", "minimail list inbox --unread"]) {
+      expect(help).toContain(part);
+    }
+  });
+
+  it("answers for a command of two words, and for `help <command>`", async () => {
+    const { run } = setup();
+    expect(await text(run, "draft reply")).toContain("minimail draft reply <message-id>");
+    expect(await text(run, "help", ["draft", "reply"], {})).toBe(await text(run, "draft reply"));
+    expect(await text(run, "help", ["show"], {})).toContain("minimail show <message-id>...");
+  });
+
+  it("lists the draft commands for `draft` alone", async () => {
+    const help = await text(setup().run, "draft");
+    expect(help).toContain("draft new");
+    expect(help).toContain("draft forward");
+    expect(help).toContain("draft reply --help");
+  });
+
+  it("does not run the command, and ignores the other options and words", async () => {
+    const { run, backend } = setup();
+    const help = await text(run, "trash", ["a|inbox|1"], { help: true, bogus: "x" });
+    expect(help).toContain("Moves messages to the Trash");
+    expect(backend.page).not.toHaveBeenCalled();
+  });
+
+  it("still describes a command that is turned off, and says so", async () => {
+    const { run } = setup({ settings: { ...ON, disabled: ["contacts"] } });
+    expect(await text(run, "contacts")).toContain("(turned off in MiniMail Settings)");
+  });
+
+  it("says an unknown command is unknown", async () => {
+    const { run } = setup();
+    expect(await text(run, "delete")).toContain('Unknown command "delete"');
+    expect(await text(run, "help", ["delete"], {})).toContain('Unknown command "delete"');
+  });
+
+  it("answers `help --help` with the list of commands", async () => {
+    const answer = await setup().run("help", [], { help: true });
+    expect(answer.ok && answer.text).toContain("Usage: minimail <command> [options]");
+  });
+});
+
 describe("drafts", () => {
   const info = (id = "draft-1", over: Partial<import("@shared/cli-page").DraftInfo> = {}): import("@shared/cli-page").DraftInfo => ({
     id,

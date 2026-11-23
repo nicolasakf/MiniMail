@@ -12,6 +12,7 @@ import {
   type AskCommand,
   type CliSettings,
 } from "@shared/cli";
+import { commandHelp, draftHelp, topicCommand } from "@shared/cli-docs";
 import type { ContactEntry } from "@shared/contacts";
 import type { ConfirmCard, ConfirmDecision, DraftInfo, PageRequest, PageResult } from "@shared/cli-page";
 import { parseMessageId } from "@shared/ids";
@@ -323,7 +324,13 @@ function recordRead(ctx: CliContext, command: string, shown: readonly { withheld
 // ---------------------------------------------------------------------------------------------
 
 function helpText(settings: CliSettings): string {
-  const lines = ["minimail: read your mail through MiniMail.", "", "Usage: minimail <command> [options]", ""];
+  const lines = [
+    "minimail: read your mail through MiniMail.",
+    "",
+    "Usage: minimail <command> [options]",
+    "       minimail <command> --help    (or -h) the detailed docs of one command, with examples",
+    "",
+  ];
   for (const group of CLI_GROUPS) {
     lines.push(`${group.title}`);
     for (const command of CLI_COMMANDS.filter((candidate) => candidate.group === group.id)) {
@@ -350,6 +357,17 @@ function helpText(settings: CliSettings): string {
     ...CLI_NEVER.map((item) => `  ${item.title}: ${item.why}`),
   );
   return lines.join("\n");
+}
+
+/** The detailed docs of one command, for `minimail <command> --help`. A command that is off is described too, with a note. */
+function helpFor(words: readonly string[], settings: CliSettings): CliResponse {
+  if (words.length === 1 && words[0]!.toLowerCase() === "draft") return { ok: true, data: { help: "draft" }, text: draftHelp() };
+  const id = topicCommand(words);
+  if (!id) {
+    return { ok: false, error: { code: "usage", message: `Unknown command "${words.join(" ")}". Run: minimail help` } };
+  }
+  const off = !cliCommandAllowed(settings, id);
+  return { ok: true, data: { help: id }, text: commandHelp(id, off ? "(turned off in MiniMail Settings)" : undefined) };
 }
 
 async function status(ctx: CliContext) {
@@ -993,6 +1011,9 @@ export async function handleCliRequest(raw: unknown, ctx: CliContext, signal: Ab
       error: { code: "unavailable", message: "This minimail script belongs to another version of MiniMail. Run the command the MiniMail CLI page shows." },
     };
   }
+  // `minimail <command> --help` (or -h) and `minimail help <command>` read the docs of a command, which is harmless even for one that is off.
+  const topic = request.command === "help" ? request.positional : request.flags["help"] === true ? [request.command] : null;
+  if (topic !== null && topic.length > 0) return helpFor(topic, ctx.settings());
   const command = cliCommand(request.command);
   if (!command) {
     return { ok: false, error: { code: "usage", message: `Unknown command "${request.command}". Run: minimail help` } };
@@ -1005,7 +1026,7 @@ export async function handleCliRequest(raw: unknown, ctx: CliContext, signal: Ab
     return { ok: false, error: { code: "disabled", message } };
   }
   const known = (command as { options?: readonly string[] }).options ?? [];
-  const unknown = Object.keys(request.flags).filter((name) => !known.includes(name));
+  const unknown = Object.keys(request.flags).filter((name) => !known.includes(name) && !(command.id === "help" && name === "help"));
   if (unknown.length > 0) {
     const options = known.length > 0 ? `Options for ${command.id}: ${known.map((name) => `--${name}`).join(", ")}` : `${command.id} takes no options`;
     return { ok: false, error: { code: "usage", message: `Unknown option --${unknown[0]}. ${options}` } };

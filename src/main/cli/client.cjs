@@ -25,9 +25,18 @@ function parseArgs(argv) {
   let rest = false;
   for (let index = 0; index < argv.length; index += 1) {
     const word = argv[index];
+    if (!rest && word === "-h") {
+      flags.help = true;
+      continue;
+    }
     if (rest || !word.startsWith("--") || word === "--") {
       if (!rest && word === "--") rest = true;
       else positional.push(word);
+      continue;
+    }
+    // --help never takes the word after it as its value: `minimail --help show` asks about show.
+    if (word === "--help") {
+      flags.help = true;
       continue;
     }
     const equals = word.indexOf("=");
@@ -129,11 +138,8 @@ async function main() {
   const socketPath = process.env.MINIMAIL_SOCKET;
   if (!socketPath) fail("This script is started by the minimail launcher that MiniMail writes. Use the command shown in MiniMail, Settings, CLI.", 2);
   const parsed = parseArgs(process.argv.slice(2));
-  if (parsed.flags.help === true) {
-    parsed.command = "help";
-    parsed.positional = [];
-    parsed.flags = {};
-  }
+  // `minimail <command> --help` is answered by MiniMail with the docs of that command; the other options are not looked at.
+  if (parsed.flags.help === true) parsed.flags = { help: true };
   if (typeof parsed.flags.attach === "string") parsed.flags.attach = absolutePaths(parsed.flags.attach);
   if (parsed.flags.body === "-") parsed.flags.body = await readStdin();
   const request = { protocol: PROTOCOL, ...parsed };

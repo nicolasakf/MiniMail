@@ -95,6 +95,19 @@ describe("the command line", () => {
     expect(client.parseArgs(["search", "--", "--odd", "word"])).toEqual({ command: "search", positional: ["--odd", "word"], flags: {} });
   });
 
+  it("reads -h and --help as a request for the docs of the command, wherever they stand", () => {
+    expect(client.parseArgs(["list", "-h"])).toEqual({ command: "list", positional: [], flags: { help: true } });
+    expect(client.parseArgs(["show", "--help", "a|inbox|1"])).toEqual({ command: "show", positional: ["a|inbox|1"], flags: { help: true } });
+    expect(client.parseArgs(["draft", "reply", "--help"])).toEqual({ command: "draft reply", positional: [], flags: { help: true } });
+    expect(client.parseArgs(["-h"])).toEqual({ command: "help", positional: [], flags: { help: true } });
+    expect(client.parseArgs(["--help", "show"])).toEqual({ command: "show", positional: [], flags: { help: true } });
+  });
+
+  it("keeps -h as the value of an option and after --", () => {
+    expect(client.parseArgs(["draft", "new", "--subject", "-h"]).flags).toEqual({ subject: "-h" });
+    expect(client.parseArgs(["search", "--", "-h"])).toEqual({ command: "search", positional: ["-h"], flags: {} });
+  });
+
   it("asks for help when given nothing", () => {
     expect(client.parseArgs([])).toEqual({ command: "help", positional: [], flags: {} });
   });

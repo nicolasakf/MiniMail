@@ -59,6 +59,9 @@ category, priority, mute, block, the moves), Drafts (`draft new|reply|reply-all|
 - **One list of commands**, `CLI_COMMANDS` in `shared/cli.ts`. `help`, the CLI tab and the skill all come from it. A new
   command is an entry there (with its `options`, and `switches` if an option stands alone; `client.cjs` keeps the
   same switch list, and a test fails when they drift), a handler in `commands.ts` and a test; the tab picks it up.
+  Every command also has an entry in `CLI_DOCS` (`shared/cli-docs.ts`): the detailed text behind `minimail <command> --help`
+  (also `-h` and `minimail help <command>`), with each option described, examples and notes. The type and a test fail
+  when a command has no entry or the options drift. `client.cjs` only turns `-h`/`--help` into a `help` flag; main answers it.
 - **Main enforces the permissions** (`handleCliRequest`), never the client or the page. Unknown options are refused.
 - **Anything that must behave like a click goes through the page** (`PageBridge` in `page-bridge.ts`, requests in
   `shared/cli-page.ts`, handler in `renderer/lib/cli-page.ts`): mail moves and flags use `MailActions` (so Undo, the

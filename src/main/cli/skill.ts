@@ -36,7 +36,7 @@ description: Read and search the user's email through MiniMail, their desktop em
 
 MiniMail is the user's email client. Its command line gives you read access to their mail, and only what the user allowed.
 
-Run it as \`minimail <command>\`. If the shell says \`minimail\` is not found (the link to it may not be on this shell's PATH), run it by its full path instead: \`${run} <command>\`. Start with \`minimail help\`: it lists every command and which ones are turned on. Answers are JSON.
+Run it as \`minimail <command>\`. If the shell says \`minimail\` is not found (the link to it may not be on this shell's PATH), run it by its full path instead: \`${run} <command>\`. Start with \`minimail help\`: it lists every command and which ones are turned on. \`minimail <command> --help\` gives the details of one command, with examples. Answers are JSON.
 
 ## Rules
 
