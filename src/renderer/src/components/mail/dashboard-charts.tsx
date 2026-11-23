@@ -136,7 +136,7 @@ function TipButton({
         hide();
         onClick?.();
       }}
-      className={cn("outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default", className)}
+      className={cn("outline-none disabled:cursor-default", className)}
       style={style}
       {...handlers}
     >
@@ -410,7 +410,7 @@ function ColumnView({ column, top }: { column: Column; top: number }) {
   return (
     <div
       className={cn(
-        "group flex min-w-0 flex-1 flex-col items-center justify-end gap-[2px] rounded-sm hover:bg-accent/40",
+        "group flex min-w-0 flex-1 flex-col items-center justify-end gap-[2px] rounded-md transition-colors hover:bg-face",
         total > 0 && column.onPick && "cursor-pointer",
       )}
       onClick={total > 0 ? column.onPick : undefined}
@@ -460,7 +460,7 @@ function SegmentButton({
         segment.onPick?.();
       }}
       className={cn(
-        "block w-full max-w-[24px] shrink-0 outline-none transition-[filter] hover:brightness-125 focus-visible:ring-2 focus-visible:ring-ring",
+        "block w-full max-w-[24px] shrink-0 outline-none transition-[filter] hover:brightness-125",
         isTop && "rounded-t-[4px]",
       )}
       style={{ height, minHeight: 3, background: segment.color }}
@@ -498,7 +498,7 @@ export function BarList({ rows, empty }: { rows: readonly BarRow[]; empty: strin
             tip={row.tip}
             label={`${row.label}: ${row.value}`}
             onClick={row.onPick}
-            className="group grid w-full grid-cols-[20px_minmax(0,38%)_minmax(0,1fr)] items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-accent/50"
+            className="group grid w-full grid-cols-[20px_minmax(0,38%)_minmax(0,1fr)] items-center gap-3 rounded-xl px-2 py-1.5 text-left transition-shadow hover:plate-2"
           >
             <span className="flex size-5 items-center justify-center">{row.leading}</span>
             <span className="min-w-0">
@@ -594,8 +594,8 @@ export function Donut({ slices, totalLabel }: { slices: readonly Slice[]; totalL
               onFocus={() => setHovered(slice.key)}
               onBlur={() => setHovered(null)}
               className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring",
-                hovered === slice.key && "bg-accent/50",
+                "corner-squircle flex w-full items-center gap-2 rounded-[10px] px-2 py-1 text-left text-sm outline-none transition-shadow hover:plate-2",
+                hovered === slice.key && "plate-2",
               )}
             >
               <span className="size-2.5 shrink-0 rounded-full" style={{ background: slice.color }} />
@@ -696,7 +696,7 @@ function HeatRow({
             hint: count > 0 ? "Click to see them" : undefined,
           }}
           onClick={count > 0 ? () => onPick(weekday, hour) : undefined}
-          className="aspect-square min-h-3 rounded-[3px] transition-transform hover:scale-110 enabled:hover:ring-1 enabled:hover:ring-foreground/40"
+          className="aspect-square min-h-3 rounded-[3px] transition-transform hover:scale-110 enabled:hover:shadow-raise-3"
           style={{ background: heatColor(count, max) }}
         />
       ))}
@@ -743,7 +743,7 @@ export function SegmentedBar({ slices }: { slices: readonly Slice[] }) {
               disabled={!slice.onPick}
               title={slice.hint}
               onClick={slice.onPick}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+              className="corner-squircle flex w-full items-center gap-2 rounded-[10px] px-2 py-1 text-left text-sm outline-none transition-shadow hover:plate-2"
             >
               <span className="size-2.5 shrink-0 rounded-full" style={{ background: slice.color }} />
               {slice.leading}
@@ -782,7 +782,7 @@ export function Meter({
       disabled={!onPick || value === 0}
       title={hint}
       onClick={onPick}
-      className="-mx-2 flex flex-col gap-1.5 rounded-lg px-2 py-2 text-left outline-none transition-colors enabled:hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+      className="-mx-2 flex flex-col gap-1.5 rounded-xl px-2 py-2 text-left outline-none transition-shadow enabled:hover:plate-2"
     >
       <span className="flex w-full items-center gap-2 text-sm">
         <span className="text-muted-foreground">{icon}</span>

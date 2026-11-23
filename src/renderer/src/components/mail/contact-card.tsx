@@ -8,6 +8,7 @@ import type { LogoRequest } from "@shared/logos";
 import type { Contact } from "@shared/types";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { FLAT_KEY_IN } from "@/components/ui/keys";
 import { blockChoices, emailTargets, muteChoices, useBlockList } from "@/lib/blocklist";
 import { mutedCheck } from "@/lib/mute";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
@@ -58,7 +59,8 @@ function CardRow({
       type="button"
       onClick={onClick}
       className={cn(
-        "corner-squircle flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none [&_svg]:size-4 [&_svg]:shrink-0",
+        "corner-squircle flex w-full items-center gap-3 rounded-[10px] px-3 py-2 text-left text-sm [&_svg]:size-4 [&_svg]:shrink-0",
+        FLAT_KEY_IN,
         danger ? BLOCKED_TEXT : "text-foreground [&_svg]:text-muted-foreground",
       )}
     >
@@ -124,7 +126,7 @@ export function ContactCard({ contact, children, className, own, hideFiltering =
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
           className={cn(
-            "electron-no-drag cursor-pointer rounded-sm text-left hover:underline hover:underline-offset-2 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:underline",
+            "electron-no-drag cursor-pointer rounded-sm text-left hover:underline hover:underline-offset-2 focus-visible:outline-none data-[state=open]:underline",
             className,
           )}
         >

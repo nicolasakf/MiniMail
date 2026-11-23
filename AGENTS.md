@@ -132,7 +132,7 @@ textures are made by `scripts/generate-grain.mjs` (`assets/grain-light.png`, `gr
   takes the highlight color (`text-sidebar-primary`). Never use a tinted fill for a state.
 - **Buttons are flat by default** (`FLAT_KEY` in `components/ui/keys.ts`, the `ghost` variant, and `outline` and
   `secondary`, which are the same): nothing is drawn until the pointer is over one, then it rises on a plate, and it sinks
-  while held or on. Their icons keep their own color on hover. Nothing is raised at rest. Where a button marks what is on or
+  while held or on. Their icons keep their own color on hover. A button or row that sits inside a plate (a popover, a card) uses `FLAT_KEY_IN`, which rises one level higher (`plate-2`). Nothing is raised at rest. Where a button marks what is on or
   current it is raised, not sunk: the folder you are in on the sidebar (a raised insert in the full highlight color, like
   Compose), the folder keys of the list header (lightly tinted in the folder's own color, `raisedActive` in `lib/folder-style.ts`, also used by the
   Settings folder tiles), a selected row or card (lightly tinted), and the chosen miniature in Settings (the others are flat). Elsewhere a toggled key sinks (`shadow-pressed`). A menu item rises on its own
@@ -141,7 +141,7 @@ textures are made by `scripts/generate-grain.mjs` (`assets/grain-light.png`, `gr
   `:focus-visible` rule; parts with no fill of their own add `shadow-*-glow` to their shadow (the rule skips classes
   containing `-glow`). Do not add `ring-*` classes.
 - **Small icons** are plain strokes in the text color, not engraved. Dividers are grooves (`groove-h`, `groove-v`,
-  `edge-t`, `edge-b`), not 1px borders. Colors come from the tokens (`text-destructive`, `text-amber`, `text-success`,
+  `edge-t`, `edge-b`), not 1px borders. Colors come from the tokens (`text-destructive`, `text-amber`, `text-purple` (muted), `text-success`,
   `bg-sidebar-primary`), never from fixed Tailwind palette colors.
 - The primitives in `components/ui` already carry all of this; a new part should use them or the classes above rather
   than its own border, fill and shadow.

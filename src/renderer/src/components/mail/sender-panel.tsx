@@ -14,14 +14,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePinnedDomains } from "@/hooks/use-pinned-domains";
 import { useBlockList } from "@/lib/blocklist";
-import { BLOCKED_TEXT, HOVER_ON_TINT, MUTED_TEXT } from "@/lib/highlight";
+import { BLOCKED_TEXT, MUTED_TEXT } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
+import { FLAT_KEY, FLAT_KEY_IN } from "@/components/ui/keys";
 
 import { SenderAvatar } from "./sender-avatar";
 import { reportError } from "@/lib/events";
 
 const ROW =
-  "corner-squircle flex w-full cursor-default items-center gap-2.5 rounded-xl px-2 text-left text-sm outline-none transition-shadow";
+  "corner-squircle flex w-full cursor-default items-center gap-2.5 rounded-xl px-2 text-left text-sm outline-none transition-[box-shadow,background-color]";
 
 const DEFAULT_WIDTH = 288;
 const MIN_WIDTH = 220;
@@ -111,7 +112,7 @@ function SenderRow({
         ROW,
         "h-12",
         nested && "pl-7",
-        selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:plate-1",
+        selected ? "grain bg-sidebar-primary/[0.12] shadow-raise-1 dark:bg-sidebar-primary/25" : "hover:plate-1",
         selected && focused && "ring-1 ring-inset ring-sidebar-primary/60",
       )}
       onClick={() => onSelect(sender.key)}
@@ -178,8 +179,8 @@ function DomainRow({
         aria-label={`${open ? "Collapse" : "Expand"} ${group.domain}`}
         aria-expanded={open}
         className={cn(
-          "absolute left-1.5 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-          HOVER_ON_TINT,
+          "absolute left-1.5 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-[10px] text-muted-foreground outline-none hover:text-foreground",
+          FLAT_KEY_IN,
         )}
         onClick={() => onToggle(group.domain)}
       >
@@ -191,7 +192,7 @@ function DomainRow({
         className={cn(
           ROW,
           "h-11 pl-9 pr-10",
-          selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:plate-1",
+          selected ? "grain bg-sidebar-primary/[0.12] shadow-raise-1 dark:bg-sidebar-primary/25" : "hover:plate-1",
           selected && focused && "ring-1 ring-inset ring-sidebar-primary/60",
         )}
         onClick={() => onSelect(group.domain)}
@@ -212,8 +213,8 @@ function DomainRow({
         aria-pressed={pinned}
         title={pinned ? "Unpin domain" : "Pin domain"}
         className={cn(
-          "absolute right-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md outline-none transition-opacity hover:bg-accent focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring",
-          HOVER_ON_TINT,
+          "absolute right-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-[10px] outline-none focus-visible:opacity-100",
+          FLAT_KEY_IN,
           pinned
             ? "text-[hsl(var(--chart-3))]"
             : "text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100",
@@ -532,7 +533,8 @@ function HeadingToggle({
           aria-pressed={on}
           onClick={onToggle}
           className={cn(
-            "corner-squircle flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent",
+            "flex size-7 shrink-0 items-center justify-center rounded-[10px]",
+            FLAT_KEY,
             on ? activeClass : "text-muted-foreground hover:text-foreground",
           )}
         >

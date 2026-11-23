@@ -199,7 +199,7 @@ function FormatTools({ editor, onError, panel, setPanel }: {
       <div className="grid grid-cols-5 gap-1 p-1">
         {values.map((color) => (
           <button key={color} type="button" aria-label={color} title={color} aria-pressed={color === selected}
-            className="size-6 rounded border border-foreground/20 hover:ring-2 hover:ring-ring aria-pressed:ring-2 aria-pressed:ring-ring"
+            className="corner-squircle size-6 rounded-lg shadow-raise-2 transition-shadow hover:shadow-raise-1 aria-pressed:shadow-pressed"
             style={{ backgroundColor: color }} onMouseDown={(event) => event.preventDefault()}
             onClick={() => run(() => apply(color))} />
         ))}
@@ -219,19 +219,19 @@ function FormatTools({ editor, onError, panel, setPanel }: {
           if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); submit(); }
         }}
         onChange={(event) => { setUrl(event.target.value); setUrlError(""); }}
-        className="rounded border border-border bg-background px-2 py-1.5 outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+        className="corner-squircle rounded-[10px] bg-transparent px-2 py-1.5 shadow-raise-2 outline-none transition-shadow focus-visible:shadow-raise-2-glow" />
       {(panel === "image" || (editor.state.selection.empty && !state.link)) && (
         <input type="text" aria-label={panel === "image" ? "Description" : "Link text"} placeholder={panel === "image" ? "Description (optional)" : "Link text (optional)"}
           value={label} onChange={(event) => setLabel(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") { event.preventDefault(); event.stopPropagation(); submit(); }
           }}
-          className="rounded border border-border bg-background px-2 py-1.5 outline-none focus-visible:ring-1 focus-visible:ring-ring" />
+          className="corner-squircle rounded-[10px] bg-transparent px-2 py-1.5 shadow-raise-2 outline-none transition-shadow focus-visible:shadow-raise-2-glow" />
       )}
       {urlError && <p role="alert" className="text-destructive">{urlError}</p>}
       <div className="flex items-center gap-2">
         {panel === "link" && state.link && <ToolOption onClick={() => run(() => editor.chain().focus().extendMarkRange("link").unsetLink().run())}>Remove link</ToolOption>}
-        <button type="button" className="ml-auto rounded bg-primary px-2 py-1 text-primary-foreground" onClick={submit}>Apply</button>
+        <button type="button" className="corner-squircle grain press-sink ml-auto rounded-[10px] bg-primary px-2.5 py-1 text-primary-foreground shadow-raise-2 hover:bg-primary/90" onClick={submit}>Apply</button>
         <Tool label="Cancel" onClick={close}><X /></Tool>
       </div>
     </div>
@@ -289,8 +289,8 @@ function FormatTools({ editor, onError, panel, setPanel }: {
               const cols = i % 10 + 1;
               return (
                 <button key={i} type="button" aria-label={`Insert table: ${rows} rows, ${cols} columns`}
-                  className={cn("size-[15px] rounded-sm border border-border focus-visible:ring-1 focus-visible:ring-ring",
-                    rows <= tableSize[0] && cols <= tableSize[1] ? "bg-primary/50" : "bg-muted")}
+                  className={cn("size-[15px] rounded-sm transition-shadow",
+                    rows <= tableSize[0] && cols <= tableSize[1] ? "bg-sidebar-primary/30 shadow-pressed" : "shadow-raise-3")}
                   onMouseEnter={() => setTableSize([rows, cols])} onFocus={() => setTableSize([rows, cols])}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => run(() => editor.chain().focus().insertTable({ rows, cols, withHeaderRow: false }).run())} />

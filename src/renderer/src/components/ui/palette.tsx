@@ -91,9 +91,9 @@ export function Palette({
       aria-label={ariaLabel}
       {...props}
     >
-      <div className="corner-squircle flex h-24 w-full overflow-hidden rounded-lg border border-black/10 shadow-sm dark:border-white/10">
+      <div className="corner-squircle flex h-24 w-full overflow-hidden rounded-xl shadow-raise-2">
         {colors.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center bg-muted px-4 text-xs text-muted-foreground">
+          <div className="flex flex-1 items-center justify-center shadow-pressed px-4 text-xs text-muted-foreground">
             No colors
           </div>
         ) : (
@@ -113,7 +113,7 @@ export function Palette({
                     type="button"
                     aria-label={`Edit color ${color}`}
                     className={cn(
-                      "group/swatch relative min-w-0 basis-0 grow overflow-hidden outline-none transition-[flex-grow] duration-200 ease-out focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                      "group/swatch relative min-w-0 basis-0 grow overflow-hidden outline-none transition-[flex-grow] duration-200 ease-out focus-visible:z-10 focus-visible:brightness-110",
                       !disabled && "hover:grow-[2.25] focus:grow-[2.25]",
                       isActive && "grow-[2.25]",
                     )}

@@ -30,6 +30,7 @@ import type {
 } from "@shared/types";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { FLAT_KEY } from "@/components/ui/keys";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SHOWN_FOLDERS, type AccountScope } from "@/hooks/use-mailbox";
 
@@ -730,7 +731,7 @@ function ShowMore({
     <button
       type="button"
       onClick={onToggle}
-      className="shrink-0 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className={`shrink-0 rounded-[10px] px-2 py-1 text-xs text-muted-foreground hover:text-foreground ${FLAT_KEY}`}
     >
       {expanded ? "Show fewer" : "Show more"}
     </button>

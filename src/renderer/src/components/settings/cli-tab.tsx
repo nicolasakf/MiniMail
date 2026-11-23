@@ -157,13 +157,13 @@ function AllowedRecipients({ settings, update }: { settings: CliSettings; update
       ) : (
         <ul aria-label="People allowed" className="flex flex-wrap gap-1.5">
           {settings.allowedRecipients.map((entry) => (
-            <li key={entry} className="corner-squircle flex items-center gap-1 rounded-md border bg-muted/40 py-0.5 pl-2 pr-0.5 text-xs">
+            <li key={entry} className="corner-squircle plate-3 flex items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1 text-xs">
               <span className="font-mono">{entry}</span>
               <button
                 type="button"
                 aria-label={`Remove ${entry}`}
                 disabled={anyone}
-                className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:pointer-events-none"
+                className="rounded-full p-0.5 text-muted-foreground transition-shadow hover:text-foreground hover:shadow-pressed disabled:pointer-events-none"
                 onClick={() => void update((current) => ({ ...current, allowedRecipients: current.allowedRecipients.filter((candidate) => candidate !== entry) }))}
               >
                 <X className="size-3" />

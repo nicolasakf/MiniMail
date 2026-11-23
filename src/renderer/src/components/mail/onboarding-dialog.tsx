@@ -41,13 +41,13 @@ function Stepper({ current }: { current: OnboardingStepId }) {
             aria-current={active ? "step" : undefined}
             className={cn("flex items-center gap-2", position > 0 && "flex-1")}
           >
-            {position > 0 && <span aria-hidden="true" className={cn("h-px flex-1", done || active ? "bg-primary" : "bg-border")} />}
+            {position > 0 && <span aria-hidden="true" className={cn("groove-h flex-1", (done || active) && "bg-primary")} />}
             <span
               aria-hidden="true"
               className={cn(
-                "flex size-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-medium",
-                (done || active) && "border-primary bg-primary text-primary-foreground",
-                !done && !active && "border-border text-muted-foreground",
+                "flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] font-medium",
+                (done || active) && "grain bg-primary text-primary-foreground shadow-raise-3",
+                !done && !active && "shadow-raise-3 text-muted-foreground",
               )}
             >
               {done ? <Check className="size-3" /> : position + 1}
@@ -84,7 +84,7 @@ function AgentStep() {
         Let an AI agent on this computer, like Claude Code or Codex, read and tidy your mail and write drafts. It asks you first before sending, unsubscribing or answering invitations, and never sees sign-in codes.
       </StepIntro>
       {api.system.demo && (
-        <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">Browser demo: nothing is installed on this computer.</p>
+        <p className="corner-squircle rounded-xl shadow-pressed px-3 py-2 text-xs text-muted-foreground">Browser demo: nothing is installed on this computer.</p>
       )}
       <CliAllowField id="onboarding-cli" state={state} update={update} />
       <p className="text-xs text-muted-foreground">Everything about it is in Settings, under CLI.</p>
@@ -160,7 +160,7 @@ export function OnboardingDialog({
                   <h3 className="text-sm font-semibold">AI provider</h3>
                 </div>
                 {api.system.demo && (
-                  <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+                  <p className="corner-squircle rounded-xl shadow-pressed px-3 py-2 text-xs text-muted-foreground">
                     Browser demo: nothing leaves this page, so any key of 8 characters or more works.
                   </p>
                 )}

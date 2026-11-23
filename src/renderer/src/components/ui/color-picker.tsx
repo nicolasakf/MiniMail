@@ -50,6 +50,10 @@ export interface ColorPickerProps
   presets?: readonly string[];
   /** Whether the trigger displays the current hex value next to its swatch. */
   showValue?: boolean;
+  /** A name shown in place of the hex value, for a color that has one (such as the built-in default). */
+  valueLabel?: string;
+  /** What the trigger's swatch is painted with in place of the color itself (any CSS color). */
+  swatch?: string;
   /** Controlled popover visibility. */
   open?: boolean;
   /** Called whenever the popover visibility changes. */
@@ -150,6 +154,8 @@ export function ColorPicker({
   onValueChange,
   presets = DEFAULT_COLOR_PRESETS,
   showValue = true,
+  valueLabel,
+  swatch,
   open,
   onOpenChange,
   align = "start",
@@ -318,10 +324,10 @@ export function ColorPicker({
           >
             <span
               aria-hidden="true"
-              className="size-4 shrink-0 rounded-sm border border-black/15 shadow-inner dark:border-white/20"
-              style={{ backgroundColor: color }}
+              className="size-4 shrink-0 rounded-sm shadow-raise-3"
+              style={{ backgroundColor: swatch ?? color }}
             />
-            {showValue && <span>{color}</span>}
+            {showValue && <span className={valueLabel ? "font-sans text-sm" : undefined}>{valueLabel ?? color}</span>}
           </Button>
         )}
       </PopoverTrigger>
@@ -339,7 +345,7 @@ export function ColorPicker({
           aria-valuemax={100}
           aria-valuenow={Math.round(selectedColor.s * 100)}
           aria-valuetext={`${Math.round(selectedColor.s * 100)}% saturation, ${Math.round(selectedColor.v * 100)}% brightness`}
-          className="relative h-36 touch-none cursor-crosshair overflow-hidden rounded-md bg-[linear-gradient(to_bottom,transparent,#000),linear-gradient(to_right,#fff,transparent)] outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="relative h-36 touch-none cursor-crosshair overflow-hidden rounded-md bg-[linear-gradient(to_bottom,transparent,#000),linear-gradient(to_right,#fff,transparent)] shadow-pressed outline-none"
           style={{ backgroundColor: `hsl(${hue} 100% 50%)` }}
           onPointerDown={handleSaturationPointerDown}
           onPointerMove={handleSaturationPointerMove}
@@ -363,7 +369,7 @@ export function ColorPicker({
           step={1}
           value={Math.round(hue)}
           aria-label="Hue"
-          className="h-3 w-full cursor-pointer appearance-none rounded-full bg-[linear-gradient(to_right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)] outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-transparent [&::-moz-range-thumb]:shadow-[0_0_0_1px_rgba(0,0,0,0.35)] [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-transparent [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
+          className="h-3 w-full cursor-pointer appearance-none rounded-full bg-[linear-gradient(to_right,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)] shadow-pressed outline-none [&::-moz-range-thumb]:size-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-transparent [&::-moz-range-thumb]:shadow-[0_0_0_1px_rgba(0,0,0,0.35)] [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-transparent [&::-webkit-slider-thumb]:shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
           onChange={(event) => {
             const nextHue = Number(event.target.value);
             commitHsv({ ...selectedColor, h: nextHue });
@@ -373,10 +379,10 @@ export function ColorPicker({
         <div className="flex items-center gap-2">
           <span
             aria-hidden="true"
-            className="size-8 shrink-0 rounded-md border border-black/15 shadow-inner dark:border-white/20"
+            className="size-8 shrink-0 rounded-md shadow-raise-3"
             style={{ backgroundColor: color }}
           />
-          <div className="flex min-w-0 flex-1 items-center rounded-md border border-input bg-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+          <div className="flex min-w-0 flex-1 items-center corner-squircle rounded-xl bg-transparent shadow-raise-2 transition-shadow focus-within:shadow-raise-2-glow">
             <span className="pl-2 text-xs font-medium text-muted-foreground">
               Hex
             </span>
@@ -386,7 +392,7 @@ export function ColorPicker({
               aria-invalid={normalizeHexColor(hexInput) === null}
               maxLength={7}
               spellCheck={false}
-              className="h-8 border-0 px-2 font-mono text-xs uppercase shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              className="h-8 border-0 px-2 font-mono text-xs uppercase shadow-none focus-visible:shadow-none"
               onChange={handleHexChange}
               onBlur={handleHexBlur}
               onKeyDown={(event) => {
@@ -404,7 +410,7 @@ export function ColorPicker({
                 type="button"
                 aria-label={`Use color ${preset}`}
                 aria-pressed={preset === color}
-                className="aspect-square rounded-sm border border-black/15 shadow-sm outline-none ring-offset-background transition-transform hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:border-white/20"
+                className="aspect-square rounded-sm shadow-raise-3 outline-none transition-transform hover:scale-110"
                 style={{ backgroundColor: preset }}
                 onClick={() => commitColor(preset)}
               />

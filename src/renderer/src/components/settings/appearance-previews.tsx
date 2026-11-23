@@ -135,7 +135,7 @@ export function EmailBackgroundSample({ background }: { background: "white" | "t
   const white = background === "white";
   return (
     <span
-      className={`flex h-7 w-9 flex-col justify-center gap-[3px] rounded-[3px] border border-foreground/20 px-1.5 ${white ? "bg-white" : "bg-card"}`}
+      className={`flex h-7 w-9 flex-col justify-center gap-[3px] rounded-[3px] px-1.5 ${white ? "bg-white shadow-raise-3" : "plate-3"}`}
     >
       <span className={`h-[3px] w-full rounded-full ${white ? "bg-zinc-400" : "bg-foreground/40"}`} />
       <span className={`h-[3px] w-2/3 rounded-full ${white ? "bg-zinc-400" : "bg-foreground/40"}`} />

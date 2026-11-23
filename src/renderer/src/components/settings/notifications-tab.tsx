@@ -75,7 +75,7 @@ function CheckRow({
     <label
       htmlFor={id}
       className={cn(
-        "corner-squircle flex cursor-pointer items-center gap-3 rounded-md border p-3 transition-colors hover:bg-accent/40",
+        "corner-squircle plate-1 flex cursor-pointer items-center gap-3 rounded-xl p-3 transition-[background-color] hover:bg-[var(--face-hover-soft)]",
         disabled && "pointer-events-none opacity-60",
       )}
     >
@@ -143,7 +143,7 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
 
   if (!settings) {
     return (
-      <div className="flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-6">
         <SettingsPageHeader title="Notifications" />
       </div>
     );
@@ -195,7 +195,7 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
       : 0;
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="flex flex-col gap-6">
       <SettingsPageHeader
         title="Notifications"
         action={
@@ -320,7 +320,7 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
             <button
               type="button"
               onClick={onOpenSenders}
-              className="rounded-sm text-foreground underline underline-offset-2 outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-sm text-foreground underline underline-offset-2 outline-none hover:text-sidebar-primary"
             >
               Manage muted senders on the Senders page
             </button>

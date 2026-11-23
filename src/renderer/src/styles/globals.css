@@ -140,6 +140,7 @@ body,
     --face-hover-soft: color-mix(in srgb, hsl(var(--background)) 97%, #000);
     /* Amber and green for warnings and success, tuned for each plastic. */
     --amber: 33.4 73.2% 38%;
+    --purple: 271 81% 56%;
     --success: 152 55% 30%;
     /* Sender tiles: the plastic tinted with a hue (saturation, lightness) and its printed ink (lightness). */
     --tile-s: 42%;
@@ -210,6 +211,7 @@ body,
     --face-hover: color-mix(in srgb, hsl(var(--background)) 89%, #fff);
     --face-hover-soft: color-mix(in srgb, hsl(var(--background)) 95%, #fff);
     --amber: 38.8 74.5% 56.9%;
+    --purple: 270 95% 75%;
     --success: 152 45% 58%;
     --tile-s: 30%;
     --tile-l: 38%;

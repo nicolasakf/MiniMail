@@ -72,7 +72,7 @@ function TargetsContent({
         {ask.values.map((value) => (
           <label
             key={value}
-            className="corner-squircle flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
+            className="corner-squircle flex cursor-pointer items-center gap-3 rounded-[10px] px-2 py-1.5 text-sm transition-shadow hover:plate-2"
           >
             <Checkbox
               checked={ticked.has(value)}

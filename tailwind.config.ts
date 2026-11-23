@@ -69,6 +69,7 @@ const config: Config = {
         plastic: "hsl(var(--background))",
         face: "var(--face-hover)",
         amber: "hsl(var(--amber))",
+        purple: "hsl(var(--purple))",
         success: "hsl(var(--success))",
       },
       /** The raised steps of the plastic look; `shadow-glow` is the keyboard focus. */

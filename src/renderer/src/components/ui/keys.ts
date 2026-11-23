@@ -5,3 +5,7 @@
  */
 export const FLAT_KEY =
   "corner-squircle press-sink text-foreground transition-[box-shadow,transform,background-color] duration-100 hover:plate-1 data-[state=open]:shadow-pressed focus-visible:shadow-glow";
+
+/** The same flat key for a part that sits inside a plate (a row in a popover or card): it rises one level higher. */
+export const FLAT_KEY_IN =
+  "corner-squircle press-sink text-foreground transition-[box-shadow,transform,background-color] duration-100 hover:plate-2 data-[state=open]:shadow-pressed focus-visible:shadow-glow";

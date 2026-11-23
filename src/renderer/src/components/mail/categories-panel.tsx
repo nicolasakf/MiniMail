@@ -139,7 +139,7 @@ function AdvancedSection({
         aria-expanded={open}
         aria-controls="categories-advanced"
         onClick={() => setOpen((value) => !value)}
-        className="flex items-center gap-1.5 rounded-sm text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex items-center gap-1.5 rounded-sm text-sm font-semibold outline-none"
       >
         <ChevronRight className={cn("size-4 text-muted-foreground transition-transform", open && "rotate-90")} />
         Advanced
@@ -148,7 +148,7 @@ function AdvancedSection({
       {open && (
         <div id="categories-advanced" className="corner-squircle space-y-5 rounded-2xl plate-2 p-4">
           {api.system.demo && (
-            <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+            <p className="corner-squircle rounded-xl shadow-pressed px-3 py-2 text-xs text-muted-foreground">
               Browser demo: categories are assigned by simple keyword rules and nothing leaves this page.
             </p>
           )}
@@ -200,7 +200,7 @@ function CategoryColor({ hue, onChange, label }: { hue: number; onChange: (hue: 
           type="button"
           aria-label={`${label}: choose color`}
           title="Color"
-          className="size-6 shrink-0 rounded-full border border-white/20 shadow-inner outline-none ring-offset-background transition hover:scale-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="size-6 shrink-0 rounded-full shadow-raise-2 outline-none transition hover:scale-110"
           style={{ backgroundColor: `hsl(${hue} 70% 55%)` }}
         />
       }
@@ -263,7 +263,7 @@ function CategoryCard({
           draggable
           aria-label={`Reorder ${label}. Drag, or press Alt with the up or down arrow.`}
           title="Drag to reorder"
-          className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+          className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground outline-none hover:text-foreground active:cursor-grabbing"
           onDragStart={(event) => {
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData("text/plain", category.id);
@@ -550,7 +550,7 @@ export function CategoriesPanel({ categories, ai, onState, embedded = false, onD
 
   if (embedded) return editor;
   return (
-    <div className="flex max-w-2xl flex-col gap-4 p-6">
+    <div className="flex max-w-2xl flex-col gap-4">
       <SettingsPageHeader title="Categories" />
 
       <KeyGate

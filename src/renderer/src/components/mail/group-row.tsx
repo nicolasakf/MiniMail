@@ -10,7 +10,7 @@ import {
 } from "@shared/focus-list";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { HOVER_ON_TINT } from "@/lib/highlight";
+import { FLAT_KEY_IN } from "@/components/ui/keys";
 import { cn } from "@/lib/utils";
 
 import { CategoryIcon } from "./category-icon";
@@ -193,7 +193,7 @@ export const GroupRow = memo(function GroupRow({
             <button
               type="button"
               title={chip.count > 1 ? `Open the latest email from ${chip.name}` : `Open email from ${chip.name}`}
-              className={cn("inline-flex h-7 max-w-full shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-1.5 outline-none transition-colors hover:bg-foreground/[0.14] focus-visible:ring-2 focus-visible:ring-ring", HOVER_ON_TINT)}
+              className={cn("inline-flex h-7 max-w-full shrink-0 cursor-pointer items-center gap-1.5 rounded-[10px] px-1.5 outline-none", FLAT_KEY_IN)}
               onClick={(event) => {
                 // Opens this email only; the row's own click would open the whole category.
                 event.stopPropagation();
@@ -279,7 +279,7 @@ export const GroupCard = memo(function GroupCard({
           <button
             type="button"
             aria-label={`${readLabel} (${group.label.toLowerCase()})`}
-            className={cn("absolute right-2 top-2 flex size-7 items-center justify-center rounded-full text-muted-foreground opacity-0 outline-none transition-[color,background-color,opacity] hover:bg-foreground/[0.14] hover:text-unread focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100", HOVER_ON_TINT)}
+            className={cn("absolute right-2 top-2 flex size-7 items-center justify-center rounded-full opacity-0 outline-none focus-visible:opacity-100 group-hover:opacity-100", FLAT_KEY_IN, "text-muted-foreground hover:text-unread")}
             onClick={(event) => {
               event.stopPropagation();
               onToggleRead(group.kind, group.hasUnread);
@@ -312,7 +312,7 @@ export const GroupCard = memo(function GroupCard({
             <button
               type="button"
               title={chip.count > 1 ? `Open the latest email from ${chip.name}` : `Open email from ${chip.name}`}
-              className={cn("flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-foreground/[0.14] focus-visible:ring-2 focus-visible:ring-ring", HOVER_ON_TINT)}
+              className={cn("flex h-7 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-[10px] px-1.5 text-left outline-none", FLAT_KEY_IN)}
               onClick={(event) => {
                 // Opens this email only; the card's own click would open the whole category.
                 event.stopPropagation();

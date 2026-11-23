@@ -18,6 +18,7 @@ import { FileIcon } from "@/components/ui/file-icon";
 import { attachmentBytes, formatBytes } from "@/lib/composer-state";
 import { composeTimeLabel, joinMoment, sendLaterOptions, sendTimeHint, splitMoment } from "@/lib/send-later";
 import { cn } from "@/lib/utils";
+import { FLAT_KEY, FLAT_KEY_IN } from "@/components/ui/keys";
 
 import { ToolButton } from "./composer-ui";
 
@@ -171,9 +172,9 @@ export function ScheduleNotice({ sendAt, picking, onChange, onSet, onCancelPick,
       <Clock3 className="size-4 shrink-0 text-sidebar-primary" />
       <span className="min-w-0 flex-1 truncate">Sends {composeTimeLabel(sendAt)}</span>
       <button type="button" onClick={onChange}
-        className="rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground">Change</button>
+        className={cn("rounded-[10px] px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground", FLAT_KEY_IN)}>Change</button>
       <button type="button" aria-label="Send right away instead" title="Send right away instead" onClick={onClear}
-        className="rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground">
+        className={cn("rounded-full p-0.5 text-muted-foreground hover:text-foreground", FLAT_KEY_IN)}>
         <X className="size-3.5" />
       </button>
     </div>
@@ -184,11 +185,11 @@ export function ScheduleNotice({ sendAt, picking, onChange, onSet, onCancelPick,
 export function ErrorNotice({ message, onDismiss }: { message: string | null; onDismiss: () => void }) {
   if (!message) return null;
   return (
-    <div role="alert" className="mx-3 mb-2 flex items-start gap-2 rounded-xl bg-red-500/10 px-3 py-2 text-[13px] text-destructive">
+    <div role="alert" className="mx-3 mb-2 flex items-start gap-2 rounded-xl bg-destructive/10 px-3 py-2 text-[13px] text-destructive">
       <AlertCircle className="mt-0.5 size-4 shrink-0" />
       <p className="min-w-0 flex-1 break-words">{message}</p>
       <button type="button" aria-label="Dismiss" onClick={onDismiss}
-        className="rounded-full p-0.5 transition-colors hover:bg-destructive/15">
+        className="rounded-full p-0.5 transition-shadow hover:shadow-pressed">
         <X className="size-3.5" />
       </button>
     </div>
@@ -210,7 +211,7 @@ export function AttachmentList({ files, onRemove }: { files: readonly DraftAttac
           <button
             type="button"
             aria-label={`Remove ${file.filename}`}
-            className="rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+            className="rounded-full p-0.5 text-muted-foreground transition-shadow hover:text-foreground hover:shadow-pressed"
             onClick={() => onRemove(index)}
           >
             <X className="size-3.5" />
@@ -231,18 +232,21 @@ export function QuotedText({ value, onChange }: { value: string; onChange: (valu
         aria-expanded={shown}
         aria-label={shown ? "Hide the quoted message" : "Show the quoted message"}
         title={shown ? "Hide the quoted message" : "Show the quoted message"}
-        className="corner-squircle inline-flex h-5 items-center rounded-md bg-muted px-2 text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        className={cn("inline-flex h-5 items-center rounded-md px-2 text-muted-foreground outline-none hover:text-foreground aria-expanded:shadow-pressed", FLAT_KEY)}
         onClick={() => setShown((previous) => !previous)}
       >
         <Ellipsis className="size-4" />
       </button>
       {shown && (
-        <textarea
-          value={value}
-          aria-label="Quoted message"
-          className="mt-2 block max-h-72 min-h-[72px] w-full resize-none border-0 border-l-2 border-border bg-transparent px-3 py-1 text-sm text-muted-foreground outline-none"
-          onChange={(event) => onChange(event.target.value)}
-        />
+        <div className="mt-2 flex gap-3">
+          <span aria-hidden className="groove-v shrink-0 self-stretch" />
+          <textarea
+            value={value}
+            aria-label="Quoted message"
+            className="block max-h-72 min-h-[72px] w-full resize-none border-0 bg-transparent py-1 text-sm text-muted-foreground outline-none"
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </div>
       )}
     </div>
   );

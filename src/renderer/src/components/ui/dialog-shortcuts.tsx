@@ -188,7 +188,7 @@ export function DialogShortcutBadge({
   return (
     <kbd
       className={cn(
-        "pointer-events-none inline-flex h-4 min-h-4 shrink-0 select-none items-center rounded border bg-muted px-1 font-mono text-[10px] font-medium leading-none text-muted-foreground opacity-55",
+        "pointer-events-none inline-flex h-4 min-h-4 shrink-0 select-none items-center rounded shadow-raise-3 px-1 font-mono text-[10px] font-medium leading-none text-muted-foreground opacity-55",
         className
       )}
     >

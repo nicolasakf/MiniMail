@@ -1,7 +1,7 @@
 import { ShortcutHint } from "@/components/ui/keyboard-shortcut-badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { HOVER_ON_TINT } from "@/lib/highlight";
 import { cn } from "@/lib/utils";
+import { FLAT_KEY_IN } from "@/components/ui/keys";
 
 interface ReadToggleProps {
   unread: boolean;
@@ -26,7 +26,7 @@ export function ReadToggle({ unread, noun, onToggle, hint, all = false }: ReadTo
         <button
           type="button"
           aria-label={`${label} (${noun})`}
-          className={cn("group/read -mx-1 flex size-6 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-accent", HOVER_ON_TINT)}
+          className={cn("group/read -mx-1 flex size-6 shrink-0 items-center justify-center rounded-full", FLAT_KEY_IN)}
           onClick={(event) => {
             event.stopPropagation();
             onToggle();

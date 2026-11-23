@@ -43,8 +43,8 @@ export function MinimizedIcons({ groups, selectedKey, onSelect, onOpen, onMenu }
                   onMenu(group.key, event.clientX, event.clientY);
                 }}
                 className={cn(
-                  "relative flex cursor-default items-center justify-center rounded-full outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring",
-                  selectedKey === group.key ? "ring-2 ring-sidebar-primary/60" : "hover:ring-2 hover:ring-border",
+                  "relative flex cursor-default items-center justify-center rounded-full outline-none transition-shadow",
+                  selectedKey === group.key ? "ring-2 ring-sidebar-primary/60" : "hover:shadow-raise-2",
                 )}
               >
                 <GroupTile group={group} small />

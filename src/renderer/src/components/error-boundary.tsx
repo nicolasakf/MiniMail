@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
 import { reportError } from "@/lib/events";
+import { FLAT_KEY } from "@/components/ui/keys";
 
 interface State {
   failed: boolean;
@@ -33,7 +34,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent"
+          className={`rounded-xl px-3 py-1.5 text-sm ${FLAT_KEY}`}
         >
           Reload
         </button>

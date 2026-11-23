@@ -25,7 +25,7 @@ export function InfoIcon({ info, label }: { info: ReactNode; label: string }) {
         <button
           type="button"
           aria-label={`About ${label}`}
-          className="inline-flex shrink-0 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex shrink-0 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none"
         >
           <Info className="size-3.5" />
         </button>

@@ -137,7 +137,7 @@ export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChan
   };
 
   return (
-    <div className="flex max-w-2xl flex-col gap-4 p-6">
+    <div className="flex max-w-2xl flex-col gap-4">
         {view.name === "list" && (
           <>
             <SettingsPageHeader title="Accounts" />
@@ -145,7 +145,7 @@ export function AccountsPanel({ startAdding, accounts, onChanged, onRenamingChan
               {accounts.map((account) => (
                 <li
                   key={account.id}
-                  className="corner-squircle flex items-center gap-3 rounded-xl border border-border p-3"
+                  className="corner-squircle plate-1 flex items-center gap-3 rounded-2xl p-3"
                 >
                   <span className="flex size-9 shrink-0 items-center justify-center">
                     <AccountMark account={account} size={36} />

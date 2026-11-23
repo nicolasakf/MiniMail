@@ -191,7 +191,7 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
                 type="button"
                 tabIndex={-1}
                 aria-label={`Remove ${chip.field}: ${chip.value}`}
-                className="ml-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/15 hover:text-foreground"
+                className="ml-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-shadow hover:shadow-pressed hover:text-foreground"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => change(chips.filter((_, i) => i !== index), draft, draft.length, true)}
               >
@@ -275,8 +275,8 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
               aria-selected={index === active}
               className={cn(
                 // The address sits beside the name while both fit, and under it when they do not.
-                "corner-squircle flex cursor-default flex-wrap items-baseline gap-x-2 rounded-md px-2 py-1.5 text-sm",
-                index === active && "bg-accent",
+                "corner-squircle flex cursor-default flex-wrap items-baseline gap-x-2 rounded-[10px] px-2 py-1.5 text-sm",
+                index === active && "plate-2",
               )}
               // Keep focus in the box, or its blur would close the list before the click lands.
               onMouseDown={(event) => event.preventDefault()}

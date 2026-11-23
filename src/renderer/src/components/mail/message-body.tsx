@@ -171,7 +171,7 @@ function HtmlBody({ html, from, authenticated }: { html: string } & Sender) {
   return (
     <div className="space-y-2">
       {hasRemote && !allowRemote && trusted !== null && (
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm">
+        <div className="corner-squircle plate-1 flex items-center gap-3 rounded-xl px-3 py-2 text-sm">
           <ImageOff className="size-4 shrink-0 text-muted-foreground" />
           <span className="flex-1 text-muted-foreground">
             {isTrusted
@@ -193,7 +193,7 @@ function HtmlBody({ html, from, authenticated }: { html: string } & Sender) {
         </div>
       )}
       {hasRemote && autoLoad && (
-        <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
+        <div className="corner-squircle plate-1 flex items-center gap-3 rounded-xl px-3 py-1.5 text-xs text-muted-foreground">
           <ShieldCheck className="size-3.5 shrink-0" />
           <span className="flex-1">Images load automatically for {from.email}.</span>
           <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => {

@@ -17,8 +17,8 @@ function Line({ className }: { className?: string }) {
 /** One banner at the top right of the desktop: the app's icon and up to three lines of text. */
 export function NotificationPreview({ content }: { content: NotificationContent }) {
   return (
-    <PreviewFrame className="bg-muted/40">
-      <div className="absolute inset-x-2 top-2 flex items-center gap-1.5 rounded-md border bg-card p-1.5 shadow-sm">
+    <PreviewFrame>
+      <div className="absolute inset-x-2 top-2 flex items-center gap-1.5 corner-squircle plate-3 rounded-lg p-1.5">
         <span className="size-3.5 shrink-0 rounded-[3px] bg-primary" />
         <div className="min-w-0 flex-1 space-y-[3px]">
           {content === "full" && (

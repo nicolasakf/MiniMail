@@ -39,7 +39,7 @@ export function ProviderBadge({ provider, size = "md" }: { provider: SetupProvid
   return (
     <span
       className={cn(
-        "corner-squircle flex shrink-0 items-center justify-center rounded-xl bg-muted",
+        "corner-squircle plate-2 flex shrink-0 items-center justify-center rounded-xl",
         size === "lg" ? "size-12" : "size-10",
       )}
     >
@@ -72,7 +72,7 @@ export function ChooseProvider({
             <button
               type="button"
               onClick={() => onChoose(provider)}
-              className="corner-squircle group flex w-full items-center gap-3 rounded-xl border border-border p-3 text-left outline-none transition-colors hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+              className="corner-squircle plate-1 press-sink group flex w-full items-center gap-3 rounded-2xl p-3 text-left outline-none transition-[background-color,box-shadow,transform] hover:bg-[var(--face-hover-soft)] focus-visible:shadow-glow"
             >
               <ProviderBadge provider={provider} />
               <span className="min-w-0 flex-1">

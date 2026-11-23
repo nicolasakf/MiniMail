@@ -64,7 +64,7 @@ export function AppearanceTab() {
   const { settings: logoSettings, update: updateLogoSettings } = useLogoSettings();
 
   return (
-    <div ref={setPickerContainer} className="flex flex-col gap-6 p-6">
+    <div ref={setPickerContainer} className="flex flex-col gap-6">
       <SettingsPageHeader title="Appearance" />
 
       <div className="space-y-6">
@@ -93,6 +93,9 @@ export function AppearanceTab() {
               <ColorPicker
                 aria-label="Highlight color"
                 value={accentColor ?? DEFAULT_ACCENT_COLOR}
+                // The built-in highlight is a different blue in each theme, so it is shown by name and painted with the live one.
+                valueLabel={accentColor === null ? "Minimal Blue" : undefined}
+                swatch={accentColor === null ? "hsl(var(--sidebar-primary))" : undefined}
                 presets={ACCENT_PRESETS}
                 container={pickerContainer}
                 align="start"
@@ -172,7 +175,7 @@ export function AppearanceTab() {
         <section className="max-w-2xl">
           <SettingsRow
             label="Split view"
-            info="The Drafts tab always uses split view."
+            info="Drag the edge of the list to change its width."
           >
             <SettingsVisualToggle
               ariaLabel="Split view"

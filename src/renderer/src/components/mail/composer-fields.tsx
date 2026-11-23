@@ -8,6 +8,7 @@ import type { Account } from "@shared/types";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useContactIndex } from "@/hooks/use-contact-index";
 import { cn } from "@/lib/utils";
+import { FLAT_KEY } from "@/components/ui/keys";
 
 import { AccountMark } from "./account-mark";
 import type { ComposerSession } from "./composer-session";
@@ -39,7 +40,7 @@ function FromPicker({ accounts, value, onChange }: {
         <button
           type="button"
           aria-label={`From: ${selected ? accountLabel(selected) : "none"}. Change account`}
-          className="corner-squircle -ml-2 my-1.5 flex h-8 max-w-full items-center gap-2 rounded-lg px-2 text-[13px] outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent/60"
+          className={cn("-ml-2 my-1.5 flex h-8 max-w-full items-center gap-2 rounded-[10px] px-2 text-[13px] outline-none", FLAT_KEY)}
         >
           {selected ? (
             <>
@@ -71,7 +72,7 @@ function FromPicker({ accounts, value, onChange }: {
   );
 }
 
-const LINK_BUTTON = "rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground";
+const LINK_BUTTON = "rounded-[10px] px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground";
 
 /** From, To, Cc, Bcc and Subject. Suggestions drop over the body, so this sits above it and clips nothing. */
 export function ComposerFields({ session, accounts, focusTo }: {

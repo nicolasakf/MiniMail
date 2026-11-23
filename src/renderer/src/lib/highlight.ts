@@ -11,6 +11,6 @@ export const HOVER_ON_TINT =
 export const BLOCKED_TEXT = "text-destructive";
 
 /** The purple of the Mute command and the mute icon on a muted conversation, wherever they are shown. */
-export const MUTED_TEXT = "text-purple-600 dark:text-purple-400";
+export const MUTED_TEXT = "text-purple";
 /** The same purple for an icon drawn in a list row. */
-export const MUTED_ICON = "text-purple-500";
+export const MUTED_ICON = "text-purple";

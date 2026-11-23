@@ -153,7 +153,7 @@ export function SettingsDialog({
               ))}
             </div>
           </nav>
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-6">
             {page("appearance", <AppearanceTab />)}
             {page(
               "accounts",

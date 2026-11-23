@@ -58,7 +58,7 @@ function Body({ card }: { card: ConfirmCard }) {
         {card.sendAt && <Row label="When">{new Date(card.sendAt).toLocaleString()}</Row>}
         <Row label="Subject">{card.subject || "(no subject)"}</Row>
         {card.preview && (
-          <div className="corner-squircle max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 font-mono text-xs">{card.preview}</div>
+          <div className="corner-squircle max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-xl shadow-pressed p-3 font-mono text-xs">{card.preview}</div>
         )}
         {card.files.length > 0 && (
           <Row label="Files">

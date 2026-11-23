@@ -207,7 +207,7 @@ export function RecipientField({
           }
           className={cn(
             "corner-squircle group/chip inline-flex h-7 max-w-[260px] items-center gap-1.5 rounded-full plate-3 pl-1 pr-1.5 text-[13px] outline-none transition-colors focus-visible:shadow-raise-3-glow",
-            !valid && "bg-destructive/15 text-destructive ring-1 ring-destructive/50 focus-visible:bg-destructive/25",
+            !valid && "bg-destructive/15 text-destructive focus-visible:bg-destructive/25",
           )}
           onKeyDown={(event) => {
             if (event.key === "Backspace" || event.key === "Delete") {
@@ -237,7 +237,7 @@ export function RecipientField({
             tabIndex={-1}
             aria-label={`Remove ${contact.email}`}
             className={cn(
-              "flex size-4 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-foreground/15 hover:text-foreground",
+              "flex size-4 shrink-0 items-center justify-center rounded-full transition-shadow hover:shadow-pressed hover:text-foreground",
               valid ? "text-muted-foreground" : "text-destructive",
             )}
             onClick={() => removeAt(index)}
@@ -306,8 +306,8 @@ export function RecipientField({
                 role="option"
                 aria-selected={index === active}
                 className={cn(
-                  "corner-squircle flex cursor-default items-center gap-2.5 rounded-md px-2 py-1.5 text-sm",
-                  index === active && "bg-accent",
+                  "corner-squircle flex cursor-default items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-sm",
+                  index === active && "plate-2",
                 )}
                 // Keep focus in the input, or its blur would turn the half-typed text into a chip.
                 onMouseDown={(event) => event.preventDefault()}

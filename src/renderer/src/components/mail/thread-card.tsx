@@ -18,6 +18,7 @@ import {
 import type { InvitationResponse } from "@shared/types";
 
 import { FileIcon } from "@/components/ui/file-icon";
+import { FLAT_KEY, FLAT_KEY_IN } from "@/components/ui/keys";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -62,10 +63,10 @@ function AttachmentRow({
     }
   };
   return (
-    <div className="group flex items-center rounded-lg hover:bg-muted/60">
+    <div className={cn("group flex items-center rounded-xl", FLAT_KEY_IN)}>
       <button
         type="button"
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2 py-1.5 text-left outline-none"
         onClick={() => void run("open", onOpen)}
         aria-label={`Open ${attachment.filename}`}
       >
@@ -88,7 +89,7 @@ function AttachmentRow({
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none hover:bg-muted hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+            className={cn("mr-1 flex size-7 shrink-0 items-center justify-center rounded-[10px] opacity-0 outline-none focus-visible:opacity-100 group-hover:opacity-100 hover:plate-3", FLAT_KEY)}
             onClick={() => void run("save", onSave)}
             aria-label={`Save ${attachment.filename}`}
           >
@@ -134,8 +135,8 @@ function InvitationBlock({
       <div className="flex items-start gap-3">
         <span
           className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-md",
-            cancelled ? "bg-red-500/10 text-destructive" : "bg-muted text-muted-foreground",
+            "plate-2 flex size-8 shrink-0 items-center justify-center rounded-[10px]",
+            cancelled ? "text-destructive" : "text-muted-foreground",
           )}
         >
           {cancelled ? <CalendarX2 className="size-4" /> : <CalendarDays className="size-4" />}
@@ -171,10 +172,11 @@ function InvitationBlock({
                 aria-pressed={chosen}
                 onClick={() => void answer(response)}
                 className={cn(
-                  "corner-squircle inline-flex h-8 items-center justify-center gap-1 rounded-lg border text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default",
+                  "inline-flex h-8 items-center justify-center gap-1 rounded-[10px] text-xs font-medium outline-none disabled:cursor-default",
+                  FLAT_KEY_IN,
                   chosen
-                    ? "border-transparent bg-primary text-primary-foreground"
-                    : "border-border bg-background hover:bg-muted disabled:opacity-60",
+                    ? "grain shadow-raise-3 bg-sidebar-primary/15 text-sidebar-primary hover:bg-sidebar-primary/15"
+                    : "disabled:opacity-60",
                 )}
               >
                 {loading ? <Loader2 className="size-3.5 animate-spin" /> : <Icon className="size-3.5" />}
@@ -234,7 +236,7 @@ export function ThreadCard({ artifacts, expecting, onOpenAttachment, onSaveAttac
             <button
               type="button"
               aria-label={label}
-              className="corner-squircle electron-no-drag flex h-9 items-center gap-1 rounded-lg pl-2 pr-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
+              className={cn("electron-no-drag flex h-9 items-center gap-1 rounded-xl pl-2 pr-1.5 text-muted-foreground hover:text-foreground", FLAT_KEY)}
             >
               <Icon className="size-[18px]" />
               {count !== null && <span className="text-xs tabular-nums">{count}</span>}

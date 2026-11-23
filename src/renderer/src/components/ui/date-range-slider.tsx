@@ -20,6 +20,7 @@ import {
   type IndexRange,
 } from "@/lib/date-range"
 import { cn } from "@/lib/utils"
+import { FLAT_KEY } from "@/components/ui/keys"
 
 const SHOWN = "MMM d, yyyy"
 const dayKey = (day: Date) => format(day, DAY_FORMAT)
@@ -174,7 +175,7 @@ export function DateRangeSlider({
   const left = `${dayRatio(range.from, total) * 100}%`
   const right = `${dayRatio(range.to, total) * 100}%`
   const navButton =
-    "corner-squircle inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground outline-none transition hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40"
+    `inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground outline-none hover:text-foreground disabled:pointer-events-none disabled:opacity-40 ${FLAT_KEY}`
 
   const handle = (which: "from" | "to") => {
     const index = range[which]
@@ -193,7 +194,7 @@ export function DateRangeSlider({
         aria-valuetext={format(day, SHOWN)}
         onKeyDown={(event) => onHandleKeyDown(event, which)}
         style={{ left: which === "from" ? left : right }}
-        className="corner-squircle absolute top-1/2 h-6 w-3.5 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize rounded-md border-2 border-background bg-foreground shadow outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="corner-squircle absolute top-1/2 h-6 w-3.5 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize rounded-md bg-foreground shadow-raise-2 outline-none"
       />
     )
   }
@@ -218,8 +219,9 @@ export function DateRangeSlider({
                 aria-pressed={active}
                 onClick={() => pick(preset)}
                 className={cn(
-                  "corner-squircle rounded-lg px-3 py-1.5 text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring",
-                  active ? "bg-foreground text-background" : "bg-muted text-foreground hover:bg-muted/70",
+                  "rounded-[10px] px-3 py-1.5 text-xs font-medium outline-none",
+                  FLAT_KEY,
+                  active && "shadow-pressed text-sidebar-primary hover:text-sidebar-primary",
                 )}
               >
                 {preset.label}
@@ -245,8 +247,9 @@ export function DateRangeSlider({
               <div
                 key={format(start, "yyyy-MM")}
                 style={{ flexGrow: length, flexBasis: 0 }}
-                className="min-w-0 truncate border-l border-border/70 px-1.5 first:border-l-0"
+                className="relative min-w-0 truncate px-1.5"
               >
+                {index > 0 && <span aria-hidden className="groove-v absolute inset-y-0 left-0" />}
                 {format(start, index === 0 || start.getMonth() === 0 ? "MMM yyyy" : "MMM")}
               </div>
             ))}
@@ -259,7 +262,7 @@ export function DateRangeSlider({
             onPointerCancel={endDrag}
             className="relative mt-1 h-9 cursor-pointer touch-none"
           >
-            <div className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-muted" />
+            <div className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-full shadow-pressed" />
             {(lo > 0 || hi < total - 1) && (
               <>
                 <div

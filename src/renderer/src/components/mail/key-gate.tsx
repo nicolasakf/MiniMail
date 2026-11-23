@@ -209,17 +209,17 @@ export function KeyGate({ ai, onState, purpose, intro, children }: KeyGateProps)
     <div className="flex min-h-[calc(85vh-12rem)] items-center justify-center">
       <section
         aria-label="Connect an AI provider"
-        className="corner-squircle w-full max-w-md space-y-4 rounded-xl border border-border bg-card p-5 shadow-lg"
+        className="corner-squircle plate-2 w-full max-w-md space-y-4 rounded-2xl p-5"
       >
         <div className="flex items-center gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+          <span className="corner-squircle plate-3 flex size-9 shrink-0 items-center justify-center rounded-lg">
             <KeyRound className="size-4 text-muted-foreground" />
           </span>
           <h3 className="text-base font-semibold">Connect an AI provider</h3>
         </div>
         <p className="text-sm text-muted-foreground">{intro}</p>
         {api.system.demo && (
-          <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+          <p className="corner-squircle rounded-xl shadow-pressed px-3 py-2 text-xs text-muted-foreground">
             Browser demo: nothing leaves this page, so any key of 8 characters or more works.
           </p>
         )}

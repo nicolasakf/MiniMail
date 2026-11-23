@@ -3,6 +3,7 @@ import { useDeferredValue, useMemo, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { FLAT_KEY_IN } from "@/components/ui/keys";
 
 import { CategoryIcon, ICON_NAMES, searchIcons } from "./category-icon";
 
@@ -43,7 +44,7 @@ export function IconPicker({ value, hue, onChange, label }: IconPickerProps) {
           ref={trigger}
           type="button"
           aria-label={`${label}: choose icon`}
-          className="corner-squircle flex size-9 shrink-0 items-center justify-center rounded-lg outline-none ring-offset-background transition hover:brightness-125 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="corner-squircle flex size-9 shrink-0 items-center justify-center rounded-lg outline-none transition hover:brightness-125"
           style={{ background: `hsl(${hue} 70% 55% / 0.16)`, color: `hsl(${hue} 70% 62%)` }}
         >
           <CategoryIcon icon={value} className="size-[18px]" />
@@ -75,8 +76,10 @@ export function IconPicker({ value, hue, onChange, label }: IconPickerProps) {
                   setOpen(false);
                 }}
                 className={cn(
-                  "flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring",
-                  name === value && "bg-accent text-accent-foreground ring-1 ring-foreground/40",
+                  "flex size-8 items-center justify-center rounded-[10px] text-muted-foreground outline-none hover:text-foreground",
+                  FLAT_KEY_IN,
+                  "text-muted-foreground",
+                  name === value && "shadow-pressed text-sidebar-primary hover:text-sidebar-primary",
                 )}
               >
                 <CategoryIcon icon={name} className="size-4" />

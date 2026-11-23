@@ -99,7 +99,7 @@ export function AiFeaturesTab({ ai, onState }: AiFeaturesTabProps) {
   };
 
   return (
-    <div className="flex max-w-2xl flex-col gap-4 p-6">
+    <div className="flex max-w-2xl flex-col gap-4">
       <SettingsPageHeader title="AI Features" />
 
       <KeyGate
@@ -108,7 +108,7 @@ export function AiFeaturesTab({ ai, onState }: AiFeaturesTabProps) {
         purpose="features"
         intro="AI features, such as finding a verification code the rules could not, run on a chat model from the Vercel AI Gateway or OpenRouter: pick one and add its key. You can pick the model once it is connected."
       >
-        <section aria-label="AI provider" className="corner-squircle rounded-xl border border-border bg-card p-4">
+        <section aria-label="AI provider" className="corner-squircle plate-2 rounded-2xl p-4">
           <AiProviderField ai={ai} onState={onState} purpose="features" />
         </section>
         <ModelField

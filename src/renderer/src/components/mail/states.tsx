@@ -13,7 +13,7 @@ import { FOLDER_TITLES } from "@/lib/format";
 export function NoAccounts({ onAdd, demo }: { onAdd: () => void; demo: boolean }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
-      <span className="flex size-14 items-center justify-center rounded-2xl bg-muted">
+      <span className="flex size-14 items-center justify-center rounded-2xl plate-1 corner-squircle">
         <Mail className="size-7 text-muted-foreground" />
       </span>
       <div className="space-y-1">

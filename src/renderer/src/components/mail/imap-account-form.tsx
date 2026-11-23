@@ -207,7 +207,7 @@ export function ImapAccountForm({
             aria-controls="imap-advanced"
             disabled={working}
             onClick={() => void toggleAdvanced()}
-            className="-ml-1 flex items-center gap-1 rounded-sm px-1 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+            className="-ml-1 flex items-center gap-1 rounded-sm px-1 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
           >
             <ChevronRight className={cn("size-4 transition-transform", advanced && "rotate-90")} />
             Advanced settings

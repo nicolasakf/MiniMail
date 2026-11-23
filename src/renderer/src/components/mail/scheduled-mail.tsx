@@ -32,7 +32,7 @@ export function ScheduledMail({ scope, onVisible }: { scope: string; onVisible: 
     <section className="shrink-0 edge-b px-4 py-3" aria-label="Scheduled messages">
       <h2 className="mb-2 text-sm font-medium">Scheduled</h2>
       {visible.map((item) => (
-        <div key={item.id} className="flex items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-accent/50">
+        <div key={item.id} className="corner-squircle flex items-center gap-3 rounded-xl px-2 py-1.5 text-sm transition-shadow hover:plate-2">
           <Clock3 className="size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <p className="truncate">{item.subject || "(no subject)"}</p>

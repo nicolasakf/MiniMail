@@ -61,7 +61,7 @@ function copy(text: string, what: string): void {
 const EventItem = memo(function EventItem({ event, retry, onRetry, canUndo }: EventItemProps) {
   const Icon = LEVEL_ICON[event.level];
   return (
-    <div className="relative mx-2 flex cursor-default gap-2.5 rounded-md px-3 py-2.5 hover:bg-accent/50">
+    <div className="corner-squircle relative mx-2 flex cursor-default gap-2.5 rounded-xl px-3 py-2.5 transition-shadow hover:plate-2">
       <Icon
         aria-label={event.level === "error" ? (event.done ? "Error, done" : "Error") : event.level === "action" ? "Action" : "Event"}
         className={cn("mt-0.5 size-4 shrink-0", event.level === "error" && !event.done ? "text-destructive" : "text-muted-foreground")}
@@ -71,7 +71,7 @@ const EventItem = memo(function EventItem({ event, retry, onRetry, canUndo }: Ev
           type="button"
           title="Undo this action (⌘Z undoes the latest one)"
           onClick={() => undoStack.undo(event.ref!)}
-          className="absolute right-2 top-2 z-10 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn("absolute right-2 top-2 z-10 flex items-center gap-1 rounded-[10px] px-1.5 py-0.5 text-xs font-medium hover:plate-3", FLAT_KEY, "text-muted-foreground hover:text-foreground")}
         >
           <Undo2 className="size-3.5" />
           Undo
@@ -83,7 +83,7 @@ const EventItem = memo(function EventItem({ event, retry, onRetry, canUndo }: Ev
           title="Click to copy this log entry"
           onClick={() => copy(eventText(event), "Log entry")}
           className={cn(
-            "block w-full cursor-default space-y-1 rounded text-left outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-ring",
+            "block w-full cursor-default space-y-1 rounded-lg text-left outline-none after:absolute after:inset-0 after:rounded-xl",
             canUndo && "pr-16",
           )}
         >
@@ -246,7 +246,7 @@ export function LogPopover({ retryFor }: Props) {
             <button
               type="button"
               onClick={() => void api.events.openLog().catch(() => undefined /* expected: recorded by the main process */)}
-              className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={cn("flex shrink-0 items-center gap-1 rounded-[10px] px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground", FLAT_KEY)}
             >
               <ExternalLink className="size-3.5" />
               Open log file
@@ -259,10 +259,9 @@ export function LogPopover({ retryFor }: Props) {
             aria-pressed={errorsOnly}
             onClick={() => setErrorsOnly((current) => !current)}
             className={cn(
-              "corner-squircle whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-              errorsOnly
-                ? FOLDER_STYLE.trash.active
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              "whitespace-nowrap rounded-[10px] px-2.5 py-1 text-xs font-medium",
+              FLAT_KEY,
+              errorsOnly ? FOLDER_STYLE.trash.active : "text-muted-foreground hover:text-foreground",
             )}
           >
             Errors only
@@ -274,7 +273,7 @@ export function LogPopover({ retryFor }: Props) {
                   type="button"
                   onClick={markDone}
                   aria-label="Mark all as done"
-                  className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className={cn("flex size-6 items-center justify-center rounded-[10px] text-muted-foreground hover:text-foreground", FLAT_KEY)}
                 >
                   <Check className="size-4" />
                 </button>

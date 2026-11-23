@@ -3,6 +3,7 @@ import { useEffect, type RefObject } from "react";
 import { ChevronDown, ChevronUp, Search, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { FLAT_KEY_IN } from "@/components/ui/keys";
 
 interface FindBarProps {
   inputRef: RefObject<HTMLInputElement | null>;
@@ -29,7 +30,7 @@ export function FindBar({ inputRef, query, onQueryChange, count, index, onStep, 
     <div
       role="search"
       className={cn(
-        "corner-squircle electron-no-drag flex items-center gap-1 rounded-lg border border-border bg-popover p-1 pl-2.5 text-popover-foreground shadow-md",
+        "corner-squircle electron-no-drag flex items-center gap-1 rounded-xl plate-1 p-1 pl-2.5 text-popover-foreground shadow-overlay",
         className,
       )}
     >
@@ -64,7 +65,7 @@ export function FindBar({ inputRef, query, onQueryChange, count, index, onStep, 
         title="Previous match (⇧↵)"
         disabled={count === 0}
         onClick={() => onStep(-1)}
-        className="flex size-7 items-center justify-center rounded-md text-muted-foreground enabled:hover:bg-accent enabled:hover:text-foreground disabled:opacity-40"
+        className={cn("flex size-7 items-center justify-center rounded-[10px] text-muted-foreground disabled:opacity-40", FLAT_KEY_IN)}
       >
         <ChevronUp className="size-4" />
       </button>
@@ -74,7 +75,7 @@ export function FindBar({ inputRef, query, onQueryChange, count, index, onStep, 
         title="Next match (↵)"
         disabled={count === 0}
         onClick={() => onStep(1)}
-        className="flex size-7 items-center justify-center rounded-md text-muted-foreground enabled:hover:bg-accent enabled:hover:text-foreground disabled:opacity-40"
+        className={cn("flex size-7 items-center justify-center rounded-[10px] text-muted-foreground disabled:opacity-40", FLAT_KEY_IN)}
       >
         <ChevronDown className="size-4" />
       </button>
@@ -83,7 +84,7 @@ export function FindBar({ inputRef, query, onQueryChange, count, index, onStep, 
         aria-label="Close find"
         title="Close (Esc)"
         onClick={onClose}
-        className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+        className={cn("flex size-7 items-center justify-center rounded-[10px] text-muted-foreground", FLAT_KEY_IN)}
       >
         <X className="size-4" />
       </button>

@@ -32,6 +32,7 @@ import type { Account, Contact } from "@shared/types";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { FLAT_KEY } from "@/components/ui/keys";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
 import { useBlockList } from "@/lib/blocklist";
@@ -67,25 +68,33 @@ const STATUS: Record<SenderStatus, StatusInfo> = {
     adjective: "priority",
     icon: Zap,
     info: "Shows mail from these senders and domains on the Priority card while it is unread.",
-    on: "shadow-pressed text-amber",
+    on: "grain shadow-raise-2 bg-amber/15 text-amber hover:bg-amber/15",
   },
   muted: {
     name: "Mute",
     adjective: "muted",
     icon: BellOff,
     info: "Stops notifications for mail from these senders and domains.",
-    on: "shadow-pressed text-sidebar-primary",
+    on: "grain shadow-raise-2 bg-purple/15 text-purple hover:bg-purple/15",
   },
   blocked: {
     name: "Block",
     adjective: "blocked",
     icon: ShieldBan,
     info: "Moves mail from these senders and domains to the Trash.",
-    on: "shadow-pressed text-destructive",
+    on: "grain shadow-raise-2 bg-destructive/15 text-destructive hover:bg-destructive/15",
   },
 };
 
 /** The filter chips name the lists, not the actions: "Muted", not "Mute". */
+/** Colors of the chip of the list being shown: raised, lightly tinted like the switch of the same list. */
+const FILTER_ON: Record<SenderFilter, string> = {
+  all: "grain shadow-raise-2 bg-sidebar-primary/15 text-sidebar-primary hover:bg-sidebar-primary/15",
+  priority: STATUS.priority.on,
+  muted: STATUS.muted.on,
+  blocked: STATUS.blocked.on,
+};
+
 const FILTERS: readonly { id: SenderFilter; name: string }[] = [
   { id: "all", name: "All" },
   { id: "priority", name: "Priority" },
@@ -334,7 +343,7 @@ function AddBox({
         <div className="relative min-w-[16rem] flex-1">
           {/* Clicking the empty part of the box types into it, like a plain input would. */}
           <div
-            className="corner-squircle flex min-h-10 flex-wrap items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1 focus-within:ring-2 focus-within:ring-ring"
+            className="corner-squircle flex min-h-10 flex-wrap items-center gap-1.5 rounded-xl bg-transparent px-2 py-1 shadow-raise-2 transition-shadow focus-within:shadow-raise-2-glow"
             aria-invalid={problems.length > 0}
             onMouseDown={(event) => {
               if (event.target === event.currentTarget) {
@@ -352,7 +361,7 @@ function AddBox({
                   aria-label={valid ? `${chip.label}. Press Backspace to remove.` : `${chip.label}, not an address or a domain. Press Backspace to remove.`}
                   className={cn(
                     "corner-squircle inline-flex h-7 max-w-[260px] items-center gap-1.5 rounded-full plate-3 pl-1 pr-1.5 text-[13px] outline-none transition-colors focus-visible:shadow-raise-3-glow",
-                    !valid && "bg-destructive/15 text-destructive ring-1 ring-destructive/50 focus-visible:bg-destructive/25",
+                    !valid && "bg-destructive/15 text-destructive focus-visible:bg-destructive/25",
                   )}
                   onKeyDown={(event) => {
                     if (event.key === "Backspace" || event.key === "Delete") {
@@ -432,7 +441,7 @@ function AddBox({
               id={listId}
               role="listbox"
               aria-label="Suggestions"
-              className="corner-squircle absolute left-0 top-full z-50 mt-1 max-h-64 w-full min-w-[280px] overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl"
+              className="corner-squircle absolute left-0 top-full z-50 mt-1 max-h-64 w-full min-w-[280px] overflow-y-auto rounded-2xl plate-1 p-1.5 text-popover-foreground shadow-overlay"
             >
               {suggestions.map((suggestion, index) => (
                 <li
@@ -441,8 +450,8 @@ function AddBox({
                   role="option"
                   aria-selected={index === active}
                   className={cn(
-                    "corner-squircle flex cursor-default items-center gap-2.5 rounded-md px-2 py-1.5 text-sm",
-                    index === active && "bg-accent",
+                    "corner-squircle flex cursor-default items-center gap-2.5 rounded-xl px-2 py-1.5 text-sm",
+                    index === active && "plate-2",
                   )}
                   // Keep focus in the input, or its blur would turn the half-typed text into a chip.
                   onMouseDown={(event) => event.preventDefault()}
@@ -501,8 +510,9 @@ function StatusSwitch({ row, status, onToggle }: { row: SenderRow; status: Sende
           aria-label={`${name}: ${row.label}`}
           onClick={onToggle}
           className={cn(
-            "corner-squircle plate-3 press-sink inline-flex size-8 items-center justify-center rounded-[10px] text-muted-foreground transition-[box-shadow,transform,background-color,color] duration-100 focus-visible:outline-none",
-            pressed ? on : "hover:bg-face hover:text-foreground",
+            "inline-flex size-8 items-center justify-center rounded-[10px]",
+            FLAT_KEY,
+            pressed && on,
           )}
         >
           <Icon className="size-4" />
@@ -691,8 +701,9 @@ export function SendersTab({ accounts }: { accounts: readonly Account[] }) {
                 setShown(PAGE_SIZE);
               }}
               className={cn(
-                "plate-3 inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs transition-[box-shadow,background-color] focus-visible:outline-none",
-                filter === id ? "shadow-pressed text-sidebar-primary" : "hover:bg-face",
+                "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs",
+                FLAT_KEY,
+                filter === id && FILTER_ON[id],
               )}
             >
               {name} <span className="tabular-nums opacity-70">{counts[id]}</span>
