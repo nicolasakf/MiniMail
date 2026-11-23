@@ -54,6 +54,7 @@ const MICROSOFT_MAIL_SCOPES = [
 ].join(" ");
 const MICROSOFT_CALENDAR_SCOPE = "https://graph.microsoft.com/Calendars.ReadWrite";
 
+const TOKEN_REQUEST_TIMEOUT_MS = 20_000;
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
 const tokenResponseSchema = z.object({
@@ -202,6 +203,8 @@ async function requestTokens(
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(form),
+    // Without it a provider that never answers would keep every account request waiting on the token.
+    signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
   });
   // expected: a response without a JSON body is handled right below (the status decides).
   const body: unknown = await response.json().catch(() => ({}));
