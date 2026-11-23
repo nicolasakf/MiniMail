@@ -54,7 +54,7 @@ const EDGE = 8;
 /** The list's top padding plus the border: lines a flyout's first item up with the hovered one. */
 const FLYOUT_LIFT = 5;
 /** Tight inset and gaps: the highlight of an item sits close to the menu's border. */
-const LIST_CLASS = "max-h-[340px] space-y-0.5 p-1";
+const LIST_CLASS = "max-h-[340px] space-y-0.5 p-1.5";
 
 /** Items of a menu: icon, label, then a check, a chevron or the shortcut at the right edge. */
 function MenuItem({
@@ -74,10 +74,8 @@ function MenuItem({
       value={byId ? id : label}
       className={cn(
         "gap-2.5 whitespace-nowrap px-2 py-1",
-        destructive &&
-          "text-red-500 data-[selected=true]:bg-red-500/15 data-[selected=true]:text-red-500 dark:text-red-400 dark:data-[selected=true]:text-red-400",
-        warning &&
-          "text-amber-600 data-[selected=true]:bg-amber-500/15 data-[selected=true]:text-amber-600 dark:text-amber-400 dark:data-[selected=true]:text-amber-400",
+        destructive && "text-destructive data-[selected=true]:text-destructive",
+        warning && "text-amber data-[selected=true]:text-amber",
       )}
       disabled={disabled}
       onSelect={() => onChoose(entry)}
@@ -228,7 +226,7 @@ export function ItemMenu({ x, y, entries, onClose }: ItemMenuProps) {
         role="menu"
         aria-label="Commands"
         style={{ left: position.left, top: position.top, minWidth: Math.max(MIN_WIDTH, floorWidth), maxWidth: MAX_WIDTH }}
-        className="corner-squircle absolute w-max overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95"
+        className="corner-squircle plate-1 absolute w-max overflow-hidden rounded-2xl text-popover-foreground shadow-overlay animate-in fade-in-0 zoom-in-95"
         onMouseDown={(event) => event.stopPropagation()}
         onContextMenu={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
@@ -255,7 +253,7 @@ export function ItemMenu({ x, y, entries, onClose }: ItemMenuProps) {
           // cmdk only reports the highlighted entry when the list is controlled.
           value={highlighted}
           onValueChange={setHighlighted}
-          className="[&_[cmdk-input-wrapper]]:px-3 [&_[cmdk-input-wrapper]_svg]:size-3.5"
+          className="[&_[cmdk-input-wrapper]]:mx-1.5 [&_[cmdk-input-wrapper]]:mt-1.5 [&_[cmdk-input-wrapper]]:rounded-xl [&_[cmdk-input-wrapper]]:px-3 [&_[cmdk-input-wrapper]]:shadow-raise-2 [&_[cmdk-input-wrapper]]:transition-shadow [&_[cmdk-input-wrapper]:focus-within]:shadow-raise-2-glow [&_[cmdk-input-wrapper]_svg]:size-3.5"
         >
           <CommandInput
             ref={inputRef}
@@ -290,7 +288,7 @@ export function ItemMenu({ x, y, entries, onClose }: ItemMenuProps) {
             maxWidth: MAX_WIDTH,
             visibility: flyoutPosition ? "visible" : "hidden",
           }}
-          className="corner-squircle absolute w-max overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg animate-in fade-in-0 slide-in-from-left-1"
+          className="corner-squircle plate-1 absolute w-max overflow-hidden rounded-2xl text-popover-foreground shadow-overlay animate-in fade-in-0 slide-in-from-left-1"
           onMouseDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}
           onPointerMove={() => {
@@ -348,7 +346,7 @@ export function ItemMenu({ x, y, entries, onClose }: ItemMenuProps) {
             maxWidth: MAX_WIDTH,
             visibility: subPosition ? "visible" : "hidden",
           }}
-          className="corner-squircle absolute w-max overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg animate-in fade-in-0 slide-in-from-left-1"
+          className="corner-squircle plate-1 absolute w-max overflow-hidden rounded-2xl text-popover-foreground shadow-overlay animate-in fade-in-0 slide-in-from-left-1"
           onMouseDown={(event) => event.stopPropagation()}
           onContextMenu={(event) => event.stopPropagation()}
           onPointerMove={() => {

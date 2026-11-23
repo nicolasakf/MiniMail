@@ -257,7 +257,7 @@ export function ImapAccountForm({
         </div>
 
         {error && (
-          <p role="alert" className="corner-squircle rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
+          <p role="alert" className="corner-squircle rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
             {error}
           </p>
         )}

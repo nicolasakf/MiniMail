@@ -109,8 +109,8 @@ export const GroupRow = memo(function GroupRow({
         aria-selected={selected}
         data-tinted={selected || undefined}
         className={cn(
-          "group relative mx-2 flex h-9 cursor-pointer items-center gap-2.5 rounded-md px-3 text-[13px]",
-          selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
+          "group corner-squircle relative mx-2 flex h-9 cursor-pointer items-center gap-2.5 rounded-xl px-3 text-[13px] transition-shadow",
+          selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:plate-1",
           className,
         )}
         onContextMenu={(event) => {
@@ -152,8 +152,8 @@ export const GroupRow = memo(function GroupRow({
       aria-selected={selected}
       data-tinted={selected || undefined}
       className={cn(
-        "group corner-squircle relative mx-2 flex h-[52px] cursor-pointer items-center gap-3 rounded-lg border border-border px-3 text-sm",
-        selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "bg-foreground/[0.04] hover:bg-foreground/[0.09] dark:hover:bg-accent/50",
+        "group corner-squircle relative mx-2 flex h-[52px] cursor-pointer items-center gap-3 rounded-2xl px-3 text-sm transition-[box-shadow,background-color]",
+        selected ? "grain bg-sidebar-primary/[0.12] shadow-raise-1 dark:bg-sidebar-primary/25" : "shadow-raise-3 hover:plate-1 hover:bg-[var(--face-hover-soft)] hover:shadow-raise-1",
         className,
       )}
       onContextMenu={(event) => {
@@ -262,10 +262,8 @@ export const GroupCard = memo(function GroupCard({
       aria-selected={selected}
       data-tinted={selected || undefined}
       className={cn(
-        "group corner-squircle relative flex min-w-0 cursor-pointer flex-col rounded-xl border pb-1.5 text-sm shadow-md shadow-black/10 transition-colors dark:shadow-black/40",
-        selected
-          ? "border-sidebar-primary/40 bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25"
-          : "border-border bg-foreground/[0.04] hover:bg-foreground/[0.09] dark:hover:bg-accent/50",
+        "group corner-squircle relative flex min-w-0 cursor-pointer flex-col rounded-2xl pb-1.5 text-sm transition-[box-shadow,background-color]",
+        selected ? "grain bg-sidebar-primary/[0.12] shadow-raise-1 dark:bg-sidebar-primary/25" : "shadow-raise-3 hover:plate-1 hover:bg-[var(--face-hover-soft)] hover:shadow-raise-1",
       )}
       onContextMenu={(event) => {
         event.preventDefault();

@@ -60,7 +60,7 @@ export function SendButton({ sendAt, sending, disabled, canSchedule, onSend, onS
   const picking = useRef(false);
   const label = sendAt ? "Schedule" : "Send";
   return (
-    <div className="corner-squircle inline-flex h-9 shrink-0 items-stretch overflow-hidden rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
+    <div className="corner-squircle grain inline-flex h-9 shrink-0 items-stretch overflow-hidden rounded-xl bg-sidebar-primary text-sidebar-primary-foreground shadow-raise-1">
       <button
         type="button"
         disabled={disabled}
@@ -79,7 +79,7 @@ export function SendButton({ sendAt, sending, disabled, canSchedule, onSend, onS
               disabled={disabled}
               aria-label="Send later options"
               title="Send later"
-              className="grid w-8 place-items-center border-l border-white/20 outline-none transition-colors hover:bg-white/10 focus-visible:bg-white/15 disabled:pointer-events-none disabled:opacity-60 data-[state=open]:bg-white/15"
+              className="grid w-8 place-items-center border-l border-black/15 outline-none transition-colors hover:bg-white/10 focus-visible:bg-white/15 disabled:pointer-events-none disabled:opacity-60 data-[state=open]:bg-white/15"
             >
               <ChevronDown className="size-4" />
             </button>
@@ -104,7 +104,7 @@ export function SendButton({ sendAt, sending, disabled, canSchedule, onSend, onS
   );
 }
 
-const STRIP = "mx-3 mb-2 flex items-center gap-2 rounded-xl bg-muted/60 px-3 py-2 text-[13px]";
+const STRIP = "plate-2 mx-3 mb-2 flex items-center gap-2 rounded-2xl px-3 py-2 text-[13px]";
 
 function SchedulePicker({ sendAt, onSet, onCancel }: { sendAt: number | undefined; onSet: (time: number) => void; onCancel: () => void }) {
   const initial = splitMoment(sendAt ?? Date.now() + 60 * 60_000);
@@ -115,7 +115,7 @@ function SchedulePicker({ sendAt, onSet, onCancel }: { sendAt: number | undefine
   const today = splitMoment(Date.now()).day;
   return (
     <div
-      className={`${STRIP} w-fit max-w-[calc(100%-1.5rem)] flex-col items-stretch gap-3`}
+      className={`${STRIP} w-fit max-w-[calc(100%-1.5rem)] flex-col items-stretch gap-3 rounded-[20px] p-4`}
       onKeyDown={(event) => {
         // Escape inside the month or year list only closes that list.
         if (event.key === "Escape" && !(event.target as HTMLElement).closest('[role="listbox"]')) {
@@ -126,9 +126,12 @@ function SchedulePicker({ sendAt, onSet, onCancel }: { sendAt: number | undefine
       }}
     >
       <Calendar value={day} onChange={setDay} min={today} />
-      <div className="flex flex-wrap items-center gap-2">
-        <CalendarClock className="size-4 shrink-0 text-muted-foreground" />
-        <label className="sr-only" htmlFor="send-later-time">Send at</label>
+      <span aria-hidden className="groove-h" />
+      <div className="flex items-center gap-2">
+        <label className="flex shrink-0 items-center gap-2 text-xs font-medium text-muted-foreground" htmlFor="send-later-time">
+          <CalendarClock className="size-4 shrink-0" />
+          Send at
+        </label>
         <input
           id="send-later-time"
           type="time"
@@ -139,15 +142,15 @@ function SchedulePicker({ sendAt, onSet, onCancel }: { sendAt: number | undefine
             event.preventDefault();
             if (valid) onSet(time);
           }}
-          className="h-8 rounded-lg border border-border bg-background px-2 text-[13px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="h-9 min-w-0 flex-1 rounded-xl bg-transparent px-3 text-sm shadow-raise-3 outline-none focus-visible:shadow-raise-3-glow"
         />
         <Button type="button" disabled={!valid} onClick={() => time !== undefined && onSet(time)}
-          className="h-8 rounded-lg bg-sidebar-primary px-3 text-xs text-sidebar-primary-foreground hover:bg-sidebar-primary/90">
+          className="h-9 rounded-xl bg-sidebar-primary px-4 text-sm text-sidebar-primary-foreground hover:bg-sidebar-primary/90">
           Set
         </Button>
-        <Button type="button" variant="ghost" className="h-8 rounded-lg px-2.5 text-xs" onClick={onCancel}>Cancel</Button>
-        {!valid && <span className="text-xs text-muted-foreground">Pick a time in the future.</span>}
+        <Button type="button" variant="ghost" className="h-9 rounded-xl px-3 text-sm" onClick={onCancel}>Cancel</Button>
       </div>
+      {!valid && <p className="text-xs text-muted-foreground">Pick a time in the future.</p>}
     </div>
   );
 }
@@ -181,11 +184,11 @@ export function ScheduleNotice({ sendAt, picking, onChange, onSet, onCancelPick,
 export function ErrorNotice({ message, onDismiss }: { message: string | null; onDismiss: () => void }) {
   if (!message) return null;
   return (
-    <div role="alert" className="mx-3 mb-2 flex items-start gap-2 rounded-xl bg-red-500/10 px-3 py-2 text-[13px] text-red-600 dark:text-red-400">
+    <div role="alert" className="mx-3 mb-2 flex items-start gap-2 rounded-xl bg-red-500/10 px-3 py-2 text-[13px] text-destructive">
       <AlertCircle className="mt-0.5 size-4 shrink-0" />
       <p className="min-w-0 flex-1 break-words">{message}</p>
       <button type="button" aria-label="Dismiss" onClick={onDismiss}
-        className="rounded-full p-0.5 transition-colors hover:bg-red-500/15">
+        className="rounded-full p-0.5 transition-colors hover:bg-destructive/15">
         <X className="size-3.5" />
       </button>
     </div>
@@ -195,11 +198,11 @@ export function ErrorNotice({ message, onDismiss }: { message: string | null; on
 export function AttachmentList({ files, onRemove }: { files: readonly DraftAttachment[]; onRemove: (index: number) => void }) {
   if (files.length === 0) return null;
   return (
-    <ul aria-label="Attachments" className="flex max-h-28 shrink-0 flex-wrap gap-2 overflow-y-auto border-t border-border/50 px-5 py-3">
+    <ul aria-label="Attachments" className="flex max-h-28 shrink-0 flex-wrap gap-2 overflow-y-auto px-5 py-3">
       {files.map((file, index) => (
         <li
           key={`${file.filename}-${index}`}
-          className="corner-squircle flex max-w-full items-center gap-2 rounded-xl border border-border/60 bg-muted/40 py-1.5 pl-2 pr-1.5 text-xs"
+          className="corner-squircle flex max-w-full items-center gap-2 rounded-xl plate-3 py-1.5 pl-2 pr-1.5 text-xs"
         >
           <FileIcon filename={file.filename} className="size-5" />
           <span className="min-w-0 truncate font-medium">{file.filename}</span>
@@ -273,12 +276,12 @@ export function MinimizedPill({ title, recipients, locked, status, onRestore, on
   const failed = status === "failed";
   return (
     <div className={cn(
-      "corner-squircle electron-no-drag flex h-12 min-w-0 max-w-[260px] shrink items-center rounded-full border bg-background pl-4 pr-1.5 shadow-[0_10px_30px_-8px_rgb(0_0_0/0.5)] duration-150 animate-in fade-in-0 zoom-in-95",
-      failed ? "border-red-500/60" : "border-border",
+      "corner-squircle electron-no-drag plate-1 flex h-12 min-w-0 max-w-[260px] shrink items-center rounded-full pl-4 pr-1.5 shadow-overlay duration-150 animate-in fade-in-0 zoom-in-95",
+      failed && "text-destructive",
       status && "pl-3",
     )}>
       {status === "sending" && <Loader2 aria-hidden className="mr-2 size-4 shrink-0 animate-spin text-muted-foreground" />}
-      {failed && <AlertCircle aria-hidden className="mr-2 size-4 shrink-0 text-red-600 dark:text-red-400" />}
+      {failed && <AlertCircle aria-hidden className="mr-2 size-4 shrink-0 text-destructive" />}
       <button type="button"
         aria-label={`Restore ${title}${failed ? ". It could not be sent." : status === "sending" ? ". Sending." : ""}`}
         title={failed ? "Could not send. Click to see why." : status === "sending" ? "Sending…" : undefined}

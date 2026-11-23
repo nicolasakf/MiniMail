@@ -6,8 +6,7 @@ import animate from "tailwindcss-animate";
  * so MiniMail shares its look. `unread` is the one MiniMail-specific token.
  */
 const config: Config = {
-  // "Dimmed" is a dark variant, so every `dark:` utility applies to it as well.
-  darkMode: ["variant", "&:is(.dark, .dimmed, .dark *, .dimmed *)"],
+  darkMode: "class",
   content: ["./src/renderer/index.html", "./src/renderer/src/**/*.{ts,tsx}"],
   theme: {
     extend: {
@@ -66,6 +65,24 @@ const config: Config = {
           "5": "hsl(var(--chart-5))",
         },
         unread: "hsl(var(--unread))",
+        /** The plastic itself, and a key's face while hovered (see `globals.css`). */
+        plastic: "hsl(var(--background))",
+        face: "var(--face-hover)",
+        amber: "hsl(var(--amber))",
+        success: "hsl(var(--success))",
+      },
+      /** The raised steps of the plastic look; `shadow-glow` is the keyboard focus. */
+      boxShadow: {
+        "raise-1": "var(--raise-1)",
+        "raise-2": "var(--raise-2)",
+        "raise-3": "var(--raise-3)",
+        pressed: "var(--pressed)",
+        stamped: "var(--stamped)",
+        glow: "var(--glow)",
+        "raise-1-glow": "var(--raise-1), var(--glow)",
+        "raise-2-glow": "var(--raise-2), var(--glow)",
+        "raise-3-glow": "var(--raise-3), var(--glow)",
+        overlay: "var(--overlay)",
       },
       /** sm / md / lg share one base radius (see `globals.css` --radius), as in Orion. */
       borderRadius: {

@@ -135,14 +135,14 @@ function InvitationBlock({
         <span
           className={cn(
             "flex size-8 shrink-0 items-center justify-center rounded-md",
-            cancelled ? "bg-red-500/10 text-red-600 dark:text-red-400" : "bg-muted text-muted-foreground",
+            cancelled ? "bg-red-500/10 text-destructive" : "bg-muted text-muted-foreground",
           )}
         >
           {cancelled ? <CalendarX2 className="size-4" /> : <CalendarDays className="size-4" />}
         </span>
         <div className="min-w-0 flex-1 space-y-0.5">
           <p className={cn("text-sm font-medium leading-snug", cancelled && "line-through decoration-1")}>{invitation.title}</p>
-          {cancelled && <p className="text-xs font-medium text-red-600 dark:text-red-400">This meeting was cancelled</p>}
+          {cancelled && <p className="text-xs font-medium text-destructive">This meeting was cancelled</p>}
           {when && <p className="text-xs text-muted-foreground">{when}</p>}
           {invitation.location && (
             <p className="flex items-center gap-1 text-xs text-muted-foreground">

@@ -29,7 +29,7 @@ interface VisualFieldProps<T extends string> {
 /** The empty frame every miniature is drawn in: a small window with a fixed aspect ratio. */
 export function PreviewFrame({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("relative aspect-[16/10] w-full overflow-hidden rounded-md border bg-background", className)}>
+    <div className={cn("relative aspect-[16/10] w-full overflow-hidden rounded-lg bg-background", className)}>
       {children}
     </div>
   );
@@ -63,10 +63,11 @@ export function SettingsVisualField<T extends string>({
           key={option.value}
           value={option.value}
           className={cn(
-            "corner-squircle group relative flex rounded-lg border text-left transition-colors",
+            "corner-squircle group relative flex rounded-2xl text-left transition-[box-shadow,background-color]",
             wide ? "items-center gap-3 p-2" : cn("flex-col", size === "regular" ? "gap-2 p-2" : "gap-1.5 p-1.5"),
-            "hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            "data-[state=checked]:border-primary data-[state=checked]:ring-1 data-[state=checked]:ring-primary",
+            // Flat until chosen; the chosen one is raised.
+            "focus-visible:outline-none focus-visible:shadow-glow data-[state=unchecked]:hover:bg-[var(--face-hover-soft)]",
+            "data-[state=checked]:plate-2 data-[state=checked]:focus-visible:shadow-raise-2-glow",
             "disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent",
           )}
         >
@@ -136,9 +137,9 @@ export function SettingsTileField<T extends string>({ ariaLabel, value, options,
         >
           <span
             className={cn(
-              "corner-squircle flex size-14 items-center justify-center rounded-md border transition-colors",
-              "group-hover:bg-accent/50 group-focus-visible:ring-2 group-focus-visible:ring-ring",
-              "group-data-[state=checked]:border-primary group-data-[state=checked]:bg-primary/10 group-data-[state=checked]:ring-1 group-data-[state=checked]:ring-primary",
+              "corner-squircle flex size-14 items-center justify-center rounded-xl transition-[box-shadow,background-color,color]",
+              "group-focus-visible:shadow-glow group-data-[state=unchecked]:group-hover:bg-[var(--face-hover-soft)]",
+              "group-data-[state=checked]:plate-2 group-data-[state=checked]:text-sidebar-primary group-data-[state=checked]:group-focus-visible:shadow-raise-2-glow",
             )}
           >
             {option.content}
@@ -195,12 +196,12 @@ export function SettingsMultiTileField<T extends string>({
           >
             <span
               className={cn(
-                "corner-squircle flex size-14 items-center justify-center rounded-md transition-colors",
-                "group-focus-visible:ring-2 group-focus-visible:ring-ring",
+                "corner-squircle flex size-14 items-center justify-center rounded-xl transition-[box-shadow,background-color,color]",
+                "group-focus-visible:shadow-glow",
                 checked
-                  ? // The outline is drawn in the tile's own text colour, so it follows each folder's tint.
-                    cn("ring-1 ring-current", option.activeClassName ?? "bg-primary/15 text-primary")
-                  : "bg-muted/40 text-muted-foreground group-enabled:group-hover:bg-accent/60",
+                  ? // On, the tile is raised and its icon takes the tile's own color, so it follows each folder's tint.
+                    (option.activeClassName ?? "grain bg-sidebar-primary/[0.12] text-sidebar-primary shadow-raise-2 dark:bg-sidebar-primary/25")
+                  : "text-muted-foreground group-enabled:group-hover:bg-[var(--face-hover-soft)]",
               )}
             >
               {option.content}

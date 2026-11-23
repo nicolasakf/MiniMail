@@ -24,25 +24,26 @@ export type EmailBackground = (typeof EMAIL_BACKGROUNDS)[number];
 /**
  * How a message is painted:
  * - `white`: the message's light design on a white page.
+ * - `tinted`: the message's light design on the theme's card color (the light theme, set to "Theme").
  * - `native`: the sender's own dark design, on the theme's card color.
  * - `inverted`: the light design with lightness flipped, on the theme's card color.
  */
-export type EmailRender = "white" | "native" | "inverted";
+export type EmailRender = "white" | "tinted" | "native" | "inverted";
 
 export function chooseEmailRender(options: {
-  /** The app theme is dark or dimmed. */
+  /** The app theme is dark. */
   dark: boolean;
   darkAware: boolean;
   background: EmailBackground;
 }): EmailRender {
-  if (!options.dark) return "white";
+  if (!options.dark) return options.background === "theme" ? "tinted" : "white";
   if (options.darkAware) return "native";
   return options.background === "theme" ? "inverted" : "white";
 }
 
 /**
  * The page color to write so that the `invert(1) hue-rotate(180deg)` filter paints `color`.
- * Inverting alone is not enough: the hue rotation turns a bluish grey (the dimmed theme) brown,
+ * Inverting alone is not enough: the hue rotation turns a bluish grey (the dark theme's card) brown,
  * so the color is rotated first (a 180 degree turn is its own inverse) and then flipped.
  * Null if unparsable.
  */

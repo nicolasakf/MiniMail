@@ -89,7 +89,7 @@ export function SettingsSwitchField({
   return (
     <div
       className={cn(
-        "corner-squircle flex items-center justify-between gap-4 rounded-md border p-3",
+        "flex items-center justify-between gap-4 py-1",
         disabled && "opacity-60",
       )}
     >

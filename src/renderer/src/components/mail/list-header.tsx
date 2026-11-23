@@ -18,6 +18,7 @@ import type { GroupDef } from "@shared/focus-list";
 import type { Account, Category, MailView, ShownFolder } from "@shared/types";
 
 import { Input } from "@/components/ui/input";
+import { FLAT_KEY } from "@/components/ui/keys";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,7 +35,7 @@ import {
 } from "@/components/ui/tooltip";
 import { SHOWN_FOLDERS, type AccountScope } from "@/hooks/use-mailbox";
 import type { HiddenFolderMatches } from "@/lib/hidden-folder-matches";
-import { FOLDER_STYLE } from "@/lib/folder-style";
+import { FOLDER_STYLE, raisedActive } from "@/lib/folder-style";
 import { cn } from "@/lib/utils";
 
 import { AccountMark } from "./account-mark";
@@ -112,10 +113,13 @@ function HeaderIconButton({
           disabled={disabled}
           onClick={onClick}
           className={cn(
-            "corner-squircle electron-no-drag relative flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40",
-            pressed &&
-              (activeClassName ??
-                "bg-accent text-sidebar-primary hover:text-sidebar-primary"),
+            "electron-no-drag relative flex size-9 items-center justify-center rounded-xl disabled:pointer-events-none disabled:opacity-40",
+            FLAT_KEY,
+            pressed && [
+              // Latched on a key sinks, unless the caller brings its own shadow (the folder keys are raised).
+              !activeClassName?.includes("shadow-") && "shadow-pressed",
+              activeClassName ?? "text-sidebar-primary hover:text-sidebar-primary",
+            ],
             className,
           )}
         >
@@ -201,7 +205,7 @@ function ComposeButton({ onClick }: { onClick: () => void }) {
           type="button"
           aria-label="Compose"
           onClick={onClick}
-          className="electron-no-drag ml-1 flex size-10 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground shadow-[0_3px_10px_hsl(var(--sidebar-primary)/0.45),0_1px_3px_rgb(0_0_0/0.25)] outline-none transition-[filter,box-shadow] hover:brightness-125 focus-visible:brightness-125 focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background active:brightness-110"
+          className="electron-no-drag press-sink grain ml-1 flex size-10 items-center justify-center rounded-full bg-sidebar-primary text-sidebar-primary-foreground shadow-raise-1 outline-none transition-[box-shadow,transform,filter] hover:brightness-110"
         >
           <SquarePen className="size-[18px]" />
         </button>
@@ -282,7 +286,7 @@ export function AccountSwitcher({
         <button
           type="button"
           aria-label={`Account: ${scopeLabel}. Change account`}
-          className="corner-squircle electron-no-drag flex h-9 min-w-0 items-center gap-2 rounded-lg border border-border bg-card/40 px-3 text-sm outline-none transition-colors hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent/60"
+          className={`electron-no-drag flex h-9 min-w-0 items-center gap-2 rounded-xl px-3 text-sm outline-none ${FLAT_KEY}`}
         >
           <AccountMarks accounts={selected ? [selected] : accounts} />
           <span className="max-w-[280px] truncate font-medium">
@@ -373,10 +377,10 @@ export function FolderFilterGroup({
     <div
       role="group"
       aria-label="Folders shown"
-      className="corner-squircle electron-no-drag flex items-center gap-0.5 rounded-lg border border-border bg-card/40 p-0.5"
+      className="corner-squircle electron-no-drag flex items-center gap-1 rounded-[15px] p-1 shadow-raise-1"
     >
       {SHOWN_FOLDERS.map((folder) => {
-        const { label, icon: Icon, active } = FOLDER_STYLE[folder];
+        const { label, icon: Icon } = FOLDER_STYLE[folder];
         const on = shownFolders.includes(folder);
         const matches = on ? 0 : (hiddenMatches?.[folder] ?? 0);
         const matchText = matches === 0 ? "" : ` (${matches} ${matches === 1 ? "match" : "matches"})`;
@@ -391,8 +395,8 @@ export function FolderFilterGroup({
             }
             badge={matches}
             pressed={on}
-            activeClassName={active}
-            className="size-8 rounded-md"
+            activeClassName={raisedActive(folder)}
+            className="size-8 rounded-[10px]"
             onClick={() => onToggleFolder(folder)}
           >
             {/* Off, every folder button reads like the inbox's; the tint appears only while its folder is shown. */}
@@ -434,7 +438,7 @@ function FilterGroup({
         tooltip={unreadOnly ? "Showing unread only" : "Show unread only"}
         hint="⌘U"
         pressed={unreadOnly}
-        activeClassName="bg-accent text-foreground hover:text-foreground"
+        activeClassName="text-sidebar-primary hover:text-sidebar-primary"
         onClick={() => onUnreadOnlyChange(!unreadOnly)}
       >
         {/* A closed envelope while only unread mail shows, an open one while everything does. */}

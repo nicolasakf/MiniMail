@@ -42,7 +42,7 @@ export function DateTimePicker({
             id={startId}
             type="time"
             step={1}
-            className="h-9"
+            className="h-9 shadow-raise-3"
             value={startTime}
             onChange={(event) => onStartTimeChange(event.target.value)}
           />
@@ -55,7 +55,7 @@ export function DateTimePicker({
             id={endId}
             type="time"
             step={1}
-            className="h-9"
+            className="h-9 shadow-raise-3"
             value={endTime}
             aria-invalid={endsBeforeStart || undefined}
             onChange={(event) => onEndTimeChange(event.target.value)}
@@ -63,7 +63,7 @@ export function DateTimePicker({
         </div>
       </div>
       {endsBeforeStart && (
-        <p role="alert" className="text-xs text-red-300">
+        <p role="alert" className="text-xs text-destructive">
           {endLabel} is before {startLabel.toLowerCase()}.
         </p>
       )}

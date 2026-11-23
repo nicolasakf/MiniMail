@@ -20,7 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
 import { api } from "@/lib/api";
-import { FOLDER_STYLE } from "@/lib/folder-style";
+import { FOLDER_STYLE, raisedActive } from "@/lib/folder-style";
 import { cn } from "@/lib/utils";
 
 import { AccountSwitcher } from "../mail/list-header";
@@ -245,12 +245,12 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
                 values={view.folders}
                 disabled={off}
                 options={FOLDER_OPTIONS.map(({ folder, description }) => {
-                  const { label, icon: Icon, active } = FOLDER_STYLE[folder];
+                  const { label, icon: Icon } = FOLDER_STYLE[folder];
                   return {
                     value: folder,
                     label,
                     description,
-                    activeClassName: active,
+                    activeClassName: raisedActive(folder),
                     content: <Icon aria-hidden="true" className="size-6" />,
                   };
                 })}
@@ -306,7 +306,7 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
                 </CheckRow>
               ))}
               {view.categories.mode === "only" && view.categories.ids.length === 0 && (
-                <p className="text-xs text-amber-400">Nothing is checked, so no mail will notify.</p>
+                <p className="text-xs text-amber">Nothing is checked, so no mail will notify.</p>
               )}
             </div>
           )}

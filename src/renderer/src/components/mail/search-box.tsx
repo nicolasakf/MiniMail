@@ -159,7 +159,7 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
     <div className="electron-no-drag relative w-72">
       <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
       <div
-        className="corner-squircle flex h-9 items-center rounded-md border border-input bg-background pl-8 pr-8 text-sm"
+        className="corner-squircle flex h-9 items-center rounded-xl bg-transparent pl-8 pr-8 text-sm shadow-raise-1 transition-shadow focus-within:shadow-raise-1-glow"
         // Clicking the empty part of the box types into it, like a plain input would.
         onMouseDown={(event) => {
           if (event.target === event.currentTarget || event.target === rowRef.current) {
@@ -172,7 +172,7 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
           {chips.map((chip, index) => (
             <span
               key={`${index}:${chipText(chip)}`}
-              className="corner-squircle inline-flex h-6 max-w-[9rem] shrink-0 items-center rounded-full bg-muted pl-2 pr-1 text-[13px]"
+              className="corner-squircle inline-flex h-6 max-w-[9rem] shrink-0 items-center rounded-full plate-3 pl-2 pr-1 text-[13px]"
             >
               <button
                 type="button"
@@ -265,7 +265,7 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
           id="search-suggestions"
           role="listbox"
           aria-label="Search filters"
-          className="corner-squircle absolute right-0 top-full z-50 mt-1 max-h-72 w-max min-w-80 max-w-[min(36rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl"
+          className="corner-squircle absolute right-0 top-full z-50 mt-1 max-h-72 w-max min-w-80 max-w-[min(36rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl plate-1 p-1.5 text-popover-foreground shadow-overlay"
         >
           {choices.map((choice, index) => (
             <li

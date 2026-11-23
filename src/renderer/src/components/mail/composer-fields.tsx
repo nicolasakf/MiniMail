@@ -7,15 +7,19 @@ import type { Account } from "@shared/types";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useContactIndex } from "@/hooks/use-contact-index";
+import { cn } from "@/lib/utils";
 
 import { AccountMark } from "./account-mark";
 import type { ComposerSession } from "./composer-session";
 import { RecipientField } from "./recipient-field";
 
-/** One labelled line of the header. Tall enough for a single line; a long recipient list wraps below it. */
-export function FieldRow({ label, children }: { label: string; children: ReactNode }) {
+/**
+ * One labelled line of the header. Tall enough for a single line; a long recipient list wraps below it.
+ * A text line rises as a plate while it has the focus (`raise`); the From line holds only a menu, so it does not.
+ */
+export function FieldRow({ label, children, raise = true }: { label: string; children: ReactNode; raise?: boolean }) {
   return (
-    <div className="flex gap-3 border-b border-border/50 px-5">
+    <div className={cn("corner-squircle mx-3 flex gap-3 rounded-2xl px-2 transition-shadow", raise && "focus-within:plate-2")}>
       <span className="flex h-11 w-12 shrink-0 items-center text-[13px] text-muted-foreground">{label}</span>
       <div className="min-w-0 flex-1">{children}</div>
     </div>
@@ -82,9 +86,9 @@ export function ComposerFields({ session, accounts, focusTo }: {
   const [revealed, setRevealed] = useState<"cc" | "bcc" | null>(null);
 
   return (
-    <div className="relative z-20 shrink-0 border-t border-border/50">
+    <div className="relative z-20 shrink-0">
       {accounts.length > 1 && (
-        <FieldRow label="From">
+        <FieldRow label="From" raise={false}>
           <FromPicker accounts={accounts} value={fields.accountId} onChange={set.setAccountId} />
         </FieldRow>
       )}

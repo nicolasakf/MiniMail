@@ -2233,9 +2233,9 @@ export function MailApp() {
   const bulkMoves = bulkActions.filter(({ action }) => MOVE_ACTIONS.has(action));
   const bulkBar =
     checked.size > 0 ? (
-      <div className="corner-squircle absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-border bg-popover px-3 py-2 shadow-lg">
+      <div className="corner-squircle absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-2xl plate-1 px-3 py-2 shadow-overlay">
         <span className="mr-2 text-sm text-muted-foreground">{checked.size} selected</span>
-        <span className="mr-1 h-5 w-px bg-border" />
+        <span className="mr-1 groove-v h-5" />
         {bulkActions.filter(({ action }) => !MOVE_ACTIONS.has(action)).map(bulkButton)}
         {categories.length > 0 && listFolder !== "sent" && listFolder !== "drafts" && (
           <CategoryMenuButton
@@ -2308,7 +2308,7 @@ export function MailApp() {
             <TooltipContent side="top">{bulkUnsubscribeTip}</TooltipContent>
           </Tooltip>
         )}
-        {bulkMoves.length > 0 && <span className="mx-1 h-5 w-px bg-border" />}
+        {bulkMoves.length > 0 && <span className="mx-1 groove-v h-5" />}
         {bulkMoves.map(bulkButton)}
       </div>
     ) : null;
@@ -2435,7 +2435,7 @@ export function MailApp() {
   const readingPane = split ? (
     <section
       aria-label="Conversation"
-      className="corner-squircle mb-3 mr-3 mt-1 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-sidebar-border bg-sidebar shadow"
+      className="corner-squircle plate-1 mb-3 mr-3 mt-1 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[22px]"
     >
       {paneThread && !paneSelection ? (
         <ThreadView

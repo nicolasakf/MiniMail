@@ -13,6 +13,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { DAY_FORMAT, parseDay, pickRangeDay, rangePosition, type DayRange } from "@/lib/date-range"
+import { FLAT_KEY } from "@/components/ui/keys"
 import { cn } from "@/lib/utils"
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
@@ -44,8 +45,8 @@ function Chips({ chips }: { chips: CalendarChip[] | undefined }) {
           aria-pressed={chip.active}
           onClick={chip.onSelect}
           className={cn(
-            "corner-squircle rounded-lg px-3 py-1.5 text-xs font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-ring",
-            chip.active ? "bg-foreground text-background" : "bg-muted text-foreground hover:bg-muted/70",
+            "corner-squircle plate-3 rounded-lg px-3 py-1.5 text-xs font-medium outline-none transition-[box-shadow,background-color] focus-visible:shadow-raise-3-glow",
+            chip.active ? "shadow-pressed text-sidebar-primary" : "text-foreground hover:bg-face",
           )}
         >
           {chip.label}
@@ -185,8 +186,8 @@ function CalendarFrame({
   const tabStop = focusDay && shown(focusDay) ? focusDay : anchor && shown(anchor) ? anchor : firstPickable
 
   const navButton =
-    "corner-squircle inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground outline-none transition hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40"
-  const dropdown = "h-8 w-auto gap-1.5 rounded-lg px-2.5 text-sm font-medium"
+    "inline-flex h-8 w-8 items-center justify-center rounded-lg outline-none disabled:pointer-events-none disabled:opacity-40 " + FLAT_KEY
+  const dropdown = "h-8 w-auto gap-1.5 rounded-lg px-2.5 text-sm font-medium shadow-raise-3"
   const spacer = <span className="w-8" aria-hidden />
 
   const renderMonth = (start: Date, index: number) => {
@@ -315,12 +316,13 @@ function CalendarFrame({
                     onFocus={() => setFocusDay(key)}
                     onKeyDown={(event) => onKeyDown(event, day)}
                     className={cn(
-                      "corner-squircle flex h-9 w-9 items-center justify-center rounded-xl text-sm tabular-nums outline-none transition focus-visible:ring-2 focus-visible:ring-ring",
+                      "corner-squircle flex h-9 w-9 items-center justify-center rounded-xl text-sm tabular-nums outline-none transition-[box-shadow,background-color] focus-visible:shadow-glow",
+                      // The chosen day is a raised insert in the highlight color; the others rise when pointed at.
                       selected
-                        ? "bg-foreground font-medium text-background"
+                        ? "grain bg-sidebar-primary font-medium text-sidebar-primary-foreground shadow-raise-3"
                         : position
                           ? "text-foreground hover:bg-foreground/10"
-                          : "text-foreground hover:bg-muted",
+                          : "text-foreground hover:plate-3",
                       isToday &&
                         !selected &&
                         "font-semibold underline decoration-muted-foreground/50 underline-offset-4",

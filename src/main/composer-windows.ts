@@ -66,7 +66,7 @@ export function registerComposerWindows(
       minWidth: 440,
       minHeight: 380,
       show: false,
-      backgroundColor: "#0a0a0a",
+      backgroundColor: "#323539",
       webPreferences: {
         preload: join(__dirname, "../preload/index.js"),
         contextIsolation: true,

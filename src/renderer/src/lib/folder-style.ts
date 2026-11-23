@@ -6,42 +6,48 @@ import type { ShownFolder } from "@shared/types";
 export interface FolderStyle {
   label: string;
   icon: LucideIcon;
-  /** Colour of the icon next to a sender's name. Amber follows the Orion app's: darker on light, 400 on dark. */
+  /** Colour of the icon next to a sender's name. */
   text: string;
-  /** Look of the header button while its folder is shown. */
+  /** Look of a tile or button while its folder is on: sunk, tinted with the folder's color. */
   active: string;
 }
 
 export const FOLDER_STYLE: Record<ShownFolder, FolderStyle> = {
+  // Switched on, a folder's tile sinks and its face and icon take the folder's color.
   inbox: {
     label: "Inbox",
     icon: Inbox,
     text: "text-muted-foreground",
     // A fixed blue (the highlight color's original value in each theme), so the user's highlight color does not recolor it.
     active:
-      "bg-[hsl(221_83%_53%/0.15)] text-[hsl(221_83%_53%)] hover:text-[hsl(221_83%_53%)] dark:bg-[hsl(224_76%_48%/0.15)] dark:text-[hsl(224_76%_48%)] dark:hover:text-[hsl(224_76%_48%)]",
+      "shadow-pressed bg-[hsl(218.8_61.5%_52.2%/0.15)] dark:bg-[hsl(219_82.2%_71.4%/0.15)] text-[hsl(218.8_61.5%_52.2%)] hover:text-[hsl(218.8_61.5%_52.2%)] dark:text-[hsl(219_82.2%_71.4%)] dark:hover:text-[hsl(219_82.2%_71.4%)]",
   },
   archive: {
     label: "Archive",
     icon: Archive,
-    text: "text-gray-500 dark:text-gray-400",
-    active: "bg-gray-500/15 text-gray-600 hover:text-gray-600 dark:bg-gray-400/15 dark:text-gray-300 dark:hover:text-gray-300",
+    text: "text-muted-foreground",
+    active: "shadow-pressed bg-foreground/10 text-foreground hover:text-foreground",
   },
   trash: {
     label: "Trash",
     icon: Trash2,
-    text: "text-red-600 dark:text-red-400",
-    active: "bg-red-500/10 text-red-600 hover:text-red-600 dark:bg-red-400/15 dark:text-red-400 dark:hover:text-red-400",
+    text: "text-destructive",
+    active: "shadow-pressed bg-destructive/15 text-destructive hover:text-destructive",
   },
   spam: {
     label: "Spam",
     icon: ShieldAlert,
-    text: "text-amber-700 dark:text-amber-400",
-    active: "bg-amber-500/10 text-amber-700 hover:text-amber-700 dark:bg-amber-500/15 dark:text-amber-400 dark:hover:text-amber-400",
+    text: "text-amber",
+    active: "shadow-pressed bg-amber/15 text-amber hover:text-amber",
   },
 };
 
 /** The style marking mail that is in Archive, Trash or Spam (the inbox needs no mark), or undefined. */
 export function folderStyle(folder: string): FolderStyle | undefined {
   return folder !== "inbox" && Object.hasOwn(FOLDER_STYLE, folder) ? FOLDER_STYLE[folder as ShownFolder] : undefined;
+}
+
+/** The list header's folder keys are raised, not sunk, while their folder is on; the tint and icon color are the same. */
+export function raisedActive(folder: ShownFolder): string {
+  return FOLDER_STYLE[folder].active.replace("shadow-pressed", "grain shadow-raise-2");
 }

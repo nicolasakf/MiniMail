@@ -39,7 +39,7 @@ export function CheckmarkedIcon({
         <Check
           className={cn(
             CHECKMARKED_ICON_ANIMATION_CLASS,
-            "text-green-500",
+            "text-success",
             iconClassName,
             checkClassName,
           )}

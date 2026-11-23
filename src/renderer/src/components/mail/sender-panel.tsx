@@ -21,7 +21,7 @@ import { SenderAvatar } from "./sender-avatar";
 import { reportError } from "@/lib/events";
 
 const ROW =
-  "flex w-full cursor-default items-center gap-2.5 rounded-lg px-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "corner-squircle flex w-full cursor-default items-center gap-2.5 rounded-xl px-2 text-left text-sm outline-none transition-shadow";
 
 const DEFAULT_WIDTH = 288;
 const MIN_WIDTH = 220;
@@ -111,8 +111,8 @@ function SenderRow({
         ROW,
         "h-12",
         nested && "pl-7",
-        selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
-        selected && focused && "ring-1 ring-sidebar-primary/60",
+        selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:plate-1",
+        selected && focused && "ring-1 ring-inset ring-sidebar-primary/60",
       )}
       onClick={() => onSelect(sender.key)}
       onContextMenu={(event) => {
@@ -131,7 +131,7 @@ function SenderRow({
           <span className="block truncate text-xs text-muted-foreground">{sender.email}</span>
         )}
       </span>
-      {blocked && <ShieldBan aria-label="Blocked" className="size-3.5 shrink-0 text-red-400" />}
+      {blocked && <ShieldBan aria-label="Blocked" className="size-3.5 shrink-0 text-destructive" />}
       <span className="shrink-0 text-xs text-muted-foreground">{sender.count}</span>
     </button>
   );
@@ -191,8 +191,8 @@ function DomainRow({
         className={cn(
           ROW,
           "h-11 pl-9 pr-10",
-          selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:bg-accent/50",
-          selected && focused && "ring-1 ring-sidebar-primary/60",
+          selected ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25" : "hover:plate-1",
+          selected && focused && "ring-1 ring-inset ring-sidebar-primary/60",
         )}
         onClick={() => onSelect(group.domain)}
         onDoubleClick={() => onToggle(group.domain)}
@@ -365,7 +365,7 @@ export function SenderPanel({
     <aside
       aria-label="Senders"
       style={{ width }}
-      className="relative flex shrink-0 flex-col border-r border-border"
+      className="relative mb-3 mr-3 mt-1 flex shrink-0 flex-col"
     >
       <div
         role="separator"
@@ -488,13 +488,13 @@ export function GroupByDomainButton({ state }: { state: SenderPanelState }) {
           aria-checked={byDomain}
           onClick={toggleByDomain}
           className={cn(
-            "ml-3 inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-            byDomain ? "bg-primary/80" : "bg-input",
+            "ml-3 inline-flex h-7 w-12 shrink-0 items-center rounded-full p-1 shadow-raise-2 outline-none transition-[background-color,box-shadow] focus-visible:shadow-raise-2-glow",
+            byDomain ? "bg-sidebar-primary" : "bg-transparent",
           )}
         >
           <span
             className={cn(
-              "pointer-events-none block size-5 rounded-full bg-background shadow-lg transition-transform",
+              "plate-3 pointer-events-none block size-5 rounded-full transition-transform",
               byDomain ? "translate-x-5" : "translate-x-0",
             )}
           />
@@ -570,7 +570,7 @@ export function SenderHeading(props: ({ sender: SenderEntry } | { domain: string
           label={props.priority ? `Remove priority from ${name}` : `Mark ${name} as priority`}
           tooltip={props.priority ? "Priority: you are told about new mail" : "Mark as priority"}
           onToggle={props.onTogglePriority}
-          activeClass="text-amber-600 dark:text-amber-400"
+          activeClass="text-amber"
           fillWhenOn
         />
       )}

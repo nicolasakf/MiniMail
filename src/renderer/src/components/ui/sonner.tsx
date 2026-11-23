@@ -43,7 +43,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
 
   return (
     <Sonner
-      theme={(theme === "dimmed" ? "dark" : theme) as ToasterProps["theme"]}
+      theme={theme as ToasterProps["theme"]}
       className="toaster group"
       position="bottom-left"
       // Toasts size to their content; the container is as wide as the largest one may be.
@@ -56,16 +56,16 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            "corner-squircle group toast w-fit max-w-[var(--toast-max-width)] group-[.toaster]:bg-background group-[.toaster]:text-foreground group-[.toaster]:border-border group-[.toaster]:shadow-lg",
+            "corner-squircle group toast w-fit max-w-[var(--toast-max-width)] group-[.toaster]:rounded-2xl group-[.toaster]:border-0 group-[.toaster]:bg-background group-[.toaster]:grain group-[.toaster]:text-foreground group-[.toaster]:shadow-overlay",
           description: "group-[.toast]:text-muted-foreground",
           error:
             // A red wash over the solid toast background, so the list never shows through.
-            "group-[.toaster]:border-red-500/40 group-[.toaster]:bg-[linear-gradient(rgb(239_68_68/0.1),rgb(239_68_68/0.1))]",
-          icon: "group-data-[type=error]:text-red-400",
+            "group-[.toaster]:text-destructive",
+          icon: "group-data-[type=error]:text-destructive",
           actionButton:
-            "corner-squircle rounded-md group-[.toast]:bg-primary group-[.toast]:text-primary-foreground",
+            "corner-squircle rounded-xl group-[.toast]:bg-primary group-[.toast]:text-primary-foreground group-[.toast]:shadow-raise-2",
           cancelButton:
-            "corner-squircle rounded-md group-[.toast]:bg-muted group-[.toast]:text-muted-foreground",
+            "corner-squircle rounded-xl group-[.toast]:bg-transparent group-[.toast]:text-muted-foreground group-[.toast]:shadow-raise-2",
         },
       }}
       {...props}

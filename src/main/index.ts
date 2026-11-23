@@ -171,7 +171,7 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     // Orion's dark background token, so there is no white flash before first paint.
-    backgroundColor: "#0a0a0a",
+    backgroundColor: "#323539",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 18, y: 20 },
     webPreferences: {

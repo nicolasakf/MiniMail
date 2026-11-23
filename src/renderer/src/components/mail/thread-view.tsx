@@ -14,6 +14,7 @@ import { logoRequestFor, type LogoRequest } from "@shared/logos";
 import type { Thread } from "@shared/threads";
 import type { Account, Category, Contact, InvitationResponse, MailAction, MailFolder, MessageDetail } from "@shared/types";
 
+import { FLAT_KEY } from "@/components/ui/keys";
 import { Button } from "@/components/ui/button";
 import { ConfirmPopover } from "@/components/ui/confirm-popover";
 import {
@@ -124,7 +125,7 @@ function ToolbarButton({
       aria-label={label}
       disabled={disabled}
       onClick={confirm ? undefined : onClick}
-      className="corner-squircle electron-no-drag flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors enabled:hover:bg-accent enabled:hover:text-foreground disabled:opacity-40"
+      className={`electron-no-drag flex size-9 items-center justify-center rounded-xl disabled:opacity-40 ${FLAT_KEY}`}
     >
       {children}
     </button>
@@ -180,11 +181,12 @@ export function CategoryMenuButton({
               type="button"
               aria-label="Move to category"
               className={cn(
-                "corner-squircle electron-no-drag flex items-center gap-0.5 transition-colors hover:bg-accent data-[state=open]:bg-accent",
+                "corner-squircle electron-no-drag flex items-center gap-0.5",
+                FLAT_KEY,
                 // The bar's trigger matches its ghost buttons: inherited color, accent on hover.
                 inBar
-                  ? "h-8 rounded-md px-1.5 hover:text-accent-foreground data-[state=open]:text-accent-foreground"
-                  : "h-9 rounded-lg pl-2 pr-1.5 text-muted-foreground hover:text-foreground data-[state=open]:text-foreground",
+                  ? "h-8 rounded-[10px] px-1.5"
+                  : "h-9 rounded-xl pl-2 pr-1.5 text-foreground",
               )}
             >
               <FolderInput className={inBar ? "size-4" : "size-[18px]"} />
@@ -244,10 +246,9 @@ function PriorityMenuButton({ thread, own }: { thread: Thread; own: readonly str
               type="button"
               aria-label="Priority"
               className={cn(
-                "corner-squircle electron-no-drag flex h-9 items-center gap-0.5 rounded-lg pl-2 pr-1.5 transition-colors hover:bg-accent data-[state=open]:bg-accent",
-                on
-                  ? "text-amber-600 dark:text-amber-400"
-                  : "text-muted-foreground hover:text-foreground data-[state=open]:text-foreground",
+                "corner-squircle electron-no-drag flex h-9 items-center gap-0.5 rounded-xl pl-2 pr-1.5",
+                FLAT_KEY,
+                on ? "text-amber" : "text-foreground",
               )}
             >
               <Zap className={cn("size-[18px]", on && "fill-current")} />
@@ -334,11 +335,10 @@ function FilterMenuButton<K extends string>({
               type="button"
               aria-label={label}
               className={cn(
-                "corner-squircle electron-no-drag flex items-center gap-0.5 transition-colors hover:bg-accent data-[state=open]:bg-accent",
-                inBar
-                  ? "h-8 rounded-md px-1.5 hover:text-accent-foreground data-[state=open]:text-accent-foreground"
-                  : "h-9 rounded-lg pl-2 pr-1.5 hover:text-foreground data-[state=open]:text-foreground",
-                on ? activeClass : !inBar && "text-muted-foreground",
+                "corner-squircle electron-no-drag flex items-center gap-0.5",
+                FLAT_KEY,
+                inBar ? "h-8 rounded-[10px] px-1.5" : "h-9 rounded-xl pl-2 pr-1.5",
+                on ? activeClass : !inBar && "text-foreground",
               )}
             >
               <Icon className={inBar ? "size-4" : "size-[18px]"} />
@@ -475,7 +475,7 @@ export function PrioritySelectionMenuButton({
       icon={Zap}
       sections={priorityChoiceSections((kind, value) => isPriorityEntry(list, kind, value), threads, own)}
       onChoose={(kind, values) => onChoose(kind, values, !values.every((value) => isPriorityEntry(list, kind, value)))}
-      activeClass="text-amber-600 dark:text-amber-400"
+      activeClass="text-amber"
       choiceLabel={muteMenuLabel}
       placement="bar"
     />
@@ -921,7 +921,7 @@ export function ThreadView({
               <ToolbarButton label="Back" hint="Esc" onClick={onBack}>
                 <ArrowLeft className="size-[18px]" />
               </ToolbarButton>
-              <span className="mx-1 h-5 w-px bg-border" />
+              <span className="groove-v mx-1.5 h-5" />
             </>
           )}
           {actions.map(({ action, label, icon: Icon, hint }) => (
@@ -939,7 +939,7 @@ export function ThreadView({
                 <PriorityMenuButton thread={thread} own={ownAddresses} />
               )}
               {action === categoryMenuBefore && filterMenus}
-              {action === categoryMenuBefore && <span className="mx-1 h-5 w-px bg-border" />}
+              {action === categoryMenuBefore && <span className="groove-v mx-1.5 h-5" />}
               <ToolbarButton
                 label={label}
                 hint={hint}
@@ -994,11 +994,11 @@ export function ThreadView({
           index={findIndex}
           onStep={step}
           onClose={closeFind}
-          className={cn("absolute right-6 z-20 shadow-lg", embedded ? "top-12" : "top-[4.25rem]")}
+          className={cn("absolute right-6 z-20", embedded ? "top-12" : "top-[4.25rem]")}
         />
       )}
 
-      <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto pb-[45vh]", embedded ? "px-6 pt-4" : "px-8")}>
+      <div ref={scrollRef} className={cn("min-h-0 flex-1 overflow-y-auto pb-[45vh]", embedded ? "px-6 pt-4" : "px-8 pt-6")}>
         <div
           className={cn(
             "gap-8",
@@ -1048,8 +1048,11 @@ export function ThreadView({
                   <article
                     key={summary.id}
                     className={cn(
-                      "corner-squircle rounded-xl border border-border",
-                      open ? "bg-card" : "bg-card/40 hover:bg-card/70",
+                      "corner-squircle rounded-2xl",
+                      // In the split view the pane is itself a plate, so the messages sit one level higher.
+                      embedded
+                        ? open ? "plate-2" : "shadow-raise-3 hover:plate-2 hover:shadow-raise-2"
+                        : open ? "plate-1" : "shadow-raise-3 hover:plate-1 hover:shadow-raise-1",
                     )}
                   >
                     {/* A div, not a button: the names and addresses inside it open their own cards. */}
@@ -1078,7 +1081,7 @@ export function ThreadView({
                           {card(header.from, contactLabel(header.from), logoRequestFor(header), "min-w-0 truncate font-semibold")}
                           {isBlockedAddress(blockList, header.from.email) && (
                             <span title="Blocked" className="flex shrink-0 self-center">
-                              <ShieldBan aria-label="Blocked" className="size-3.5 text-red-400" />
+                              <ShieldBan aria-label="Blocked" className="size-3.5 text-destructive" />
                             </span>
                           )}
                           {card(header.from, header.from.email, logoRequestFor(header), "min-w-0 truncate text-xs text-muted-foreground")}
@@ -1116,7 +1119,7 @@ export function ThreadView({
                   key={draft.id}
                   type="button"
                   onClick={() => onCompose(seedFromDraft(draft))}
-                  className="corner-squircle flex w-full cursor-pointer items-center gap-3 rounded-xl border border-dashed border-border bg-card/40 p-4 text-left hover:bg-card/70"
+                  className="corner-squircle flex w-full cursor-pointer items-center gap-3 rounded-2xl p-4 text-left shadow-raise-3 hover:plate-1 hover:shadow-raise-1"
                 >
                   <Pencil className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                   <span className="shrink-0 font-semibold">Draft</span>

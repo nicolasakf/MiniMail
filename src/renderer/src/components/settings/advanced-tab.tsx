@@ -16,7 +16,7 @@ import {
 
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
-import { FOLDER_STYLE } from "@/lib/folder-style";
+import { FOLDER_STYLE, raisedActive } from "@/lib/folder-style";
 import { toast } from "@/lib/toast";
 
 import { SettingsPageHeader, SettingsRow, SettingsSectionTitle, SettingsSegmentedField, SettingsSwitchField } from "./fields";
@@ -136,11 +136,11 @@ export function AdvancedTab() {
             values={current.folders}
             disabled={!ready || !current.prefetch}
             options={OFFLINE_FOLDERS.map((folder) => {
-              const { label, icon: Icon, active } = FOLDER_STYLE[folder];
+              const { label, icon: Icon } = FOLDER_STYLE[folder];
               return {
                 value: folder,
                 label,
-                activeClassName: active,
+                activeClassName: raisedActive(folder),
                 content: <Icon aria-hidden="true" className="size-6" />,
               };
             })}
@@ -203,7 +203,7 @@ export function AdvancedTab() {
             )}
 
             {current.limit === "unlimited" && (
-              <p role="status" className="text-xs text-amber-600 dark:text-amber-400">
+              <p role="status" className="text-xs text-amber">
                 Nothing saved is ever dropped to make room, so the mail kept on this computer only grows. Newsletters and long
                 messages can take a lot of disk space over time.
               </p>

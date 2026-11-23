@@ -50,7 +50,7 @@ export interface Appearance {
   accentColor: string | null;
   /** The widest the email column grows when reading a conversation. */
   emailWidth: EmailWidth;
-  /** In dark themes, whether messages without dark styling stay on white or are recolored to the theme. */
+  /** Whether messages are shown on white, or on the theme's own color (recolored in the dark theme when they bring no dark styling). */
   emailBackground: EmailBackground;
 }
 
@@ -65,7 +65,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   splitListWidth: 400,
   accentColor: null,
   emailWidth: "default",
-  emailBackground: "white",
+  emailBackground: "theme",
 };
 
 /** The layout lists actually use: the split view has no room for a grid of cards, so it is always horizontal. */

@@ -139,7 +139,7 @@ export function AiProviderField({
       {saved ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="flex items-center gap-1.5 text-sm">
-            <CircleCheck className="size-4 text-emerald-400" />
+            <CircleCheck className="size-4 text-success" />
             {label} key saved
           </span>
           <Button size="sm" variant="ghost" onClick={() => void remove()}>

@@ -36,9 +36,9 @@ const EMAIL_WIDTHS: { value: EmailWidth; label: string }[] = [
   { value: "wider", label: "Wider" },
 ];
 
-const EMAIL_BACKGROUNDS: { value: EmailBackground; label: string; caption: string }[] = [
-  { value: "white", label: "White", caption: "Always" },
-  { value: "theme", label: "Theme", caption: "Beta" },
+const EMAIL_BACKGROUNDS: { value: EmailBackground; label: string }[] = [
+  { value: "theme", label: "Theme" },
+  { value: "white", label: "White" },
 ];
 
 /** Swatches offered under the picker; the first is the built-in blue. */
@@ -74,12 +74,11 @@ export function AppearanceTab() {
             <SettingsLabel label="Color mode" />
             <SettingsVisualField
               ariaLabel="Color mode"
-              value={(theme as "system" | "light" | "dark" | "dimmed" | undefined) ?? "system"}
+              value={(theme as "system" | "light" | "dark" | undefined) ?? "system"}
               options={[
                 { value: "system", label: "System", preview: <ThemePreview mode="system" /> },
                 { value: "light", label: "Light", preview: <ThemePreview mode="light" /> },
                 { value: "dark", label: "Dark", preview: <ThemePreview mode="dark" /> },
-                { value: "dimmed", label: "Dimmed", preview: <ThemePreview mode="dimmed" /> },
               ]}
               onValueChange={setTheme}
             />
@@ -153,15 +152,14 @@ export function AppearanceTab() {
         <section className="max-w-2xl">
           <SettingsRow
             label="Email background"
-            info="The background emails are shown on in the dark and dimmed themes."
+            info="The background emails are shown on: always white, or the theme's own color."
           >
             <SettingsTileField
               ariaLabel="Email background"
               value={emailBackground}
-              options={EMAIL_BACKGROUNDS.map(({ value, label, caption }) => ({
+              options={EMAIL_BACKGROUNDS.map(({ value, label }) => ({
                 value,
                 label,
-                caption,
                 content: <EmailBackgroundSample background={value} />,
               }))}
               onValueChange={(next) => setAppearance({ emailBackground: next })}

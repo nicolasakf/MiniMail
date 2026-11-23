@@ -25,12 +25,12 @@ export function ErrorCard({
   return (
     <Alert
       variant="destructive"
-      className={cn("bg-red-50 dark:bg-red-950/30", className)}
+      className={className}
     >
-      <AlertCircle className="h-4 w-4 dark:text-red-800" />
-      {title && <AlertTitle className="dark:text-red-800">{title}</AlertTitle>}
+      <AlertCircle className="h-4 w-4" />
+      {title && <AlertTitle>{title}</AlertTitle>}
       {message && (
-        <AlertDescription className="space-y-2 dark:text-red-800">
+        <AlertDescription className="space-y-2">
           <p>{message}</p>
           {actionUrl && (
             <a

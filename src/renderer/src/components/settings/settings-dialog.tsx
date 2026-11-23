@@ -64,13 +64,13 @@ function NavButton({
       aria-current={active ? "page" : undefined}
       onClick={onClick}
       className={cn(
-        "corner-squircle flex h-8 w-full items-center gap-2 rounded-md p-2 text-left text-sm outline-none ring-sidebar-ring transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2",
-        active && "bg-sidebar-accent font-medium text-sidebar-accent-foreground",
+        "corner-squircle flex h-8 w-full items-center gap-2 rounded-[10px] p-2 text-left text-sm outline-none transition-[box-shadow,background-color] hover:bg-face focus-visible:shadow-glow",
+        active && "plate-2 font-medium focus-visible:shadow-raise-2-glow",
       )}
     >
       <Icon className="size-4 shrink-0" />
       <span className="min-w-0 flex-1 truncate">{title}</span>
-      {flag && <span role="img" aria-label={flag} title={flag} className="size-2 shrink-0 rounded-full bg-amber-400" />}
+      {flag && <span role="img" aria-label={flag} title={flag} className="size-2 shrink-0 rounded-full bg-amber" />}
     </button>
   );
 }
@@ -137,7 +137,7 @@ export function SettingsDialog({
         <div className="flex min-h-0 flex-1 gap-3 p-3">
           <nav
             aria-label="Settings pages"
-            className="corner-squircle flex w-60 shrink-0 flex-col gap-2 overflow-hidden rounded-lg border border-sidebar-border bg-sidebar p-2 text-sidebar-foreground shadow"
+            className="corner-squircle plate-2 flex w-60 shrink-0 flex-col gap-2 overflow-hidden rounded-2xl p-2 text-sidebar-foreground"
           >
             <div className="flex h-12 items-center px-2 text-sm font-semibold">Settings</div>
             <div className="flex flex-col gap-1">

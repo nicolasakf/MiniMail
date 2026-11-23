@@ -8,7 +8,9 @@ import { ErrorBoundary } from "./components/error-boundary";
 import { api } from "./lib/api";
 import { applyAppearance } from "./lib/appearance";
 import { installEventReporting } from "./lib/events";
+import { migrateSavedTheme } from "./lib/saved-theme";
 
+migrateSavedTheme(() => localStorage);
 applyAppearance();
 // Before anything renders, so even a crash on the first paint reaches the log.
 installEventReporting(api.events);

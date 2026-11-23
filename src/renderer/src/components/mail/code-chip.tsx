@@ -59,7 +59,7 @@ export function CodeChip({
           type="button"
           aria-label={`Copy verification code ${code}`}
           className={cn(
-            "corner-squircle flex h-6 shrink-0 items-center gap-1 rounded-md bg-amber-500/10 font-mono text-[12px] font-semibold tabular-nums text-amber-700 outline-none transition-colors hover:bg-amber-500/20 dark:bg-amber-400/15 dark:text-amber-400 dark:hover:bg-amber-400/25 focus-visible:ring-2 focus-visible:ring-ring",
+            "corner-squircle plate-3 press-sink face-hover flex h-6 shrink-0 items-center gap-1 rounded-full font-mono text-[12px] font-semibold tabular-nums text-foreground outline-none transition-[box-shadow,transform,background-color] duration-100 [&_svg]:text-amber",
             compact ? "w-6 justify-center" : "px-1.5",
             className,
           )}

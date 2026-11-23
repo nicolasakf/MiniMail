@@ -71,7 +71,7 @@ function Body({ card }: { card: ConfirmCard }) {
                 </li>
               ))}
             </ul>
-            {card.filesFromCli && <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">The agent attached these files. A draft with files it added always asks first.</p>}
+            {card.filesFromCli && <p className="mt-1 text-xs text-amber">The agent attached these files. A draft with files it added always asks first.</p>}
           </Row>
         )}
         {card.canAlways && card.newRecipients.length > 0 && (

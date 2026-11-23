@@ -129,7 +129,7 @@ export function OnboardingDialog({
           <DialogDescription>Connect an email account, connect an AI provider, look over your categories and, if you like, connect an AI agent.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 border-b border-border px-6 pb-4 pt-5">
+        <div className="space-y-4 edge-b px-6 pb-4 pt-5">
           <p className="text-sm font-semibold">Welcome to MiniMail</p>
           <Stepper current={step} />
         </div>
@@ -153,7 +153,7 @@ export function OnboardingDialog({
               </StepIntro>
               <section
                 aria-label="AI provider"
-                className="corner-squircle space-y-3 rounded-xl border border-border bg-card p-4"
+                className="corner-squircle space-y-3 rounded-2xl plate-2 p-4"
               >
                 <div className="flex items-center gap-2">
                   <KeyRound className="size-4 text-muted-foreground" />
@@ -183,7 +183,7 @@ export function OnboardingDialog({
           {step === "agent" && <AgentStep />}
         </div>
 
-        <div className="flex items-center gap-2 border-t border-border px-6 py-3">
+        <div className="flex items-center gap-2 edge-t px-6 py-3">
           <Button type="button" variant="ghost" size="sm" className="-ml-2 text-muted-foreground" onClick={() => onFinish()}>
             Skip setup
           </Button>

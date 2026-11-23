@@ -206,7 +206,7 @@ export function RecipientField({
               : `${contact.email}, not a valid email address. Press Backspace to remove.`
           }
           className={cn(
-            "corner-squircle group/chip inline-flex h-7 max-w-[260px] items-center gap-1.5 rounded-full bg-muted pl-1 pr-1.5 text-[13px] outline-none transition-colors focus-visible:bg-sidebar-primary/25 focus-visible:ring-1 focus-visible:ring-sidebar-ring",
+            "corner-squircle group/chip inline-flex h-7 max-w-[260px] items-center gap-1.5 rounded-full plate-3 pl-1 pr-1.5 text-[13px] outline-none transition-colors focus-visible:shadow-raise-3-glow",
             !valid && "bg-destructive/15 text-destructive ring-1 ring-destructive/50 focus-visible:bg-destructive/25",
           )}
           onKeyDown={(event) => {
@@ -295,7 +295,7 @@ export function RecipientField({
           id={listId}
           role="listbox"
           aria-label={`${label} suggestions`}
-          className="corner-squircle absolute left-0 top-full z-50 mt-1 max-h-64 w-full min-w-[280px] overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl"
+          className="corner-squircle absolute left-0 top-full z-50 mt-1 max-h-64 w-full min-w-[280px] overflow-y-auto rounded-2xl plate-1 p-1.5 text-popover-foreground shadow-overlay"
         >
           {suggestions.map((entry, index) => {
             const contact = { name: entry.name, email: entry.email };

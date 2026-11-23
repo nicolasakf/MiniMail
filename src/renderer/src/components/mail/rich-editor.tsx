@@ -228,7 +228,7 @@ function FormatTools({ editor, onError, panel, setPanel }: {
           }}
           className="rounded border border-border bg-background px-2 py-1.5 outline-none focus-visible:ring-1 focus-visible:ring-ring" />
       )}
-      {urlError && <p role="alert" className="text-red-500">{urlError}</p>}
+      {urlError && <p role="alert" className="text-destructive">{urlError}</p>}
       <div className="flex items-center gap-2">
         {panel === "link" && state.link && <ToolOption onClick={() => run(() => editor.chain().focus().extendMarkRange("link").unsetLink().run())}>Remove link</ToolOption>}
         <button type="button" className="ml-auto rounded bg-primary px-2 py-1 text-primary-foreground" onClick={submit}>Apply</button>

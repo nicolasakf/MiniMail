@@ -74,7 +74,7 @@ export function TooltipLayer({ children }: { children: ReactNode }) {
       {tip && (
         <div
           role="tooltip"
-          className="pointer-events-none fixed z-50 min-w-[140px] max-w-[260px] rounded-lg border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg"
+          className="pointer-events-none fixed z-50 min-w-[140px] max-w-[260px] rounded-xl plate-1 px-3 py-2 text-xs text-popover-foreground shadow-overlay"
           style={{
             left: Math.min(tip.x + 14, window.innerWidth - 270),
             top: Math.min(tip.y + 14, window.innerHeight - 120),
@@ -161,7 +161,7 @@ export function ChartCard({
   children: ReactNode;
 }) {
   return (
-    <section className={cn("corner-squircle flex min-w-0 flex-col rounded-xl border border-border bg-card p-5", className)}>
+    <section className={cn("corner-squircle plate-1 flex min-w-0 flex-col rounded-[22px] p-5", className)}>
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold">{title}</h2>
@@ -258,7 +258,7 @@ export function StatTile({
     </>
   );
   const className =
-    "corner-squircle flex min-w-0 items-end gap-3 rounded-xl border border-border bg-card p-4 text-left";
+    "corner-squircle plate-1 flex min-w-0 items-end gap-3 rounded-[22px] p-4 text-left";
   if (!onClick) return <div className={className}>{body}</div>;
   return (
     <button
@@ -267,7 +267,7 @@ export function StatTile({
       title={hint}
       className={cn(
         className,
-        "cursor-pointer outline-none transition-colors hover:border-foreground/20 hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring",
+        "press-sink cursor-pointer outline-none transition-[box-shadow,transform,background-color] hover:bg-face focus-visible:shadow-raise-1-glow",
       )}
     >
       {body}

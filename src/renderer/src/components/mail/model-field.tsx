@@ -20,14 +20,14 @@ export type Connection = { state: "idle" } | { state: "testing" } | { state: "ok
 export function ConnectionNote({ connection, okText }: { connection: Connection; okText: string }) {
   if (connection.state === "ok") {
     return (
-      <p className="flex items-center gap-1.5 text-xs text-emerald-400">
+      <p className="flex items-center gap-1.5 text-xs text-success">
         <CircleCheck className="size-3.5" /> {okText}
       </p>
     );
   }
   if (connection.state === "error") {
     return (
-      <p role="alert" className="flex items-start gap-1.5 text-xs text-red-300">
+      <p role="alert" className="flex items-start gap-1.5 text-xs text-destructive">
         <CircleAlert className="mt-0.5 size-3.5 shrink-0" /> {connection.message}
       </p>
     );
@@ -181,7 +181,7 @@ export function ModelField({
           <RotateCcw /> Reset
         </Button>
       </div>
-      {!valid && <p className="text-xs text-red-300">Use a model id like &quot;{defaultModel}&quot;.</p>}
+      {!valid && <p className="text-xs text-destructive">Use a model id like &quot;{defaultModel}&quot;.</p>}
       {saved === "" && emptyNote && <p className="text-xs text-muted-foreground">{emptyNote}</p>}
       <ConnectionNote connection={connection} okText={`Connected: ${trimmed} answered a test question.`} />
     </form>

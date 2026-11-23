@@ -115,6 +115,34 @@ newer), one row per message, its content encrypted with the keychain like the ma
 - **The `offline` settings section** is versioned (`STEPS` in `offline-settings.ts`; version 1 had only the switch and the
   look-back): add a step with a test for the old format when it changes.
 
+## The look: matte plastic
+
+The UI is a light, matte, injection-molded plastic: the window is one panel and every part sits on it as a raised plate
+lit from the top left. Two themes only, **Light** and **Dark** (the same plastic in two tones; there is no third theme, and
+a saved "dimmed" becomes "dark", see `lib/saved-theme.ts`). Tokens and shapes live in `styles/globals.css`; the grain
+textures are made by `scripts/generate-grain.mjs` (`assets/grain-light.png`, `grain-dark.png`).
+
+- **Raised is the default.** Level 1 sits on the panel (`plate-1`: rail, list, cards, fields, header keys), level 2 on a
+  level-1 plate (`plate-2`: a selected row, a toolbar key inside a card, a field in a dialog), level 3 on a level-2 plate
+  (`plate-3`: a badge, a chip, a switch thumb, a hover action). A part inside a part is always one level higher.
+- **Pressed** (`shadow-pressed`) is for on, latched and current: a toggled key, the open folder, a checked box. Its icon
+  takes the highlight color (`text-sidebar-primary`). Never use a tinted fill for a state.
+- **Buttons are flat by default** (`FLAT_KEY` in `components/ui/keys.ts`, the `ghost` variant, and `outline` and
+  `secondary`, which are the same): nothing is drawn until the pointer is over one, then it rises on a plate, and it sinks
+  while held or on. Their icons keep their own color on hover. Nothing is raised at rest. Where a button marks what is on or
+  current it is raised, not sunk: the folder you are in on the sidebar (a raised insert in the full highlight color, like
+  Compose), the folder keys of the list header (lightly tinted in the folder's own color, `raisedActive` in `lib/folder-style.ts`, also used by the
+  Settings folder tiles), a selected row or card (lightly tinted), and the chosen miniature in Settings (the others are flat). Elsewhere a toggled key sinks (`shadow-pressed`). A menu item rises on its own
+  plate (`focus:plate-2`).
+- **Focus** is a soft glow behind the part, never a ring and never over text: solid parts get it from the global
+  `:focus-visible` rule; parts with no fill of their own add `shadow-*-glow` to their shadow (the rule skips classes
+  containing `-glow`). Do not add `ring-*` classes.
+- **Small icons** are plain strokes in the text color, not engraved. Dividers are grooves (`groove-h`, `groove-v`,
+  `edge-t`, `edge-b`), not 1px borders. Colors come from the tokens (`text-destructive`, `text-amber`, `text-success`,
+  `bg-sidebar-primary`), never from fixed Tailwind palette colors.
+- The primitives in `components/ui` already carry all of this; a new part should use them or the classes above rather
+  than its own border, fill and shadow.
+
 ## Undo
 
 Every user action that can be taken back is on the undo stack (`src/renderer/src/lib/undo-stack.ts`):

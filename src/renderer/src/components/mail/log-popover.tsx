@@ -6,6 +6,7 @@ import { Check, CircleAlert, ExternalLink, Info, Maximize2, Minimize2, MousePoin
 import { EVENT_RETENTION_MS, type AppEvent } from "@shared/events";
 
 import { ToolButton } from "@/components/mail/composer-ui";
+import { FLAT_KEY } from "@/components/ui/keys";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEventJournal } from "@/hooks/use-event-journal";
@@ -188,7 +189,7 @@ function ExpandedPanel({ onClose, children }: { onClose: () => void; children: R
         }
       }}
       // electron-no-drag: it sits over the app's window-drag headers, which would swallow clicks on its buttons.
-      className="corner-squircle electron-no-drag fixed inset-x-6 bottom-6 top-6 z-50 mx-auto flex max-w-[1040px] flex-col overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-[0_24px_70px_-12px_rgb(0_0_0/0.55)] outline-none duration-200 animate-in fade-in-0 slide-in-from-bottom-3"
+      className="corner-squircle electron-no-drag fixed inset-x-6 bottom-6 top-6 z-50 mx-auto flex max-w-[1040px] flex-col overflow-hidden rounded-[24px] plate-1 text-popover-foreground shadow-overlay outline-none duration-200 animate-in fade-in-0 slide-in-from-bottom-3"
     >
       {children}
     </section>
@@ -235,7 +236,7 @@ export function LogPopover({ retryFor }: Props) {
 
   const content = (
     <>
-      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+      <div className="flex items-center justify-between gap-2 edge-b px-4 py-3">
         <div className="flex min-w-0 items-baseline gap-2">
           <h2 className="text-sm font-semibold">Log</h2>
           <span className="truncate text-xs text-muted-foreground">
@@ -325,7 +326,7 @@ export function LogPopover({ retryFor }: Props) {
             <button
               type="button"
               aria-label={!open && unseen ? "Log, new errors" : "Log"}
-              className="electron-no-drag relative flex size-9 items-center justify-center rounded-xl text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={`electron-no-drag relative flex size-9 items-center justify-center rounded-full ${FLAT_KEY}`}
             >
               <ScrollText className="size-5" />
               {!open && unseen && (

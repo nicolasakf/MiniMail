@@ -21,7 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { hexToHue, hslToHex } from "@/lib/color";
-import { FOLDER_STYLE } from "@/lib/folder-style";
+import { FOLDER_STYLE, raisedActive } from "@/lib/folder-style";
 import { categoryChanges, needsResort } from "@/lib/category-changes";
 import { cn } from "@/lib/utils";
 
@@ -81,7 +81,7 @@ function SortFoldersField({
   };
 
   return (
-    <section className="space-y-2 border-t border-border pt-3" aria-label="Folders that are sorted">
+    <section className="space-y-2 edge-t pt-3" aria-label="Folders that are sorted">
       <div>
         <h3 className="text-sm font-semibold">Sort new mail in</h3>
         <p className="text-xs text-muted-foreground">New mail that arrives in the highlighted folders is sorted into your categories.</p>
@@ -91,19 +91,19 @@ function SortFoldersField({
         values={current}
         className="justify-center py-4"
         options={SORT_FOLDERS.map((folder) => {
-          const { label, icon: Icon, active } = FOLDER_STYLE[folder];
+          const { label, icon: Icon } = FOLDER_STYLE[folder];
           return {
             value: folder,
             label,
             description: FOLDER_HELP[folder],
-            activeClassName: active,
+            activeClassName: raisedActive(folder),
             content: <Icon aria-hidden="true" className="size-6" />,
           };
         })}
         onToggle={(folder, on) => void toggle(folder, on)}
       />
       {ai?.lastError && (
-        <p role="alert" className="flex items-start gap-1.5 text-xs text-red-300">
+        <p role="alert" className="flex items-start gap-1.5 text-xs text-destructive">
           <CircleAlert className="mt-0.5 size-3.5 shrink-0" /> Last sorting attempt failed: {ai.lastError}
         </p>
       )}
@@ -133,7 +133,7 @@ function AdvancedSection({
   };
 
   return (
-    <section className="space-y-3 border-t border-border pt-3" aria-label="Advanced">
+    <section className="space-y-3 edge-t pt-3" aria-label="Advanced">
       <button
         type="button"
         aria-expanded={open}
@@ -146,7 +146,7 @@ function AdvancedSection({
       </button>
 
       {open && (
-        <div id="categories-advanced" className="corner-squircle space-y-5 rounded-xl border border-border bg-card/40 p-4">
+        <div id="categories-advanced" className="corner-squircle space-y-5 rounded-2xl plate-2 p-4">
           {api.system.demo && (
             <p className="rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
               Browser demo: categories are assigned by simple keyword rules and nothing leaves this page.
@@ -249,7 +249,7 @@ function CategoryCard({
     <div
       ref={card}
       className={cn(
-        "corner-squircle rounded-xl border border-border bg-card/30 p-2 transition-opacity",
+        "corner-squircle rounded-2xl plate-2 p-2 transition-opacity",
         dragging && "opacity-40",
       )}
       role="group"
@@ -456,7 +456,7 @@ export function CategoriesPanel({ categories, ai, onState, embedded = false, onD
         <div className="space-y-4">
           <section className="space-y-3" aria-label="Category list">
             {draft.length === 0 && (
-              <p className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
+              <p className="rounded-xl shadow-stamped px-3 py-6 text-center text-sm text-muted-foreground">
                 No categories. Add one to start sorting mail.
               </p>
             )}
@@ -527,7 +527,7 @@ export function CategoriesPanel({ categories, ai, onState, embedded = false, onD
             </div>
 
             {problems.length > 0 && dirty && (
-              <ul role="alert" className="space-y-0.5 text-xs text-red-300">
+              <ul role="alert" className="space-y-0.5 text-xs text-destructive">
                 {problems.map((problem) => (
                   <li key={problem}>{problem}</li>
                 ))}

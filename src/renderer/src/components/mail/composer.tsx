@@ -240,12 +240,12 @@ export function Composer({ seed, accounts, onClose, detached, minimized, tray, t
         data-composer
         className={cn(
           minimized ? "hidden" : "flex",
-          "flex-col bg-background text-foreground",
+          "plastic flex-col text-foreground",
           detached
             ? "relative h-dvh w-full"
             : cn(
                 // electron-no-drag: the expanded panel sits over the app's window-drag headers, which would swallow clicks on its buttons.
-                "corner-squircle electron-no-drag fixed z-40 border border-border shadow-[0_24px_70px_-12px_rgb(0_0_0/0.55)] duration-200 animate-in fade-in-0 slide-in-from-bottom-3",
+                "corner-squircle electron-no-drag fixed z-40 rounded-[24px] shadow-overlay duration-200 animate-in fade-in-0 slide-in-from-bottom-3",
                 expanded
                   ? cn("inset-x-6 top-6 mx-auto max-w-[1040px]", trayBusy ? "bottom-[76px]" : "bottom-6")
                   : cn(onRight ? "right-4" : "left-4", trayBusy ? "bottom-[76px]" : "bottom-4"),
@@ -322,7 +322,7 @@ export function Composer({ seed, accounts, onClose, detached, minimized, tray, t
 
           <div
             ref={scroll}
-            className="min-h-0 flex-1 overflow-y-auto"
+            className="corner-squircle mx-3 my-2 min-h-0 flex-1 overflow-y-auto rounded-2xl transition-shadow focus-within:plate-2"
             onMouseDown={(event) => {
               // The empty space under the text is part of the page: clicking it types there.
               if (event.target !== event.currentTarget) return;
@@ -371,10 +371,10 @@ export function Composer({ seed, accounts, onClose, detached, minimized, tray, t
 
           {/* The text bubble floats from here, and the formatting bar, when shown, sits in the next box. */}
           <div ref={overlay} className="relative z-10 h-0" />
-          <div ref={setToolbarHost} className="mail-format-host mail-format-up shrink-0 border-t border-border/50 empty:hidden" />
+          <div ref={setToolbarHost} className="mail-format-host mail-format-up shrink-0 empty:hidden" />
 
           <footer
-            className="flex shrink-0 items-center gap-1 border-t border-border/50 px-3 py-2.5"
+            className="flex shrink-0 items-center gap-1 px-3 py-2.5"
             onKeyDown={(event) => {
               if (event.key === "Escape" && confirmDiscard) {
                 event.preventDefault();
@@ -392,7 +392,7 @@ export function Composer({ seed, accounts, onClose, detached, minimized, tray, t
               onClear={() => setTime(undefined)}
               onPick={() => setPickingTime(true)}
             />
-            <span aria-hidden className="mx-1.5 h-5 w-px bg-border" />
+            <span aria-hidden className="mx-1" />
             <ToolButton label="Formatting options" aria-pressed={showToolbar} onClick={() => setShowToolbar((value) => !value)}>
               <ALargeSmall />
             </ToolButton>
@@ -412,8 +412,8 @@ export function Composer({ seed, accounts, onClose, detached, minimized, tray, t
             {confirmDiscard ? (
               <div className="flex items-center gap-1 text-[13px]">
                 <span className="mr-1 text-muted-foreground">Discard this draft?</span>
-                <Button type="button" variant="ghost" autoFocus className="h-8 rounded-lg px-2.5 text-xs" onClick={() => setConfirmDiscard(false)}>Keep</Button>
-                <Button type="button" className="h-8 rounded-lg bg-red-600 px-2.5 text-xs text-white hover:bg-red-600/90"
+                <Button type="button" variant="ghost" autoFocus className="h-8 rounded-[10px] px-2.5 text-xs" onClick={() => setConfirmDiscard(false)}>Keep</Button>
+                <Button type="button" variant="destructive" className="h-8 rounded-[10px] px-2.5 text-xs"
                   onClick={() => void session.discard()}>Discard</Button>
               </div>
             ) : (

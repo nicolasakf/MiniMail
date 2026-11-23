@@ -56,7 +56,7 @@ export function KeyboardShortcutBadge({
   return (
     <kbd
       className={cn(
-        "pointer-events-none inline-flex h-5 min-h-5 shrink-0 flex-nowrap select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[12px] font-medium text-muted-foreground opacity-100",
+        "pointer-events-none inline-flex h-5 min-h-5 shrink-0 flex-nowrap select-none items-center gap-1 rounded-[7px] plate-3 px-1.5 font-mono text-[12px] font-medium text-muted-foreground opacity-100",
         className,
       )}
     >

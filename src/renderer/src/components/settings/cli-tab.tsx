@@ -148,7 +148,7 @@ function AllowedRecipients({ settings, update }: { settings: CliSettings; update
         </Button>
       </form>
       {problem && (
-        <p role="alert" className="text-xs text-red-500">
+        <p role="alert" className="text-xs text-destructive">
           {problem}
         </p>
       )}
@@ -235,7 +235,7 @@ function AskGroup({ group, settings, update }: { group: CliGroupDef; settings: C
                   <code className="block truncate font-mono text-xs font-medium">{entry.usage}</code>
                   <p className="text-xs text-muted-foreground">{entry.summary}</p>
                   {command === "send" && settings.ask.send === "always" && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400">Sending to anyone is allowed without asking.</p>
+                    <p className="text-xs text-amber">Sending to anyone is allowed without asking.</p>
                   )}
                 </div>
                 <div className="w-56 shrink-0">
@@ -369,7 +369,7 @@ export function CliTab() {
           onCheckedChange={(pathLink) => void update((current) => ({ ...current, pathLink }))}
         />
         {settings.enabled && settings.pathLink && !state.pathLink.installed && (
-          <p role="alert" className="-mt-3 text-xs text-red-500">
+          <p role="alert" className="-mt-3 text-xs text-destructive">
             The link was not added. The Log says why (a file of your own may already be there).
           </p>
         )}
@@ -386,7 +386,7 @@ export function CliTab() {
           onCheckedChange={(hide) => (hide ? void update((current) => ({ ...current, hideLinks: true })) : setAskLinks(true))}
         />
         {!settings.hideLinks && (
-          <p className="-mt-3 text-xs text-amber-600 dark:text-amber-400">
+          <p className="-mt-3 text-xs text-amber">
             Full links are shown to the agent.
           </p>
         )}

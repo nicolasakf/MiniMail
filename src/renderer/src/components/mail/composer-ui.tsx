@@ -3,7 +3,7 @@ import { forwardRef } from "react";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-/** The quiet icon button used along the composer's header and footer. */
+/** The icon key used along the composer's header and footer: flat until pointed at, sunk while on. */
 export const ToolButton = forwardRef<HTMLButtonElement, ButtonProps & { label: string }>(
   ({ label, className, children, ...props }, ref) => (
     <Button
@@ -14,7 +14,7 @@ export const ToolButton = forwardRef<HTMLButtonElement, ButtonProps & { label: s
       aria-label={label}
       title={label}
       className={cn(
-        "size-9 rounded-xl text-muted-foreground hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground aria-pressed:bg-accent aria-pressed:text-foreground",
+        "size-9 rounded-xl aria-expanded:shadow-pressed aria-expanded:text-sidebar-primary aria-pressed:shadow-pressed aria-pressed:text-sidebar-primary",
         className,
       )}
       {...props}

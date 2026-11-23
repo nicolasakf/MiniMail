@@ -22,8 +22,13 @@ describe("hasDarkModeRules", () => {
 });
 
 describe("chooseEmailRender", () => {
-  it("keeps white in a light theme", () => {
-    expect(chooseEmailRender({ dark: false, darkAware: true, background: "theme" })).toBe("white");
+  it("keeps white in a light theme unless the setting is Theme", () => {
+    expect(chooseEmailRender({ dark: false, darkAware: true, background: "white" })).toBe("white");
+    expect(chooseEmailRender({ dark: false, darkAware: false, background: "white" })).toBe("white");
+  });
+  it("paints the theme's color in a light theme when the setting is Theme", () => {
+    expect(chooseEmailRender({ dark: false, darkAware: true, background: "theme" })).toBe("tinted");
+    expect(chooseEmailRender({ dark: false, darkAware: false, background: "theme" })).toBe("tinted");
   });
   it("honors a sender's dark design in a dark theme", () => {
     expect(chooseEmailRender({ dark: true, darkAware: true, background: "white" })).toBe("native");
@@ -35,8 +40,8 @@ describe("chooseEmailRender", () => {
 });
 
 describe("preFlipRgb", () => {
-  it("keeps the dimmed card grey once the filter has run", () => {
-    // The dimmed card is a bluish grey; a plain inversion came out brownish.
+  it("keeps the dark card grey once the filter has run", () => {
+    // The dark card is a bluish grey; a plain inversion came out brownish.
     const [red, green, blue] = (preFlipRgb("rgb(37, 38, 42)") ?? "").match(/\d+/g)!.map(Number);
     expect([red, green, blue]).toEqual([216, 217, 221]);
   });

@@ -22,7 +22,8 @@ import { isLocalDraftThread } from "@/lib/local-drafts";
 import { rowHoverActions } from "@/lib/row-actions";
 import { unsubscribeButton } from "@/lib/unsubscribe-confirm";
 import { useUnsubscribed } from "@/lib/unsubscribed";
-import { HOVER_ON_TINT, MUTED_ICON } from "@/lib/highlight";
+import { FLAT_KEY } from "@/components/ui/keys";
+import { MUTED_ICON } from "@/lib/highlight";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
 import { cn } from "@/lib/utils";
 
@@ -164,10 +165,7 @@ export const ThreadRow = memo(function ThreadRow({
             type="button"
             aria-label="Unsubscribe"
             disabled={unsubscribeAction.disabled}
-            className={cn(
-              "corner-squircle flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors enabled:hover:bg-accent enabled:hover:text-foreground disabled:opacity-40",
-              HOVER_ON_TINT,
-            )}
+            className={cn("flex size-6 items-center justify-center rounded-lg disabled:opacity-40", FLAT_KEY, "hover:plate-2")}
             onClick={(event) => {
               const box = event.currentTarget.getBoundingClientRect();
               onUnsubscribe?.(thread, { x: box.left, y: box.bottom });
@@ -186,7 +184,7 @@ export const ThreadRow = memo(function ThreadRow({
         <button
           type="button"
           aria-label={label}
-          className={cn("corner-squircle flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground", HOVER_ON_TINT)}
+          className={cn("flex size-6 items-center justify-center rounded-lg", FLAT_KEY, "hover:plate-2")}
           onClick={() => onAction(action, thread)}
         >
           <Icon className="size-3.5" />
@@ -202,7 +200,7 @@ export const ThreadRow = memo(function ThreadRow({
     <>
       {priority && (
         <span title="Priority" className="flex shrink-0">
-          <Zap aria-label="Priority" className="size-3.5 fill-amber-500 text-amber-500" />
+          <Zap aria-label="Priority" className="size-3.5 fill-amber text-amber" />
         </span>
       )}
       {muted && (
@@ -212,7 +210,7 @@ export const ThreadRow = memo(function ThreadRow({
       )}
       {blocked && (
         <span title="Blocked" className="flex shrink-0">
-          <ShieldBan aria-label="Blocked" className="size-3.5 text-red-400" />
+          <ShieldBan aria-label="Blocked" className="size-3.5 text-destructive" />
         </span>
       )}
       {rowStyle && (
@@ -238,16 +236,22 @@ export const ThreadRow = memo(function ThreadRow({
       aria-selected={selected}
       data-tinted={selected || checked || undefined}
       className={cn(
-        "group relative mx-2 flex select-none cursor-default gap-2.5 rounded-md px-3 text-[13px]",
+        "group corner-squircle relative mx-2 flex select-none cursor-default gap-2.5 rounded-xl px-3 text-[13px] transition-shadow",
         compact ? "items-center py-2" : "h-10 items-center",
+        // A row rises when pointed at; a checked or selected one is shaded in the highlight color, and the cursor row (where the arrows are) has an outline.
         selected || checked
-          ? "bg-sidebar-primary/[0.12] dark:bg-sidebar-primary/25"
-          : "hover:bg-accent/50",
-        // A run of highlighted rows reads as one block: only its first and last rows are rounded.
-        (selected || checked) && joinTop && "rounded-t-none",
-        (selected || checked) && joinBottom && "rounded-b-none",
+          ? cn(
+              "grain sel-tint",
+              // A run of rows is raised as one block, not item by item.
+              joinTop && joinBottom ? "run-mid" : joinTop ? "run-bottom" : joinBottom ? "run-top" : "shadow-raise-1",
+            )
+          : "hover:plate-1",
+        // A run of highlighted rows reads as one block: only its first and last rows are rounded. (`!` because the squircle rule is not in a layer and would win.)
+        (selected || checked) && joinTop && "!rounded-t-none",
+        (selected || checked) && joinBottom && "!rounded-b-none",
         // The cursor row (where the arrows are) gets an outline, like the focused sender.
-        selected && "ring-1 ring-inset ring-sidebar-primary/60",
+        // (Not inside a run of rows: its outline would cut across the seams of the block.)
+        selected && !joinTop && !joinBottom && "ring-1 ring-inset ring-sidebar-primary/60",
       )}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -318,7 +322,7 @@ export const ThreadRow = memo(function ThreadRow({
             <span className="min-w-0 truncate font-normal">{subjectText}</span>
             <CodeChip messageId={latest.id} date={latest.date} categoryId={latest.categoryId} />
             {thread.count > 1 && (
-              <span className="shrink-0 rounded bg-muted px-1.5 text-[11px] font-medium leading-4 text-muted-foreground">
+              <span className="plate-3 shrink-0 rounded-[7px] px-1.5 text-[11px] font-medium leading-4 text-muted-foreground">
                 {thread.count}
               </span>
             )}
@@ -344,7 +348,7 @@ export const ThreadRow = memo(function ThreadRow({
         </span>
         <CodeChip messageId={latest.id} date={latest.date} categoryId={latest.categoryId} />
         {thread.count > 1 && (
-          <span className="shrink-0 rounded bg-muted px-1.5 text-[11px] font-medium leading-4 text-muted-foreground">
+          <span className="plate-3 shrink-0 rounded-[7px] px-1.5 text-[11px] font-medium leading-4 text-muted-foreground">
             {thread.count}
           </span>
         )}

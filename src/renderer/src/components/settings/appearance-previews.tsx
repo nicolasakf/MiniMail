@@ -64,12 +64,11 @@ function MailRow({
 // Color mode ---------------------------------------------------------------------------------------
 
 const MODE_COLORS = {
-  light: { bg: "#ffffff", side: "#f4f4f5", line: "#d4d4d8", strong: "#71717a", accent: "#e0e7ff" },
-  dark: { bg: "#18181b", side: "#27272a", line: "#3f3f46", strong: "#a1a1aa", accent: "#312e81" },
-  dimmed: { bg: "#1f2125", side: "#272a2f", line: "#3b3f46", strong: "#a3a8b1", accent: "#2a3f78" },
+  light: { bg: "#e9e7e3", side: "#dfdcd7", line: "#c9c4bb", strong: "#645f59", accent: "#c9d6ee" },
+  dark: { bg: "#323539", side: "#2c2f33", line: "#454a50", strong: "#b1b2b4", accent: "#3d4e70" },
 } as const;
 
-function ThemeMock({ mode, style }: { mode: "light" | "dark" | "dimmed"; style?: CSSProperties }) {
+function ThemeMock({ mode, style }: { mode: "light" | "dark"; style?: CSSProperties }) {
   const c = MODE_COLORS[mode];
   return (
     <div className="absolute inset-0 flex" style={{ background: c.bg, ...style }}>
@@ -94,7 +93,7 @@ function ThemeMock({ mode, style }: { mode: "light" | "dark" | "dimmed"; style?:
   );
 }
 
-export function ThemePreview({ mode }: { mode: "system" | "light" | "dark" | "dimmed" }) {
+export function ThemePreview({ mode }: { mode: "system" | "light" | "dark" }) {
   return (
     <PreviewFrame className="bg-transparent">
       {mode === "system" ? (

@@ -5,6 +5,7 @@ import type { AppEvent } from "@shared/events";
 import type { Account, MailFolder } from "@shared/types";
 
 import { LogPopover } from "@/components/mail/log-popover";
+import { FLAT_KEY } from "@/components/ui/keys";
 import { ShortcutHint } from "@/components/ui/keyboard-shortcut-badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsMac } from "@/hooks/use-platform";
@@ -32,10 +33,10 @@ function RailButton({ icon: Icon, label, active = false, onClick, shortcut, show
           aria-current={active ? "page" : undefined}
           onClick={onClick}
           className={cn(
-            "corner-squircle electron-no-drag relative flex size-9 items-center justify-center rounded-xl transition-colors",
-            active
-              ? "bg-sidebar-primary text-sidebar-primary-foreground"
-              : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            "electron-no-drag relative flex size-9 items-center justify-center rounded-full",
+            FLAT_KEY,
+            // The folder you are in is a raised insert in the full highlight color, like the Compose button.
+            active && "grain bg-sidebar-primary text-sidebar-primary-foreground shadow-raise-1 hover:bg-sidebar-primary",
           )}
         >
           <Icon className={cn("size-5 transition-opacity", showHint && "opacity-25")} />
@@ -114,9 +115,9 @@ function AccountSyncList({
             {state === "loading" ? (
               <LoaderCircle aria-hidden className="size-3 shrink-0 animate-spin" />
             ) : state === "failed" ? (
-              <CircleAlert aria-hidden className="size-3 shrink-0 text-amber-400" />
+              <CircleAlert aria-hidden className="size-3 shrink-0 text-amber" />
             ) : (
-              <Check aria-hidden className="size-3 shrink-0 text-emerald-500" />
+              <Check aria-hidden className="size-3 shrink-0 text-success" />
             )}
             <span className="min-w-0 flex-1 truncate">{accountLabel(account)}</span>
             <span className="shrink-0 opacity-70">
@@ -157,8 +158,8 @@ export function Rail({
 
   return (
     // The outer wrapper insets the rail from the window edges (top clears the macOS traffic lights).
-    <div className="electron-window-drag flex shrink-0 pb-3 pl-3 pr-0 pt-12">
-      <nav aria-label="Folders" className="flex w-12 flex-col items-center py-3">
+    <div className="electron-window-drag flex shrink-0 pb-3 pl-3 pr-3 pt-12">
+      <nav aria-label="Folders" className="flex w-[48px] flex-col items-center py-3">
         <div className="flex flex-col items-center gap-1.5">
           <RailButton
             icon={ChartColumn}
@@ -168,7 +169,7 @@ export function Rail({
             shortcut={shortcut("1")}
             showHint={hints}
           />
-          <span aria-hidden className="my-1 h-px w-6 bg-sidebar-border" />
+          <span aria-hidden className="groove-h my-1.5 w-6" />
           <RailButton
             icon={Mail}
             label={FOLDER_TITLES.inbox}
@@ -197,11 +198,11 @@ export function Rail({
                 <div
                   role="status"
                   aria-label={activityLabel(sorting, syncing)}
-                  className="electron-no-drag relative flex size-9 items-center justify-center rounded-full text-sidebar-foreground/70"
+                  className="electron-no-drag relative flex size-9 items-center justify-center rounded-full text-sidebar-primary"
                 >
                   <LoaderCircle className="size-5 animate-spin" />
                   {sorting > 0 && (
-                    <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-sidebar-primary px-1 text-center text-[10px] font-semibold leading-4 text-sidebar-primary-foreground">
+                    <span className="absolute -right-0.5 -top-0.5 min-w-4 rounded-full bg-sidebar-primary px-1 text-center text-[10px] font-semibold leading-4 text-sidebar-primary-foreground shadow-raise-3">
                       {sorting > 99 ? "99+" : sorting}
                     </span>
                   )}
@@ -232,12 +233,12 @@ export function Rail({
                 type="button"
                 aria-label="Settings"
                 onClick={onOpenSettings}
-                className="electron-no-drag relative flex size-9 items-center justify-center rounded-xl text-sidebar-foreground/70 outline-none ring-offset-background transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className={`electron-no-drag relative flex size-9 items-center justify-center rounded-full outline-none ${FLAT_KEY}`}
               >
                 <Settings className="size-5" />
                 {aiOff && (
                   <span
-                    className="absolute right-0 top-0 size-2 rounded-full bg-amber-400 ring-2 ring-background"
+                    className="absolute right-0 top-0 size-2.5 rounded-full bg-amber shadow-raise-3 ring-2 ring-background"
                     aria-label="AI categorization is off"
                   />
                 )}

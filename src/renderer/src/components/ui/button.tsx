@@ -2,29 +2,30 @@ import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 
+import { FLAT_KEY } from "@/components/ui/keys"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "corner-squircle inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "corner-squircle press-sink inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl text-sm font-medium transition-[box-shadow,transform,background-color,color] duration-100 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        // Raised parts: a plate of plastic, or a plate in the ink or danger color (a second shot).
+        default: "grain bg-primary text-primary-foreground shadow-raise-1 hover:bg-primary/90",
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline:
-          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
-        blink: "text-muted-foreground hover:bg-transparent hover:text-primary",
+          "grain bg-destructive text-destructive-foreground shadow-raise-1 hover:bg-destructive/90",
+        // Most buttons are flat until pointed at, then they rise.
+        outline: FLAT_KEY,
+        secondary: FLAT_KEY,
+        ghost: FLAT_KEY,
+        link: "text-sidebar-primary underline-offset-4 hover:underline focus-visible:shadow-glow",
+        blink: "text-muted-foreground hover:bg-transparent hover:text-sidebar-primary",
       },
       size: {
         default: "h-10 px-4 py-2",
         xs: "h-4 w-4 rounded-sm px-2 py-1",
-        sm: "h-9 rounded-md px-3",
-        lg: "h-11 rounded-md px-8",
+        sm: "h-9 rounded-[10px] px-3",
+        lg: "h-11 rounded-[14px] px-8",
         icon: "h-10 w-10",
       },
     },

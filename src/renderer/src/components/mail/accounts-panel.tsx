@@ -553,7 +553,7 @@ function AddAccountForm({
                   aria-invalid={!validTenant}
                   onChange={(event) => setTenant(event.target.value)}
                 />
-                {!validTenant && <p className="text-sm text-red-400">Enter an organization domain or tenant ID.</p>}
+                {!validTenant && <p className="text-sm text-destructive">Enter an organization domain or tenant ID.</p>}
               </div>
             )}
           </>
@@ -563,7 +563,7 @@ function AddAccountForm({
           <div
             role="alert"
             className={cn(
-              "corner-squircle rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300",
+              "corner-squircle rounded-lg bg-destructive/10 p-3 text-sm text-destructive",
             )}
           >
             {error}

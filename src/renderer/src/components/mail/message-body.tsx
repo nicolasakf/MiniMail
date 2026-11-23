@@ -61,6 +61,12 @@ html,body{margin:0;padding:0;${base};background:transparent;color:${palette.fore
 body{padding:16px}a{color:#8ab4f8}
 ${shared} ${palette.border};color:${palette.muted}}`;
   }
+  if (render === "tinted") {
+    // The light design, on the theme's own surface instead of white.
+    return `html,body{margin:0;padding:0;${base};background:transparent;color:${palette.foreground}}
+body{padding:16px}a{color:#0b57d0}
+${shared} ${palette.border};color:${palette.muted}}`;
+  }
   if (render === "inverted") {
     // The page is flipped as a whole, so it is written as the light design and painted with the
     // card's color pre-compensated for the filter (a plain inversion would tint greys brown); images and video are flipped back to their own colors.
@@ -106,7 +112,7 @@ function HtmlBody({ html, from, authenticated }: { html: string } & Sender) {
   const clean = useMemo(() => sanitizeEmailHtml(html), [html]);
   const darkAware = useMemo(() => hasDarkModeRules(clean), [clean]);
   const render = chooseEmailRender({
-    dark: resolvedTheme === "dark" || resolvedTheme === "dimmed",
+    dark: resolvedTheme === "dark",
     darkAware,
     background: emailBackground,
   });

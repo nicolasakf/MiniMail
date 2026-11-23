@@ -132,7 +132,7 @@ export function ContactCard({ contact, children, className, own, hideFiltering =
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-fit min-w-64 max-w-[min(28rem,calc(100vw-2rem))] p-0" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center gap-3 border-b border-border p-4">
+        <div className="flex items-center gap-3 edge-b p-4">
           <SenderAvatar contact={contact} size={44} logo={logo} />
           <div className="min-w-0 flex-1">
             <div className="truncate font-semibold">{contactLabel(contact)}</div>

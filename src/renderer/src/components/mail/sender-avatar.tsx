@@ -45,7 +45,7 @@ export function SenderAvatar({ contact, size = 36, className, logo }: SenderAvat
     return (
       <span
         className={cn("corner-squircle inline-flex shrink-0 overflow-hidden", className)}
-        style={{ ...shape, background: photo ? undefined : (edge ?? "#fff"), boxShadow: "inset 0 0 0 1px hsl(0 0% 50% / 0.18)" }}
+        style={{ ...shape, background: photo ? undefined : (edge ?? "#fff"), boxShadow: "var(--raise-3)" }}
       >
         <img
           src={image}
@@ -63,8 +63,10 @@ export function SenderAvatar({ contact, size = 36, className, logo }: SenderAvat
       className={cn("corner-squircle inline-flex shrink-0 items-center justify-center font-semibold", className)}
       style={{
         ...shape,
-        background: `hsl(${hue} 45% 22%)`,
-        color: `hsl(${hue} 80% 88%)`,
+        // The tile is the plastic tinted with the sender's hue, as a raised level-3 part with pad-printed initials.
+        background: `hsl(${hue} var(--tile-s) var(--tile-l))`,
+        color: `hsl(${hue} 45% var(--tile-ink))`,
+        boxShadow: "var(--raise-3)",
         fontSize: Math.max(9, Math.round(size * 0.38)),
       }}
     >

@@ -67,21 +67,21 @@ const STATUS: Record<SenderStatus, StatusInfo> = {
     adjective: "priority",
     icon: Zap,
     info: "Shows mail from these senders and domains on the Priority card while it is unread.",
-    on: "border-amber-500/50 bg-amber-500/15 text-amber-600 dark:text-amber-300",
+    on: "shadow-pressed text-amber",
   },
   muted: {
     name: "Mute",
     adjective: "muted",
     icon: BellOff,
     info: "Stops notifications for mail from these senders and domains.",
-    on: "border-sky-500/50 bg-sky-500/15 text-sky-600 dark:text-sky-300",
+    on: "shadow-pressed text-sidebar-primary",
   },
   blocked: {
     name: "Block",
     adjective: "blocked",
     icon: ShieldBan,
     info: "Moves mail from these senders and domains to the Trash.",
-    on: "border-red-500/50 bg-red-500/15 text-red-600 dark:text-red-300",
+    on: "shadow-pressed text-destructive",
   },
 };
 
@@ -351,7 +351,7 @@ function AddBox({
                   aria-invalid={!valid || undefined}
                   aria-label={valid ? `${chip.label}. Press Backspace to remove.` : `${chip.label}, not an address or a domain. Press Backspace to remove.`}
                   className={cn(
-                    "corner-squircle inline-flex h-7 max-w-[260px] items-center gap-1.5 rounded-full bg-muted pl-1 pr-1.5 text-[13px] outline-none transition-colors focus-visible:bg-sidebar-primary/25 focus-visible:ring-1 focus-visible:ring-sidebar-ring",
+                    "corner-squircle inline-flex h-7 max-w-[260px] items-center gap-1.5 rounded-full plate-3 pl-1 pr-1.5 text-[13px] outline-none transition-colors focus-visible:shadow-raise-3-glow",
                     !valid && "bg-destructive/15 text-destructive ring-1 ring-destructive/50 focus-visible:bg-destructive/25",
                   )}
                   onKeyDown={(event) => {
@@ -478,7 +478,7 @@ function AddBox({
         </div>
       </div>
       {problems.length > 0 && (
-        <div role="alert" className="space-y-0.5 text-xs text-red-300">
+        <div role="alert" className="space-y-0.5 text-xs text-destructive">
           {problems.map((problem) => (
             <p key={problem}>{problem}</p>
           ))}
@@ -501,8 +501,8 @@ function StatusSwitch({ row, status, onToggle }: { row: SenderRow; status: Sende
           aria-label={`${name}: ${row.label}`}
           onClick={onToggle}
           className={cn(
-            "corner-squircle inline-flex size-8 items-center justify-center rounded-md border text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            pressed ? on : "border-transparent opacity-60 hover:bg-accent hover:text-foreground hover:opacity-100",
+            "corner-squircle plate-3 press-sink inline-flex size-8 items-center justify-center rounded-[10px] text-muted-foreground transition-[box-shadow,transform,background-color,color] duration-100 focus-visible:outline-none",
+            pressed ? on : "hover:bg-face hover:text-foreground",
           )}
         >
           <Icon className="size-4" />
@@ -691,8 +691,8 @@ export function SendersTab({ accounts }: { accounts: readonly Account[] }) {
                 setShown(PAGE_SIZE);
               }}
               className={cn(
-                "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                filter === id ? "border-transparent bg-primary text-primary-foreground" : "hover:bg-accent",
+                "plate-3 inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs transition-[box-shadow,background-color] focus-visible:outline-none",
+                filter === id ? "shadow-pressed text-sidebar-primary" : "hover:bg-face",
               )}
             >
               {name} <span className="tabular-nums opacity-70">{counts[id]}</span>

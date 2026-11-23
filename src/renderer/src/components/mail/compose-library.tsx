@@ -235,7 +235,7 @@ export function SignatureSheet({ draft, busy, onCancel, onSave }: {
         }
       }}
     >
-      <div className="flex h-12 shrink-0 items-center gap-1 border-y border-border/50 px-3">
+      <div className="flex h-12 shrink-0 items-center gap-1 edge-b px-3">
         <ToolButton label="Back" className="size-8" onClick={onCancel}><ArrowLeft /></ToolButton>
         <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold">{draft.id ? "Edit signature" : "New signature"}</h3>
         <Button type="button" variant="ghost" className="h-8 gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground hover:text-foreground"
@@ -248,7 +248,7 @@ export function SignatureSheet({ draft, busy, onCancel, onSave }: {
         </Button>
       </div>
 
-      <div className="flex items-center gap-3 border-b border-border/50 px-5">
+      <div className="flex items-center gap-3 edge-b px-5">
         <label htmlFor="signature-name" className="w-12 shrink-0 text-[13px] text-muted-foreground">Name</label>
         <input id="signature-name" autoFocus value={name} maxLength={80} placeholder="Work, Personal…"
           className="h-11 min-w-0 flex-1 bg-transparent text-sm font-medium outline-none placeholder:font-normal placeholder:text-muted-foreground"
@@ -256,7 +256,7 @@ export function SignatureSheet({ draft, busy, onCancel, onSave }: {
       </div>
 
       {/* The toolbar is placed here by the editor; menus open downward from this top edge. */}
-      <div ref={setToolbarHost} className="mail-format-host shrink-0 border-b border-border/50 empty:hidden" />
+      <div ref={setToolbarHost} className="mail-format-host shrink-0 edge-b empty:hidden" />
 
       <div ref={scroll} className="min-h-0 flex-1 overflow-y-auto">
         {source ? (
@@ -275,7 +275,7 @@ export function SignatureSheet({ draft, busy, onCancel, onSave }: {
 
       {(error || source) && (
         <p role={error ? "alert" : undefined}
-          className={error ? "shrink-0 border-t border-border/50 px-5 py-2.5 text-[13px] text-red-500" : "shrink-0 border-t border-border/50 px-5 py-2.5 text-xs text-muted-foreground"}>
+          className={error ? "shrink-0 edge-t px-5 py-2.5 text-[13px] text-destructive" : "shrink-0 edge-t px-5 py-2.5 text-xs text-muted-foreground"}>
           {error || "Scripts and unsupported markup are removed when you save."}
         </p>
       )}
