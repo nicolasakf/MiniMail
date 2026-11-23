@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="284" height="462" viewBox="24 54 284 462" role="img" aria-labelledby="t"><title id="t">A traditional mail client</title><style>.o{font-family:"Segoe UI",Tahoma,Arial,Helvetica,sans-serif}</style>
+<defs>
+<linearGradient id="fy" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFE9A6"/><stop offset="1" stop-color="#F3C24A"/></linearGradient>
+<linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EEF2F8"/><stop offset="1" stop-color="#DCE4EF"/></linearGradient>
+</defs>
+<g transform="translate(24 24)">
+<clipPath id="lp"><rect x="0" y="30" width="284" height="462" rx="6"/></clipPath>
+<rect x="0.5" y="30.5" width="283" height="461" rx="6" fill="url(#pg)" stroke="#B7C3D6"/>
+<g clip-path="url(#lp)">
+<rect x="5" y="34" width="252" height="13" rx="2" fill="#fff" stroke="#9AA7BC"/>
+<g transform="translate(8 34.4) scale(.62)"><circle cx="7.4" cy="7.4" r="3.4" fill="#fff" stroke="#6B7587" stroke-width="1"/><path d="M10 10l3.4 3.4" stroke="#6B7587" stroke-width="1.4" stroke-linecap="round"/></g>
+<text class="o" x="20" y="43.6" font-size="8.6" fill="#7A8497" font-style="italic">Search All Mailboxes (Ctrl+E)</text>
+<path d="M244 39.6h6l-3 3.4z" fill="#505763"/>
+<rect x="5" y="49" width="252" height="13" rx="2" fill="#FFF2B8" stroke="#E0C25A"/>
+<g transform="translate(6 47.2) scale(.8)"><path d="M11.4 6.6l4 7.2h-8z" fill="#F5B301" stroke="#9A6B00" stroke-width=".7" stroke-linejoin="round"/><path d="M11.4 9v2.4M11.4 12.4v.1" stroke="#222" stroke-width=".9"/></g>
+<text class="o" x="22" y="58.2" font-size="8.4" fill="#5A4300">Mailbox 98% full · 12 sync issues · Click to fix</text>
+<path d="M247 52l5 7M252 52l-5 7" stroke="#7A6A2A" stroke-width="1"/>
+<clipPath id="tc"><rect x="0" y="63" width="260" height="376"/></clipPath>
+<g clip-path="url(#tc)"><path d="M15.0 73.3h-5.5v-5.5z" fill="#505763"/>
+<text class="o" fill="#1F2430" x="18.0" y="73.4" font-size="9" font-weight="400">Favorites</text>
+<path d="M13.0 75.9v10.9M13.0 81.4h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(28.5 76.4) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><rect x="3.8" y="5.8" width="8.4" height="6" rx=".8" fill="#fff" stroke="#7A8AA6" stroke-width=".7"/><path d="M4.1 6.3 8 9.4l3.9-3.1" fill="none" stroke="#7A8AA6" stroke-width=".7"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="84.3" font-size="9" font-weight="700">Inbox – All Accounts<tspan dx="3" font-weight="400" fill="#2457C6">(1,247)</tspan></text>
+<path d="M13.0 86.8v10.9M13.0 92.2h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(28.5 87.3) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="95.2" font-size="9" font-weight="700">Unread Mail<tspan dx="3" font-weight="400" fill="#2457C6">(1,204)</tspan></text>
+<path d="M13.0 97.7v5.5M13.0 103.2h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(28.5 98.2) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><path d="M3.5 1.5v13M3.5 2.5h9l-2.2 3 2.2 3h-9" fill="#D93025" stroke="#8E1C14" stroke-width=".8"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="106.1" font-size="9" font-weight="400">Flagged for Follow-up<tspan dx="3" font-weight="400" fill="#D93025">(88)</tspan></text>
+<path d="M15.0 116.9h-5.5v-5.5z" fill="#505763"/>
+<rect x="18.0" y="109.5" width="9" height="9" rx="2.2" fill="#0F6CBD"/><text class="o" x="22.5" y="116.3" font-size="7" font-weight="700" fill="#fff" text-anchor="middle">E</text>
+<text class="o" fill="#1F2430" x="30.0" y="117.0" font-size="9" font-weight="700">alex@contoso.example<tspan dx="3" font-weight="400" fill="#6B7587">Exchange</tspan></text>
+<path d="M13.0 119.5v10.9M13.0 125.0h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M25.5 127.8h-5.5v-5.5z" fill="#505763"/>
+<g transform="translate(28.5 120.0) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><rect x="3.8" y="5.8" width="8.4" height="6" rx=".8" fill="#fff" stroke="#7A8AA6" stroke-width=".7"/><path d="M4.1 6.3 8 9.4l3.9-3.1" fill="none" stroke="#7A8AA6" stroke-width=".7"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="127.9" font-size="9" font-weight="700">Inbox<tspan dx="3" font-weight="400" fill="#2457C6">(23)</tspan></text>
+<path d="M13.0 130.4v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M23.5 130.4v10.9M23.5 135.8h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M36.0 138.7h-5.5v-5.5z" fill="#505763"/>
+<g transform="translate(39.0 130.9) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="51.0" y="138.8" font-size="9" font-weight="400">Clients</text>
+<path d="M13.0 141.3v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M23.5 141.3v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M34.0 141.3v10.9M34.0 146.8h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M46.5 149.6h-5.5v-5.5z" fill="#505763"/>
+<g transform="translate(49.5 141.8) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="61.5" y="149.7" font-size="9" font-weight="400">Active</text>
+<path d="M13.0 152.2v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M23.5 152.2v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M34.0 152.2v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M44.5 152.2v10.9M44.5 157.6h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(60.0 152.7) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="72.0" y="160.6" font-size="9" font-weight="700">Acme Corp<tspan dx="3" font-weight="400" fill="#2457C6">(4)</tspan></text>
+<rect x="244" y="153.8" width="12" height="9.4" rx="4.7" fill="#D93025"/><text class="o" x="250" y="161.0" font-size="7.6" font-weight="700" fill="#fff" text-anchor="middle">!</text>
+<rect x="3" y="163.1" width="256" height="10.9" fill="#C6D2E3"/>
+<path d="M13.0 163.1v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M23.5 163.1v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M34.0 163.1v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M44.5 163.1v10.9M44.5 168.6h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(60.0 163.6) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="72.0" y="171.5" font-size="9" font-weight="400">Globex – Q3 renewal (FINAL_v2)…</text>
+<path d="M13.0 174.0v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M23.5 174.0v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M34.0 174.0v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M44.5 174.0v5.5M44.5 179.4h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(60.0 174.5) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="72.0" y="182.4" font-size="9" font-weight="700">Initech<tspan dx="3" font-weight="400" fill="#2457C6">(2)</tspan></text>
+<path d="M13.0 184.9v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M23.5 184.9v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M34.0 184.9v5.5M34.0 190.3h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M41.5 187.1v7l4.2-3.5z" fill="none" stroke="#505763" stroke-width=".9" stroke-linejoin="round"/>
+<g transform="translate(49.5 185.4) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="61.5" y="193.3" font-size="9" font-weight="400">Archived 2019–2022</text>
+<path d="M13.0 195.8v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M23.5 195.8v5.5M23.5 201.2h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M36.0 204.1h-5.5v-5.5z" fill="#505763"/>
+<g transform="translate(39.0 196.3) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="51.0" y="204.2" font-size="9" font-weight="400">FYI</text>
+<path d="M13.0 206.7v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M34.0 206.7v10.9M34.0 212.2h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M41.5 208.9v7l4.2-3.5z" fill="none" stroke="#505763" stroke-width=".9" stroke-linejoin="round"/>
+<g transform="translate(49.5 207.2) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="61.5" y="215.1" font-size="9" font-weight="400">This Month</text>
+<path d="M13.0 217.6v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M34.0 217.6v10.9M34.0 223.0h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(49.5 218.1) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="61.5" y="226.0" font-size="9" font-weight="700">This Week<tspan dx="3" font-weight="400" fill="#2457C6">(1)</tspan></text>
+<path d="M13.0 228.5v10.9" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M34.0 228.5v5.5M34.0 233.9h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(49.5 229.0) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><circle cx="8" cy="8" r="6" fill="#fff" stroke="#6B7587" stroke-width="1"/><path d="M8 4.5V8l2.5 1.6" fill="none" stroke="#6B7587" stroke-width="1"/></g>
+<text class="o" fill="#1F2430" x="61.5" y="236.9" font-size="9" font-weight="700">Today<tspan dx="3" font-weight="400" fill="#2457C6">(6)</tspan></text>
+<path d="M13.0 239.4v10.9M13.0 244.8h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(28.5 239.9) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><rect x="3.8" y="5.8" width="8.4" height="6" rx=".8" fill="#fff" stroke="#7A8AA6" stroke-width=".7"/><path d="M5 11l.4-1.7 4.6-4.6 1.3 1.3-4.6 4.6z" fill="#F08A24" stroke="#B35B0C" stroke-width=".6"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="247.8" font-size="9" font-weight="700">Drafts<tspan dx="3" font-weight="400" fill="#2E8B3E">[4]</tspan></text>
+<path d="M13.0 250.3v10.9M13.0 255.8h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(28.5 250.8) scale(.65)"><path d="M3.2 4.2h9.6L12 14H4z" fill="#DDE2E9" stroke="#7D8795" stroke-width=".8"/><path d="M2 4.2h12" stroke="#7D8795" stroke-width="1.3"/><path d="M6.3 2.3h3.4l.5 1.9H5.8z" fill="#C3CAD4" stroke="#7D8795" stroke-width=".6"/><path d="M8 7.3l1.7 2.9H6.3z" fill="#3E9B4F"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="258.7" font-size="9" font-weight="700">Deleted Items<tspan dx="3" font-weight="400" fill="#2457C6">(734)</tspan></text>
+<path d="M13.0 261.2v10.9M13.0 266.7h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(28.5 261.7) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><circle cx="11.6" cy="10.6" r="3.6" fill="#D93025" stroke="#fff" stroke-width=".8"/><path d="M9.4 12.8 13.8 8.4" stroke="#fff" stroke-width="1.1"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="269.6" font-size="9" font-weight="700">Junk E-mail<tspan dx="3" font-weight="400" fill="#D93025">(91)</tspan></text>
+<path d="M13.0 272.1v5.5M13.0 277.6h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M20.5 274.3v7l4.2-3.5z" fill="none" stroke="#505763" stroke-width=".9" stroke-linejoin="round"/>
+<g transform="translate(28.5 272.6) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><circle cx="11.4" cy="10.4" r="3.6" fill="#2F6BD6" stroke="#fff" stroke-width=".8"/><path d="M9.4 10.4h4M12.4 8.9l1.5 1.5-1.5 1.5" fill="none" stroke="#fff" stroke-width=".9"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="280.5" font-size="9" font-weight="700">Sync Issues<tspan dx="3" font-weight="400" fill="#D93025">(12)</tspan></text>
+<rect x="244" y="273.7" width="12" height="9.4" rx="4.7" fill="#D93025"/><text class="o" x="250" y="280.9" font-size="7.6" font-weight="700" fill="#fff" text-anchor="middle">!</text>
+<path d="M15.0 291.3h-5.5v-5.5z" fill="#505763"/>
+<rect x="18.0" y="283.9" width="9" height="9" rx="2.2" fill="#C5221F"/><text class="o" x="22.5" y="290.7" font-size="7" font-weight="700" fill="#fff" text-anchor="middle">G</text>
+<text class="o" fill="#1F2430" x="30.0" y="291.4" font-size="9" font-weight="700">alex.morgan@gmail.com<tspan dx="3" font-weight="400" fill="#6B7587">Gmail</tspan></text>
+<path d="M13.0 293.9v10.9M13.0 299.3h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(28.5 294.4) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><rect x="3.8" y="5.8" width="8.4" height="6" rx=".8" fill="#fff" stroke="#7A8AA6" stroke-width=".7"/><path d="M4.1 6.3 8 9.4l3.9-3.1" fill="none" stroke="#7A8AA6" stroke-width=".7"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="302.3" font-size="9" font-weight="700">Inbox<tspan dx="3" font-weight="400" fill="#2457C6">(118)</tspan></text>
+<path d="M13.0 304.8v5.5M13.0 310.2h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M25.5 313.1h-5.5v-5.5z" fill="#505763"/>
+<g transform="translate(28.5 305.3) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="313.2" font-size="9" font-weight="400">[Gmail]</text>
+<path d="M23.5 315.7v10.9M23.5 321.2h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(39.0 316.2) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="51.0" y="324.1" font-size="9" font-weight="400">All Mail<tspan dx="3" font-weight="400" fill="#6B7587">(11,832)</tspan></text>
+<path d="M23.5 326.6v5.5M23.5 332.1h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(39.0 327.1) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><circle cx="11.6" cy="10.6" r="3.6" fill="#D93025" stroke="#fff" stroke-width=".8"/><path d="M9.4 12.8 13.8 8.4" stroke="#fff" stroke-width="1.1"/></g>
+<text class="o" fill="#1F2430" x="51.0" y="335.0" font-size="9" font-weight="700">Spam<tspan dx="3" font-weight="400" fill="#D93025">(312)</tspan></text>
+<path d="M15.0 345.8h-5.5v-5.5z" fill="#505763"/>
+<rect x="18.0" y="338.4" width="9" height="9" rx="2.2" fill="#0078D4"/><text class="o" x="22.5" y="345.2" font-size="7" font-weight="700" fill="#fff" text-anchor="middle">O</text>
+<text class="o" fill="#1F2430" x="30.0" y="345.9" font-size="9" font-weight="700">alex_m@outlook.com<tspan dx="3" font-weight="400" fill="#6B7587">Outlook.com</tspan></text>
+<path d="M13.0 348.4v5.5M13.0 353.9h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(28.5 348.9) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><rect x="3.8" y="5.8" width="8.4" height="6" rx=".8" fill="#fff" stroke="#7A8AA6" stroke-width=".7"/><path d="M4.1 6.3 8 9.4l3.9-3.1" fill="none" stroke="#7A8AA6" stroke-width=".7"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="356.8" font-size="9" font-weight="700">Inbox<tspan dx="3" font-weight="400" fill="#2457C6">(3)</tspan></text>
+<path d="M15.0 367.6h-5.5v-5.5z" fill="#505763"/>
+<rect x="18.0" y="360.2" width="9" height="9" rx="2.2" fill="#6E6E73"/><text class="o" x="22.5" y="367.0" font-size="7" font-weight="700" fill="#fff" text-anchor="middle">i</text>
+<text class="o" fill="#1F2430" x="30.0" y="367.7" font-size="9" font-weight="700">iCloud</text>
+<path d="M13.0 370.2v5.5M13.0 375.6h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(28.5 370.7) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><rect x="3.8" y="5.8" width="8.4" height="6" rx=".8" fill="#fff" stroke="#7A8AA6" stroke-width=".7"/><path d="M4.1 6.3 8 9.4l3.9-3.1" fill="none" stroke="#7A8AA6" stroke-width=".7"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="378.6" font-size="9" font-weight="700">Inbox<tspan dx="3" font-weight="400" fill="#2457C6">(9)</tspan></text>
+<path d="M15.0 389.4h-5.5v-5.5z" fill="#505763"/>
+<rect x="18.0" y="382.0" width="9" height="9" rx="2.2" fill="#7B3FB5"/><text class="o" x="22.5" y="388.8" font-size="7" font-weight="700" fill="#fff" text-anchor="middle">U</text>
+<text class="o" fill="#1F2430" x="30.0" y="389.5" font-size="9" font-weight="700">am@university.example<tspan dx="3" font-weight="400" fill="#6B7587">IMAP</tspan></text>
+<path d="M13.0 392.0v10.9M13.0 397.4h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(28.5 392.5) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><rect x="3.8" y="5.8" width="8.4" height="6" rx=".8" fill="#fff" stroke="#7A8AA6" stroke-width=".7"/><path d="M4.1 6.3 8 9.4l3.9-3.1" fill="none" stroke="#7A8AA6" stroke-width=".7"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="400.4" font-size="9" font-weight="700">INBOX<tspan dx="3" font-weight="400" fill="#2457C6">(2)</tspan></text>
+<path d="M13.0 402.9v5.5M13.0 408.4h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<path d="M20.5 405.1v7l4.2-3.5z" fill="none" stroke="#505763" stroke-width=".9" stroke-linejoin="round"/>
+<g transform="translate(28.5 403.4) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="411.3" font-size="9" font-weight="400">INBOX.Disciplinas.2024.S2</text>
+<path d="M15.0 422.1h-5.5v-5.5z" fill="#505763"/>
+<rect x="18.0" y="414.7" width="9" height="9" rx="2.2" fill="#6001D2"/><text class="o" x="22.5" y="421.5" font-size="7" font-weight="700" fill="#fff" text-anchor="middle">Y</text>
+<text class="o" fill="#1F2430" x="30.0" y="422.2" font-size="9" font-weight="700">amorgan@yahoo.com<tspan dx="3" font-weight="400" fill="#6B7587">old</tspan></text>
+<path d="M13.0 424.7v10.9M13.0 430.1h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(28.5 425.2) scale(.65)"><path d="M.5 2.3C.5 1.3 1.3.5 2.3.5h3.5c.5 0 .9.2 1.2.6l.8.9h6.2c1 0 1.8.8 1.8 1.8v7.9c0 1-.8 1.8-1.8 1.8H2.3C1.3 13.5.5 12.7.5 11.7z" fill="#E4B13A" stroke="#B88A1E" stroke-width=".8"/><path d="M.9 5.2h14.2v6.9c0 .8-.6 1.4-1.4 1.4H2.3c-.8 0-1.4-.6-1.4-1.4z" fill="url(#fy)"/><rect x="3.8" y="5.8" width="8.4" height="6" rx=".8" fill="#fff" stroke="#7A8AA6" stroke-width=".7"/><path d="M4.1 6.3 8 9.4l3.9-3.1" fill="none" stroke="#7A8AA6" stroke-width=".7"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="433.1" font-size="9" font-weight="700">Inbox<tspan dx="3" font-weight="400" fill="#2457C6">(4,310)</tspan></text>
+<path d="M13.0 435.6v5.5M13.0 441.1h5" stroke="#8D99AC" stroke-dasharray="1 2" fill="none"/>
+<g transform="translate(28.5 436.1) scale(.65)"><rect x=".5" y=".5" width="14" height="14" rx="3" fill="#F28B1F" stroke="#C86A0A" stroke-width=".7"/><circle cx="4.4" cy="10.6" r="1.2" fill="#fff"/><path d="M3.4 6.8a5 5 0 0 1 5 5M3.4 3.6a8.2 8.2 0 0 1 8.2 8.2" fill="none" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/></g>
+<text class="o" fill="#1F2430" x="40.5" y="444.0" font-size="9" font-weight="700">RSS Feeds<tspan dx="3" font-weight="400" fill="#2457C6">(312)</tspan></text></g>
+<rect x="262" y="34" width="14" height="404" rx="2" fill="#E9EDF3" stroke="#C3CCD9"/>
+<rect x="264" y="52" width="10" height="46" rx="2" fill="#CFD7E3" stroke="#A9B5C6"/>
+<path d="M266 45l3-3.6 3 3.6zM266 428l3 3.6 3-3.6z" fill="#6B7587"/>
+<rect x="4" y="440" width="256" height="11" rx="2" fill="#E9EDF3" stroke="#C3CCD9"/>
+<rect x="14" y="442" width="120" height="7" rx="2" fill="#CFD7E3" stroke="#A9B5C6"/>
+<path d="M10 445.5l3.4-3v6zM254 445.5l-3.4-3v6z" fill="#6B7587"/>
+<rect x="0" y="454" width="284" height="38" fill="#D3DBE8"/><path d="M0 454.5h284" stroke="#B7C3D6"/>
+<rect x="6" y="458" width="40" height="28" rx="4" fill="#fff" stroke="#9AA7BC"/>
+<rect x="19" y="465" width="14" height="10" rx="1.5" fill="#fff" stroke="#2457C6" stroke-width="1.3"/><path d="M19.6 466l6.4 5 6.4-5" fill="none" stroke="#2457C6" stroke-width="1.2"/>
+<rect x="34" y="456" width="15" height="9" rx="4.5" fill="#D93025"/><text class="o" x="41.5" y="463" font-size="7" font-weight="700" fill="#fff" text-anchor="middle">99+</text>
+<rect x="60" y="465" width="14" height="12" rx="1.5" fill="#fff" stroke="#5B6678" stroke-width="1.1"/><path d="M60 469h14" stroke="#D93025" stroke-width="3"/><path d="M63 463v4M71 463v4" stroke="#5B6678" stroke-width="1.2"/>
+<rect x="70" y="458" width="10" height="9" rx="4.5" fill="#F28B1F"/><text class="o" x="75" y="464.8" font-size="6.6" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+<circle cx="95" cy="468" r="3.2" fill="#fff" stroke="#5B6678" stroke-width="1.1"/><path d="M88 478c0-4 3-5.4 7-5.4s7 1.4 7 5.4z" fill="#fff" stroke="#5B6678" stroke-width="1.1"/>
+<rect x="115" y="464" width="14" height="14" rx="2" fill="#fff" stroke="#5B6678" stroke-width="1.1"/><path d="M118 471l3 3 5-6" fill="none" stroke="#3E9B4F" stroke-width="1.6"/>
+<rect x="124" y="458" width="14" height="9" rx="4.5" fill="#D93025"/><text class="o" x="131" y="464.8" font-size="6.6" font-weight="700" fill="#fff" text-anchor="middle">47</text>
+<rect x="149" y="464" width="12" height="14" rx="1.5" fill="#FFE27A" stroke="#B79A2A" stroke-width="1.1"/><path d="M152 469h6M152 472h6M152 475h4" stroke="#8A7420" stroke-width=".8"/>
+<circle cx="177" cy="471" r="1.5" fill="#5B6678"/><circle cx="183" cy="471" r="1.5" fill="#5B6678"/><circle cx="189" cy="471" r="1.5" fill="#5B6678"/>
+<text class="o" x="278" y="475" font-size="8" fill="#5B6678" text-anchor="end">Not synced</text>
+</g>
+</g>
+</svg>

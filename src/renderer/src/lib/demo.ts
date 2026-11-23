@@ -54,7 +54,7 @@ import { SORT_FOLDERS } from "@shared/types";
 const ME_GMAIL: Account = {
   id: "demo-gmail",
   provider: "gmail",
-  email: "alex@example.com",
+  email: "alex.morgan@gmail.com",
   displayName: "Alex Morgan",
   auth: "oauth",
   hue: 210,
@@ -215,56 +215,263 @@ function archiveHistory(): Seed[] {
   return seeds;
 }
 
+/** A support case that ran for a week and twelve messages, the kind a conversation count is for. */
+function refundThread(): Seed[] {
+  const support = person("Northwind Support", "support@northwind-support.example");
+  const owner = person(ME_GMAIL.displayName, ME_GMAIL.email);
+  const days = [9, 9, 8, 8, 7, 6, 6, 5, 4, 3, 2, 1];
+  const texts = [
+    "Hello, I would like a refund for the blender from order #55120. It stopped working after two days.",
+    "Hi Alex, we are sorry to hear that. Could you send a photo of the blender and the receipt?",
+    "Of course, both are attached.",
+    "Thank you. We have opened a case and an agent will review it.",
+    "Any news on the case?",
+    "Hi Alex, the agent asked for the serial number printed under the base.",
+    "It is NB-20931-7.",
+    "Thank you, that matches our records. We are checking the warranty.",
+    "Great. How long will it take?",
+    "Hi Alex, the warranty applies. We are preparing the refund.",
+    "Perfect, thank you.",
+    "Hi Alex, thank you for the receipt. Your refund was approved and should reach your card within 5 to 7 business days.",
+  ];
+  return days.map((daysAgo, index) => ({
+    key: `refund-${index + 1}`,
+    thread: "refund",
+    account: ME_GMAIL,
+    from: index % 2 === 0 ? owner : support,
+    to: [index % 2 === 0 ? support : owner],
+    subject: index === 0 ? "Refund request | Case 48213" : "Re: Refund request | Case 48213",
+    date: at(daysAgo, 9 + (index % 6), (index * 7) % 60),
+    text: texts[index],
+  }));
+}
+
+/**
+ * Older mail that the categories already hold, so each card shows a count worth sorting by
+ * itself. Read, one conversation each, and never newer than a week, so the senders on the cards
+ * stay the ones written out above.
+ */
+function categoryBacklog(): Seed[] {
+  const random = seededRandom(7);
+  const accounts = [ME_GMAIL, ME_GMAIL, ME_UNIVERSITY, ME_ZOHO];
+  const pools: { signal: SmartCategory; count: number; senders: Contact[]; subjects: string[] }[] = [
+    {
+      signal: "notification",
+      count: 120,
+      senders: [
+        person("Deploy Bot", "deploys@harborapp.example"),
+        person("Contoso Alerts", "alerts@contoso-alerts.example"),
+        person("Fabrikam Status", "status@fabrikam-status.example"),
+        person("Code Hosting", "noreply@codehosting.example"),
+        person("Linear", "notifications@linear.example"),
+      ],
+      subjects: ["Deployment finished: production", "Build failed on main", "Uptime check recovered", "New sign-in from Chrome", "3 new comments on your pull request"],
+    },
+    {
+      signal: "notification",
+      count: 70,
+      senders: [
+        person("Northwind Market", "orders@northwind-market.example"),
+        person("Acme Billing", "billing@acme-billing.example"),
+        person("Tailspin Rides", "receipts@tailspin-rides.example"),
+        person("Cinema Orion", "tickets@cinema-orion.example"),
+        person("Globex Pay", "no-reply@globex-pay.example"),
+      ],
+      subjects: ["Your receipt", "Your invoice is ready", "Payment confirmation", "Your tickets for the weekend"],
+    },
+    {
+      signal: "newsletter",
+      count: 160,
+      senders: [
+        person("The Daily Digest", "news@dailydigest.example"),
+        person("Weekly Wrap", "hello@weeklywrap.example"),
+        person("Field Notes", "editor@fieldnotes.example"),
+        person("The Briefing", "team@thebriefing.example"),
+        person("Slow Mail", "letters@slowmail.example"),
+      ],
+      subjects: ["This week in review", "Five things worth reading", "A short note from the editor", "The long read"],
+    },
+    {
+      signal: "invitation",
+      count: 8,
+      senders: [person("Harbor Meetup", "events@harbormeetup.example"), person("Pine Street Co-op", "hello@pinestreet.example")],
+      subjects: ["Invitation: Monthly meetup", "Invitation: Volunteer day"],
+    },
+    {
+      signal: "notification",
+      count: 12,
+      senders: [person("Contoso ID", "no-reply@contoso-id.example"), person("Tailspin Login", "login@tailspin-login.example")],
+      subjects: ["Your login code", "Your verification code"],
+    },
+  ];
+  const seeds: Seed[] = [];
+  pools.forEach((pool, poolIndex) => {
+    for (let index = 0; index < pool.count; index += 1) {
+      const from = pool.senders[Math.floor(random() * pool.senders.length)];
+      seeds.push({
+        key: `backlog-${poolIndex}-${index}`,
+        account: accounts[Math.floor(random() * accounts.length)],
+        from,
+        subject: pool.subjects[Math.floor(random() * pool.subjects.length)],
+        date: at(8 + Math.floor(random() * 140), 6 + Math.floor(random() * 14), Math.floor(random() * 60)),
+        signal: pool.signal,
+        text: "Older mail the categories already hold.",
+      });
+    }
+  });
+  return seeds;
+}
+
 function seedMessages(): MessageDetail[] {
   const me = (account: Account) => person(account.displayName, account.email);
   const seeds: Seed[] = [
     // --- Conversations with people -------------------------------------------------
     {
-      key: "noise-1",
-      thread: "noise",
+      key: "quote-1",
+      thread: "quote",
       account: ME_GMAIL,
-      from: person("Samantha Reed", "samantha.reed@homesupport.example"),
-      subject: "Consecutive neighbor noise",
-      date: at(1, 17, 40),
-      text: paragraphs(
-        "Hi Alex,",
-        "Thank you for your email and for sharing additional videos and details on this. We have logged each incident and will contact the other resident this week.",
-        "Please keep recording dates and times; it helps a lot.",
-        "Best,\nSamantha",
-      ),
+      from: person("Noor Haddad", "noor.haddad@gmail.com"),
+      subject: "Kitchen renovation quote",
+      date: at(8, 10, 5),
+      text: "Hi Alex, here is the first quote for the kitchen. Let me know what you think of the cabinet options.",
     },
     {
-      key: "noise-2",
-      thread: "noise",
+      key: "quote-2",
+      thread: "quote",
       account: ME_GMAIL,
       from: me(ME_GMAIL),
-      to: [person("Samantha Reed", "samantha.reed@homesupport.example")],
-      subject: "Re: Consecutive neighbor noise",
-      date: at(0, 12, 31),
-      text: "Thanks Samantha, I will keep logging them. Another incident last night around 1 am.",
+      to: [person("Noor Haddad", "noor.haddad@gmail.com")],
+      subject: "Re: Kitchen renovation quote",
+      date: at(7, 18, 40),
+      text: "Thanks Noor. The oak option looks right. Could you also price the island with a sink?",
     },
     {
-      key: "quiz",
-      account: ME_UNIVERSITY,
-      from: person("Priya Nair", "priya.nair@university.example"),
-      subject: "reminder: take-home quiz 3 due tomorrow at 3:30 pm",
-      date: at(0, 8, 18),
-      unread: true,
-      text: paragraphs(
-        "Good morning, everyone,",
-        "Just a quick reminder that take-home quiz 3 is due tomorrow at 3:30 pm. Late submissions will lose 10% per day.",
-        "Office hours are today from 1 to 3 if you want to go over anything.",
-        "Priya",
-      ),
-    },
-    {
-      key: "lunch",
+      key: "quote-3",
+      thread: "quote",
       account: ME_GMAIL,
-      from: person("Marcus Chen", "marcus.chen@example.com"),
-      subject: "Lunch Thursday?",
-      date: at(1, 11, 5),
-      unread: true,
-      text: "There's a new ramen place near the office. Free Thursday around 12:30?",
+      from: person("Noor Haddad", "noor.haddad@gmail.com"),
+      subject: "Re: Kitchen renovation quote",
+      date: at(5, 15, 12),
+      pinned: true,
+      text: "Good afternoon, thanks for the quick reply. Attached is the revised quote with the island, and we have updated the timeline to start in January.",
+    },
+    ...refundThread(),
+    {
+      key: "agenda",
+      account: ME_ZOHO,
+      from: person("Ravi Menon", "ravi.menon@outlook.com"),
+      subject: "Draft agenda for Thursday's workshop",
+      date: at(3, 14, 20),
+      attachments: true,
+      files: [["agenda-draft.pdf", "application/pdf", 218_330]],
+      text: "Hi Alex and Priya, I'm attaching the draft agenda for Thursday's workshop, with the speaker list and the room plan. Could you check the timings?",
+    },
+    {
+      key: "delayed",
+      account: ME_GMAIL,
+      from: person("Fabrikam Support", "help@fabrikam-support.example"),
+      subject: "Order #77194 is delayed",
+      date: at(5, 9, 41),
+      text: "Hi Alex, thanks for your reply. Please note that we cannot find a tracking number for your order yet. We have asked the carrier and will write again as soon as we hear back.",
+    },
+    {
+      key: "recruiter",
+      account: ME_UNIVERSITY,
+      from: person("Miguel Torres", "miguel.torres@tailspin-talent.example"),
+      subject: "Staff engineer role on the platform team",
+      date: at(6, 11, 5),
+      text: "Hi Alex, your open source work caught my eye. We are hiring a staff engineer for the platform team and I would love to tell you more. Do you have a few minutes this week?",
+    },
+    {
+      key: "workshop-1",
+      thread: "workshop",
+      account: ME_GMAIL,
+      from: me(ME_GMAIL),
+      to: [
+        person("Jordan Ellis", "jordan.ellis@gmail.com"),
+        person("Casey Ward", "casey.ward@outlook.com"),
+        person("Riley Shaw", "riley.shaw@gmail.com"),
+        person("Morgan Diaz", "morgan.diaz@yahoo.com"),
+      ],
+      subject: "Workshop logistics",
+      date: at(7, 9, 0),
+      text: "Hi all, a quick note on the room, the catering and the schedule for the workshop. Please reply if anything is missing.",
+    },
+    ...[
+      ["Jordan Ellis", "jordan.ellis@gmail.com"],
+      ["Casey Ward", "casey.ward@outlook.com"],
+      ["Riley Shaw", "riley.shaw@gmail.com"],
+    ].map(
+      ([name, email], index): Seed => ({
+        key: `workshop-${index + 2}`,
+        thread: "workshop",
+        account: ME_GMAIL,
+        from: person(name, email),
+        subject: "Automatic reply: Workshop logistics",
+        date: at(7, 9, index + 1),
+        text: "Hello, thank you for your email. I am out of the office until Monday, November 23rd and will reply when I am back. If it is urgent, please call the front desk.",
+      }),
+    ),
+    {
+      key: "billing-1",
+      thread: "billing",
+      account: ME_ZOHO,
+      from: me(ME_ZOHO),
+      to: [person("Taylor Brooks", "taylor.brooks@outlook.com")],
+      subject: "Action needed: update your billing details",
+      date: at(11, 9, 0),
+      text: "Hi Taylor, the invoice bounced because of the old address. Could you tell me which one to use?",
+    },
+    {
+      key: "billing-2",
+      thread: "billing",
+      account: ME_ZOHO,
+      from: person("Taylor Brooks", "taylor.brooks@outlook.com"),
+      subject: "Re: Action needed: update your billing details",
+      date: at(10, 16, 2),
+      text: "Hi Alex, good afternoon, I believe it's only a small update to the account record, so could you confirm the new billing address when you have a moment?",
+    },
+    {
+      key: "photos-trip",
+      account: ME_UNIVERSITY,
+      from: person("Jamie Park", "jamie.park@gmail.com"),
+      subject: "Photos for the newsletter",
+      date: at(13, 12, 0),
+      attachments: true,
+      files: [["march-trip.zip", "application/zip", 6_220_114]],
+      text: "Hi Alex, here are the photos from the March trip, resized and named by day. Tell me if you need other sizes or a different crop.",
+    },
+    {
+      key: "survey-1",
+      account: ME_GMAIL,
+      from: person("Survey Team", "survey@fabrikam-research.example"),
+      subject: "Reminder: tell us how we did",
+      date: at(16, 8, 0),
+      text: "Hello! We noticed you haven't told us how your experience was yet. It only takes a minute, and your answers help us improve.",
+    },
+    {
+      key: "bank-survey",
+      account: ME_ZOHO,
+      from: person("Fabrikam Bank", "feedback@fabrikam-bank.example"),
+      subject: "We'd love your feedback",
+      date: at(18, 9, 30),
+      text: "Your opinion matters to us. We would like to hear your thoughts on the new app, and it only takes two minutes to answer a few questions.",
+    },
+    {
+      key: "rewards",
+      account: ME_GMAIL,
+      from: person("Contoso Rewards", "hello@contoso-rewards.example"),
+      subject: "Tell us what you think",
+      date: at(22, 10, 15),
+      text: "Hi Alex, thank you for being a member. We would like to hear what you think of the new rewards, and it only takes a minute.",
+    },
+    {
+      key: "survey-2",
+      account: ME_GMAIL,
+      from: person("Survey Team", "survey@fabrikam-research.example"),
+      subject: "How was your experience with us?",
+      date: at(26, 8, 0),
+      text: "Hello! Thank you for choosing us. We would like to know how your experience was, and it only takes a minute to answer.",
     },
     {
       key: "thesis-1",
@@ -273,7 +480,7 @@ function seedMessages(): MessageDetail[] {
       from: me(ME_UNIVERSITY),
       to: [person("Elena Duarte", "elena.duarte@university.example")],
       subject: "Thesis outline feedback",
-      date: at(4, 9, 12),
+      date: at(31, 9, 12),
       text: "Dear Professor Duarte, attached is the revised outline. I restructured chapter 3 around your comments.",
       attachments: true,
       files: [
@@ -288,7 +495,7 @@ function seedMessages(): MessageDetail[] {
       account: ME_UNIVERSITY,
       from: person("Elena Duarte", "elena.duarte@university.example"),
       subject: "Re: Thesis outline feedback",
-      date: at(3, 16, 45),
+      date: at(30, 16, 45),
       unread: true,
       text: paragraphs(
         "Alex,",
@@ -303,7 +510,7 @@ function seedMessages(): MessageDetail[] {
       account: ME_GMAIL,
       from: person("Jordan Lee", "jordan.lee@example.com"),
       subject: "Photos from the weekend",
-      date: at(5, 20, 3),
+      date: at(34, 20, 3),
       attachments: true,
       files: [
         ["lake.jpg", "image/jpeg", 2_412_880],
@@ -313,31 +520,12 @@ function seedMessages(): MessageDetail[] {
       text: "Finally sorted through them, here are my favourites. The one at the lake is unreal.",
     },
     {
-      key: "invoice",
-      account: ME_ZOHO,
-      from: person("Dana Whitfield", "dana@clientco.example"),
-      subject: "Invoice follow-up",
-      date: at(12, 14, 20),
-      text: "Hi Alex, just checking whether invoice #2041 went through on your side. Happy to resend if not.",
-    },
-    {
       key: "welcome",
       account: ME_ZOHO,
       from: person("Sam Okafor", "sam@acme.example"),
       subject: "Welcome to the team",
       date: at(40, 10, 0),
       text: "Welcome aboard! Your laptop is ready for pickup and I've added you to the engineering channel.",
-    },
-
-    // --- Pinned -------------------------------------------------------------------
-    {
-      key: "pinned-support",
-      account: ME_GMAIL,
-      from: person("Acme Support", "support@acmehelp.example"),
-      subject: "Your ticket #4821 has been updated",
-      date: at(2, 13, 30),
-      pinned: true,
-      text: "Our team replied to your ticket. Reply to this email to continue the conversation.",
     },
 
     // --- Notifications ------------------------------------------------------------
@@ -374,11 +562,11 @@ function seedMessages(): MessageDetail[] {
     {
       key: "amazon-2",
       account: ME_GMAIL,
-      from: person("Amazon.com", "order-update@amazon.com"),
-      subject: "Delivered: your order",
+      from: person("Linear", "notifications@linear.example"),
+      subject: "3 issues assigned to you",
       date: at(2, 15, 0),
       signal: "notification",
-      html: NOTIFICATION_HTML("Delivered", "Your package was left at the front door."),
+      html: NOTIFICATION_HTML("3 issues assigned to you", "Cycle 42 starts tomorrow."),
     },
     {
       key: "vercel",
@@ -420,6 +608,82 @@ function seedMessages(): MessageDetail[] {
       text: "Enter this temporary login code to sign in: 731 204. Never share this code with anyone.",
     },
 
+    {
+      key: "code-3",
+      account: ME_GMAIL,
+      from: person("Contoso ID", "no-reply@contoso-id.example"),
+      subject: "Your Contoso ID security code",
+      date: at(1, 8, 12),
+      signal: "notification",
+      text: "Your security code is 305 118. It expires in ten minutes. If you did not ask for it, you can ignore this email.",
+    },
+    {
+      key: "code-4",
+      account: ME_GMAIL,
+      from: person("Tailspin Login", "login@tailspin-login.example"),
+      subject: "Your Tailspin login code",
+      date: at(2, 19, 44),
+      signal: "notification",
+      text: "Enter 874 220 to log in to Tailspin. This code works once.",
+    },
+    {
+      key: "code-5",
+      account: ME_ZOHO,
+      from: person("Globex Auth", "verify@globex-auth.example"),
+      subject: "Globex verification code",
+      date: at(3, 13, 6),
+      signal: "notification",
+      text: "Your Globex verification code is 612 907. Do not share it with anyone.",
+    },
+
+    // --- Receipts -----------------------------------------------------------------
+    {
+      key: "receipt-1",
+      account: ME_GMAIL,
+      from: person("Northwind Market", "orders@northwind-market.example"),
+      subject: "Your receipt from Northwind Market",
+      date: at(0, 12, 20),
+      unread: true,
+      signal: "notification",
+      html: NOTIFICATION_HTML("Thanks for your order", "Total: $48.20, paid with the card ending 4242."),
+    },
+    {
+      key: "receipt-2",
+      account: ME_GMAIL,
+      from: person("Cinema Orion", "tickets@cinema-orion.example"),
+      subject: "Your tickets for Friday, 8:30 pm",
+      date: at(1, 18, 5),
+      signal: "notification",
+      html: NOTIFICATION_HTML("Your tickets", "Two seats, row F. Show this email at the door."),
+    },
+    {
+      key: "receipt-3",
+      account: ME_ZOHO,
+      from: person("Acme Billing", "billing@acme-billing.example"),
+      subject: "Invoice 2041 is ready",
+      date: at(2, 8, 30),
+      signal: "notification",
+      html: NOTIFICATION_HTML("Invoice 2041", "Amount due: $129.00. Payable within 30 days."),
+    },
+    {
+      key: "receipt-4",
+      account: ME_GMAIL,
+      from: person("Tailspin Rides", "receipts@tailspin-rides.example"),
+      subject: "Your receipt for Monday evening's ride",
+      date: at(3, 21, 12),
+      signal: "notification",
+      html: NOTIFICATION_HTML("Your receipt", "Trip total: $17.45. Thanks for riding with Tailspin."),
+    },
+    {
+      key: "receipt-5",
+      account: ME_GMAIL,
+      from: person("Globex Pay", "no-reply@globex-pay.example"),
+      subject: "Payment confirmation",
+      date: at(4, 10, 2),
+      signal: "notification",
+      html: NOTIFICATION_HTML("Payment received", "We received your payment of $64.00."),
+    },
+
     // --- Newsletters --------------------------------------------------------------
     {
       key: "news-1",
@@ -451,7 +715,46 @@ function seedMessages(): MessageDetail[] {
       html: NEWSLETTER_HTML("Global career opportunities", "Join our fair next week and meet more than 80 employers."),
     },
 
+    {
+      key: "news-4",
+      account: ME_GMAIL,
+      from: person("Weekly Wrap", "hello@weeklywrap.example"),
+      subject: "The week in five stories",
+      date: at(1, 7, 10),
+      signal: "newsletter",
+      html: NEWSLETTER_HTML("The week in five stories", "Five stories worth your Sunday, from a quiet week for the markets to a loud one for chips."),
+    },
+    {
+      key: "news-5",
+      account: ME_GMAIL,
+      from: person("Field Notes", "editor@fieldnotes.example"),
+      subject: "Notes from a small garden",
+      date: at(3, 6, 50),
+      unread: true,
+      signal: "newsletter",
+      html: NEWSLETTER_HTML("Notes from a small garden", "What a balcony taught one writer about patience, light and tomatoes."),
+    },
+
     // --- Invitations ---------------------------------------------------------------
+    {
+      key: "invite-4",
+      account: ME_GMAIL,
+      from: person("Harbor Meetup", "events@harbormeetup.example"),
+      subject: "Invitation: Open source night @ Thu Nov 26, 6pm",
+      date: at(0, 8, 40),
+      unread: true,
+      signal: "invitation",
+      text: "You are invited to Open source night on Thursday, 6pm at the Harbor Lab.",
+    },
+    {
+      key: "invite-5",
+      account: ME_GMAIL,
+      from: person("Pine Street Co-op", "hello@pinestreet.example"),
+      subject: "Invitation: Member potluck @ Sat Nov 28",
+      date: at(1, 12, 0),
+      signal: "invitation",
+      text: "Join us for the member potluck on Saturday. Bring a dish to share.",
+    },
     {
       key: "invite-1",
       account: ME_UNIVERSITY,
@@ -545,6 +848,7 @@ function seedMessages(): MessageDetail[] {
       date: at(2, 19, 30),
       text: "Sounds good, count me in.",
     },
+    ...categoryBacklog(),
     ...archiveHistory(),
   ];
 
@@ -598,10 +902,11 @@ function seedMessages(): MessageDetail[] {
 
 const BUILT_IN_IDS = new Set(defaultCategories().map((category) => category.id));
 const CODE_PATTERN = /(verification|security|login|sign[- ]?in|one[- ]time|confirmation) code|magic link/i;
+const RECEIPT_PATTERN = /\b(receipt|invoice|payment confirmation|your tickets)\b/i;
 
 /**
  * Stand-in for the Jev classifier, which needs a real gateway key: verification wording, then a
- * word from a custom category's name, then the header-based guess. Good enough to show the UI.
+ * word from a custom category's name, then receipt wording, then the header-based guess. Good enough to show the UI.
  */
 function demoCategoryId(message: MessageSummary, categories: readonly Category[]): string | null {
   if (message.folder === "sent" || message.folder === "drafts") return null;
@@ -617,6 +922,13 @@ function demoCategoryId(message: MessageSummary, categories: readonly Category[]
   }
   if (CODE_PATTERN.test(text) && categories.some((category) => category.id === "verification-codes")) {
     return "verification-codes";
+  }
+  if (
+    message.signal === "notification" &&
+    RECEIPT_PATTERN.test(text) &&
+    categories.some((category) => category.id === "receipts")
+  ) {
+    return "receipts";
   }
   return ruleBasedCategoryId(message.signal, categories);
 }
@@ -640,7 +952,7 @@ function demoEvents(): MiniMailApi["events"] {
   const at = Date.now();
   let serial = at;
   const sample: AppEvent[] = [
-    { id: at - 3, at: at - 60_000, lastAt: at - 60_000, repeats: 1, level: "error", area: "sorting", title: "Could not sort an email", detail: "The Vercel AI Gateway is rate limiting requests; MiniMail will retry shortly.", context: "Tech Networking Event by Startup Valley" },
+    { id: at - 3, at: at - 60_000, lastAt: at - 60_000, repeats: 1, level: "error", area: "sorting", title: "Could not sort an email", detail: "The Vercel AI Gateway is rate limiting requests; MiniMail will retry shortly.", context: "Open source night by Harbor Meetup" },
     { id: at - 2, at: at - 120_000, lastAt: at - 30_000, repeats: 4, level: "error", area: "sync", title: "Could not sync Outlook", detail: "The operation was aborted due to timeout" },
     { id: at - 1, at: at - 180_000, lastAt: at - 180_000, repeats: 1, level: "action", area: "mail", title: "Archived a conversation", detail: "", context: "Your receipt from Acme" },
   ];

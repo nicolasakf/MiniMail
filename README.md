@@ -1,4 +1,4 @@
-![MiniMail: email made simple.](docs/images/hero.svg)
+![MiniMail: email made simple.](docs/images/hero.webp)
 
 Email got overcomplicated over the years: 
 
@@ -13,7 +13,7 @@ MiniMail is a desktop email client built on a different question:
 
 ## The minimum
 
-![Traditional email: a mail client with six inboxes (Exchange, Gmail, Outlook.com, iCloud, a university account and Yahoo), each with nested folders such as Clients, Active, FYI, This Week, Drafts and Sync Issues, covered in unread counts and error badges. MiniMail: four filter buttons (Inbox, Archive, Trash and Spam) and, apart from them, Sent and Drafts.](docs/images/before-after.svg)
+![Traditional email: a mail client with six inboxes (Exchange, Gmail, Outlook.com, iCloud, a university account and Yahoo), each with nested folders such as Clients, Active, FYI, This Week, Drafts and Sync Issues, covered in unread counts and error badges. MiniMail: four filter buttons (Inbox, Archive, Trash and Spam) and, apart from them, Sent and Drafts.](docs/images/before-after.webp)
 
 Your mail can be in four places: Inbox, Archive, Trash and Spam. That's it. No written rules, no folders inside other folders.
 
@@ -21,7 +21,7 @@ Your mail can be in four places: Inbox, Archive, Trash and Spam. That's it. No w
 
 No, because there are categories:
 
-![The Categories screen: a list of categories (Invitations, Notifications, Verification codes, Receipts, Newsletters and Ads) with Receipts open for editing, showing a plain-language description of the mail that belongs in it.](docs/images/categories.svg)
+![The Categories screen: a list of categories (Invitations, Notifications, Verification codes, Receipts, Newsletters and Ads) with Receipts open for editing, showing a plain-language description of the mail that belongs in it.](docs/images/categories.webp)
 
 **These categories sort themselves.** Newsletters, ads, notifications and codes each collapse into one card. You describe what type of emails you want in that category and AI files the mail for you.
 
@@ -32,7 +32,7 @@ That way your mail stays findable, and the app around it stays simple and lightw
 - **Sandboxed mail.** No scripts, no forms, and no remote images unless you allow them.
 - **One inbox, no server.** Gmail, Outlook, Zoho or any other IMAP account in one list. Credentials stay in your OS keychain.
 
-![The MiniMail window: a row of category cards (Invitations, Notifications, Verification codes, Receipts and Newsletters) above the conversation list, grouped by Pinned, Yesterday, This Week, Last Week and November, with the folder buttons, Smart, Sender and List views, and the compose button in the toolbar.](docs/images/app.svg)
+![The MiniMail window: a row of category cards (Invitations, Notifications, Verification codes, Receipts and Newsletters) above the conversation list, grouped by Pinned, Yesterday, Last Week, November and October, with the folder buttons, Smart, Sender and List views, and the compose button in the toolbar.](docs/images/app.webp)
 
 ## Bring your own AI agent
 
