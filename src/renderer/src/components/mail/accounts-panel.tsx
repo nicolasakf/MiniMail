@@ -441,7 +441,7 @@ function AddAccountForm({
 
       <div className="space-y-4">
         <div className="space-y-2">
-          <InfoLabel htmlFor="account-email" info="Your provider uses this address to find your account.">
+          <InfoLabel htmlFor="account-email" info="The email address of this account.">
             {emailOptional ? "Email (optional)" : "Email"}
           </InfoLabel>
           <Input
@@ -542,7 +542,7 @@ function AddAccountForm({
             )}
             {advanced && (
               <div className="space-y-2">
-                <InfoLabel htmlFor="account-tenant" info="Enter a tenant ID or domain if your IT administrator gave you one.">
+                <InfoLabel htmlFor="account-tenant" info="The Microsoft tenant ID or domain given by your IT administrator.">
                   Organization (optional)
                 </InfoLabel>
                 <Input

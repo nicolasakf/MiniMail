@@ -26,12 +26,6 @@ export const COMPLETION_LENGTH_LABELS: Record<CompletionLength, string> = {
   full: "Full message",
 };
 
-export const COMPLETION_LENGTH_HELP: Record<CompletionLength, string> = {
-  sentence: "Finishes the sentence you are writing, or writes the next one.",
-  paragraph: "Finishes the paragraph you are writing.",
-  full: "Writes the rest of the message, signature aside.",
-};
-
 /** One earlier message of the conversation, as the model sees it. */
 export interface CompletionMessage {
   from: Contact;

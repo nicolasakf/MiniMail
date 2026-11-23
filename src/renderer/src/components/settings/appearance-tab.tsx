@@ -71,7 +71,7 @@ export function AppearanceTab() {
         <section className="max-w-2xl space-y-3">
           <SettingsSectionTitle title="Theme" />
           <div className="space-y-2">
-            <SettingsLabel label="Color mode" info="System follows your Mac's light or dark setting. Dimmed is a softer dark on shades of grey." />
+            <SettingsLabel label="Color mode" />
             <SettingsVisualField
               ariaLabel="Color mode"
               value={(theme as "system" | "light" | "dark" | "dimmed" | undefined) ?? "system"}
@@ -89,10 +89,7 @@ export function AppearanceTab() {
         <Separator />
 
         <section className="max-w-2xl">
-          <SettingsRow
-            label="Highlight color"
-            info="Used for the selected conversation, unread dots and counts, links, and the Compose button."
-          >
+          <SettingsRow label="Highlight color">
             <div className="flex items-center gap-2">
               <ColorPicker
                 aria-label="Highlight color"
@@ -118,10 +115,7 @@ export function AppearanceTab() {
         <Separator />
 
         <section className="max-w-2xl">
-          <SettingsRow
-            label="Text"
-            info="Scales the whole interface, from the lists to the dialogs. Message bodies follow it too."
-          >
+          <SettingsRow label="Text">
             <SettingsTileField
               ariaLabel="Text size"
               value={textSize}
@@ -139,10 +133,7 @@ export function AppearanceTab() {
         <Separator />
 
         <section className="max-w-2xl">
-          <SettingsRow
-            label="Email width"
-            info="The widest an email can grow when you read a conversation. Wider suits large windows and wide tables."
-          >
+          <SettingsRow label="Email width">
             <SettingsTileField
               ariaLabel="Email width"
               value={emailWidth}
@@ -162,7 +153,7 @@ export function AppearanceTab() {
         <section className="max-w-2xl">
           <SettingsRow
             label="Email background"
-            info="In the dark and dimmed themes, emails that come with their own dark design always use it. For the rest, keep them on white, or recolor them to the theme (experimental: brand colors can shift)."
+            info="The background emails are shown on in the dark and dimmed themes."
           >
             <SettingsTileField
               ariaLabel="Email background"
@@ -183,7 +174,7 @@ export function AppearanceTab() {
         <section className="max-w-2xl">
           <SettingsRow
             label="Split view"
-            info="Click a conversation to read it beside the list, without opening it full screen."
+            info="The Drafts tab always uses split view."
           >
             <SettingsVisualToggle
               ariaLabel="Split view"
@@ -201,7 +192,7 @@ export function AppearanceTab() {
         <section className="max-w-2xl">
           <SettingsRow
             label="Category layout"
-            info="How the Smart view shows your categories. Horizontal is one row per category; Vertical is a grid of cards, each listing its senders."
+            info="How categories are arranged in the Smart view."
             description={splitView ? "Always horizontal in the split view." : undefined}
           >
             <SettingsVisualField
@@ -221,7 +212,7 @@ export function AppearanceTab() {
         <Separator />
 
         <section className="max-w-2xl">
-          <SettingsRow label="Message previews" info="The first words of each message after its subject.">
+          <SettingsRow label="Message previews">
             <SettingsVisualToggle
               ariaLabel="Show message previews"
               checked={showPreviews}
@@ -235,12 +226,9 @@ export function AppearanceTab() {
         <Separator />
 
         <section className="max-w-2xl space-y-3">
-          <SettingsSectionTitle
-            title="Sender pictures"
-            info="Each picture is looked up outside MiniMail, so you choose which sources are used."
-          />
+          <SettingsSectionTitle title="Sender pictures" />
           <div className="space-y-2">
-            <SettingsLabel label="Company logos" info="Fetched from each sender's own site." />
+            <SettingsLabel label="Company logos" info="Fetched from each sender's website." />
             <SettingsVisualToggle
               ariaLabel="Company logos"
               checked={logoSettings?.companyLogos ?? true}
@@ -251,7 +239,7 @@ export function AppearanceTab() {
             />
           </div>
           <div className="space-y-2">
-            <SettingsLabel label="People's photos" info="Looked up on Gravatar; shares a hash of each sender's address." />
+            <SettingsLabel label="People's photos" info="Fetched from Gravatar using a hash of the sender's address." />
             <SettingsVisualToggle
               ariaLabel="People's photos"
               checked={logoSettings?.personPhotos ?? false}

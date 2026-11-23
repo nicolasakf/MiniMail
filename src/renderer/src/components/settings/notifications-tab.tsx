@@ -37,11 +37,11 @@ import {
 import { NotificationPreview } from "./notification-previews";
 import { SettingsMultiTileField, SettingsVisualField } from "./visual-fields";
 
-const FOLDER_OPTIONS: { folder: NotifyFolder; label: string; description: string }[] = [
-  { folder: "inbox", label: "Inbox", description: "Mail that arrives in your Inbox." },
-  { folder: "archive", label: "Archive", description: "Mail your own filters file straight into Archive." },
-  { folder: "trash", label: "Trash", description: "Mail that lands in Trash. Off by default." },
-  { folder: "spam", label: "Spam", description: "Junk mail. Off unless you want to watch for false positives." },
+const FOLDER_OPTIONS: { folder: NotifyFolder; label: string; description?: string }[] = [
+  { folder: "inbox", label: "Inbox" },
+  { folder: "archive", label: "Archive", description: "Mail filed there by your own filters." },
+  { folder: "trash", label: "Trash" },
+  { folder: "spam", label: "Spam" },
 ];
 
 const CATEGORY_MODES: { value: CategoryFilterMode; label: string }[] = [
@@ -55,12 +55,6 @@ const CONTENT_OPTIONS: { value: NotificationContent; label: string; preview: Rea
   { value: "sender", label: "Sender only", preview: <NotificationPreview content="sender" /> },
   { value: "hidden", label: "Hide details", preview: <NotificationPreview content="hidden" /> },
 ];
-
-const CONTENT_HELP: Record<NotificationContent, string> = {
-  full: "Shows who it is from, the subject and the first words of the message.",
-  sender: "Shows who it is from and nothing of what they wrote.",
-  hidden: "Just says there is new mail, so nothing shows on a shared screen.",
-};
 
 function CheckRow({
   id,
@@ -226,8 +220,8 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
           label={account ? "Notify me about this account" : "Notify me about new mail"}
           description={
             account
-              ? "Off means nothing from this account notifies, plays a sound or counts toward the Dock badge."
-              : "The master switch. Off means no notifications, sound or Dock badge, except for accounts that turn it back on."
+              ? "Off: nothing from this account notifies, plays a sound or counts toward the Dock badge."
+              : "Off: no notifications, sound or Dock badge. Accounts can override."
           }
           checked={view.enabled}
           onCheckedChange={(enabled) => change({ enabled })}
@@ -244,10 +238,7 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
         <Separator />
 
         <section className="max-w-2xl">
-          <SettingsRow
-            label="Folders"
-            info="Notify for mail that arrives in the highlighted folders. Mail you move yourself never notifies in its new folder."
-          >
+          <SettingsRow label="Folders">
             <div className="space-y-2">
               <SettingsMultiTileField
                 ariaLabel="Folders that notify"
@@ -273,10 +264,7 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
         <Separator />
 
         <section className="max-w-2xl space-y-3">
-          <SettingsSectionTitle
-            title="Categories"
-            info="Filter by the category MiniMail sorted the conversation into. With AI sorting on, a new message waits a few seconds to be sorted first."
-          />
+          <SettingsSectionTitle title="Categories" />
           {inherit("categories")}
           <SettingsSegmentedField
             ariaLabel="Category filter"
@@ -329,15 +317,13 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
         <section className="max-w-2xl space-y-3">
           <SettingsSectionTitle title="Muted senders" />
           <p className="text-sm text-muted-foreground">
-            Mail from muted senders and domains never notifies.{" "}
             <button
               type="button"
               onClick={onOpenSenders}
               className="rounded-sm text-foreground underline underline-offset-2 outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
             >
-              Manage them on the Senders page
+              Manage muted senders on the Senders page
             </button>
-            .
           </p>
         </section>
 
@@ -354,7 +340,6 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
               disabled={off}
               onValueChange={(content) => change({ content })}
             />
-            <p className="text-xs text-muted-foreground">{CONTENT_HELP[view.content]}</p>
             {inherit("content")}
           </div>
         </section>
@@ -398,7 +383,6 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
               <SettingsSwitchField
                 id="notify-group"
                 label="Combine bursts into one notification"
-                description="Several messages arriving together show as a single notification."
                 checked={settings.groupBursts}
                 disabled={off}
                 onCheckedChange={(groupBursts) => update((current) => ({ ...current, groupBursts }))}

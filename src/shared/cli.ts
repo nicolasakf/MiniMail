@@ -18,26 +18,26 @@ export interface CliGroupDef {
 }
 
 export const CLI_GROUPS: readonly CliGroupDef[] = [
-  { id: "basics", title: "Always available", description: "Needed to use the CLI at all. They cannot be turned off." },
+  { id: "basics", title: "Always available", description: "Cannot be turned off." },
   {
     id: "read",
     title: "Read",
-    description: "Look at your mail. Nothing changes on screen, and nothing is marked as read.",
+    description: "Does not change anything or mark mail as read.",
   },
   {
     id: "organize",
     title: "Organize",
-    description: "Change your mail. Each change is recorded in the Log as \"via CLI\" and can be undone there or with ⌘Z.",
+    description: "Changes are recorded in the Log as \"via CLI\" and can be undone.",
   },
   {
     id: "drafts",
     title: "Drafts",
-    description: "Write drafts for you to look over in Drafts. Nothing is sent, and the CLI only changes drafts it wrote itself.",
+    description: "Writes drafts. Nothing is sent. The CLI only changes drafts it wrote.",
   },
   {
     id: "ask",
     title: "Ask first",
-    description: "These cannot be taken back, so MiniMail asks you before each one with a card in the app. You can turn one off, or allow it without asking.",
+    description: "Cannot be undone. Each asks first in the app unless allowed here.",
   },
 ];
 

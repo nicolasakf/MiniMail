@@ -1,6 +1,5 @@
 import { DEFAULT_CODE_MODELS, DEFAULT_COMPLETION_MODELS } from "@shared/ai-providers";
 import {
-  COMPLETION_LENGTH_HELP,
   COMPLETION_LENGTH_LABELS,
   COMPLETION_LENGTHS,
   DEFAULT_COMPLETION,
@@ -51,23 +50,18 @@ function CompletionSection({ ai, onState }: AiFeaturesTabProps) {
     <div className="flex flex-col gap-3">
       <SettingsSectionTitle
         title="Text completion"
-        info="While you write, the model suggests what comes next as dimmed text after your cursor. What you have written, the conversation you are answering and who you are writing to are sent to the model."
+        info="Sends your text, the conversation and the recipients to the model."
       />
       <SettingsSwitchField
         id="completion-enabled"
         label="Suggest text as you write"
-        info={
-          connected
-            ? "Press Tab to keep a suggestion, or Esc to refuse it."
-            : "Connect a provider above to use it."
-        }
         checked={completion.enabled && connected}
         disabled={!connected}
         onCheckedChange={(enabled) => void save({ ...completion, enabled })}
       />
       {completion.enabled && connected && (
         <>
-          <SettingsRow label="How much" info={COMPLETION_LENGTH_HELP[completion.length]}>
+          <SettingsRow label="How much">
             <SettingsSegmentedField
               ariaLabel="How much text to suggest at once"
               value={completion.length}
@@ -77,7 +71,6 @@ function CompletionSection({ ai, onState }: AiFeaturesTabProps) {
           </SettingsRow>
           <ModelField
             title="Completion model"
-            info="Suggestions only help when they arrive as you type, so pick a small model that answers directly. A reasoning model will be slow."
             purpose="features"
             saved={completion.model}
             defaultModel={DEFAULT_COMPLETION_MODELS[ai?.codeProvider ?? "vercel"]}
@@ -115,11 +108,12 @@ export function AiFeaturesTab({ ai, onState }: AiFeaturesTabProps) {
         purpose="features"
         intro="AI features, such as finding a verification code the rules could not, run on a chat model from the Vercel AI Gateway or OpenRouter: pick one and add its key. You can pick the model once it is connected."
       >
-        <AiProviderField ai={ai} onState={onState} purpose="features" />
-        <Separator />
+        <section aria-label="AI provider" className="corner-squircle rounded-xl border border-border bg-card p-4">
+          <AiProviderField ai={ai} onState={onState} purpose="features" />
+        </section>
         <ModelField
           title="Verification codes"
-          info="When the on-device rules cannot find a verification code in an email, this model reads the start of it. Leave it empty to use rules only."
+          info="The model that looks for a verification code when the rules find none. Empty means rules only."
           purpose="features"
           saved={ai?.codeModel ?? DEFAULT_CODE_MODELS.vercel}
           defaultModel={DEFAULT_CODE_MODELS[ai?.codeProvider ?? "vercel"]}
