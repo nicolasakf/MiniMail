@@ -107,6 +107,8 @@ interface SegmentedFieldProps<T extends string> {
   value: T;
   options: readonly { value: T; label: string }[];
   disabled?: boolean;
+  /** Only as wide as its choices, every one as wide as the longest label, instead of filling the line. */
+  compact?: boolean;
   onValueChange: (value: T) => void;
 }
 
@@ -116,13 +118,19 @@ export function SettingsSegmentedField<T extends string>({
   value,
   options,
   disabled,
+  compact,
   onValueChange,
 }: SegmentedFieldProps<T>) {
   return (
-    <Tabs value={value} onValueChange={(next) => onValueChange(next as T)} aria-label={ariaLabel} className="w-full">
+    <Tabs
+      value={value}
+      onValueChange={(next) => onValueChange(next as T)}
+      aria-label={ariaLabel}
+      className={compact ? "shrink-0" : "w-full"}
+    >
       <TabsList
-        className="grid h-9 w-full"
-        style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
+        className={cn("h-9", compact ? "inline-grid grid-flow-col auto-cols-fr" : "grid w-full")}
+        style={compact ? undefined : { gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
       >
         {options.map((option) => (
           <TabsTrigger key={option.value} value={option.value} disabled={disabled} className="h-7 px-2 text-xs">

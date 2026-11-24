@@ -1,3 +1,4 @@
+import { findLinks, normalizeLink, type FoundLink } from "@shared/links";
 import type { AttachmentInfo, Contact, Invitation, InvitationResponse, MessageDetail } from "@shared/types";
 
 /** A file from some message of the conversation, with where it came from. */
@@ -13,13 +14,21 @@ export interface ThreadInvitation {
   invitation: Invitation;
 }
 
+/** A link in the text of a message to a file kept online or to a video call, with where it came from. */
+export interface ThreadLink extends FoundLink {
+  messageId: string;
+  from: Contact;
+  date: string;
+}
+
 export interface ThreadArtifacts {
   attachments: ThreadAttachment[];
   invitations: ThreadInvitation[];
+  links: ThreadLink[];
 }
 
 /**
- * Everything in a conversation the card lists. Attachments come from every message, oldest first.
+ * Everything in a conversation the card lists. Attachments and links come from every message, oldest first.
  * A meeting that was updated or cancelled is invited to several times; only the newest message
  * about it counts, since that is the one to answer.
  */
@@ -32,7 +41,19 @@ export function collectArtifacts(details: readonly MessageDetail[]): ThreadArtif
   for (const message of ordered) {
     if (message.invitation) newest.set(message.invitation.uid, { messageId: message.id, invitation: message.invitation });
   }
-  return { attachments, invitations: [...newest.values()] };
+  // A reply quotes the links of the messages before it, so a link is listed once, with the oldest message that has it.
+  // The call an invitation already offers to join is not listed again.
+  const seen = new Set<string>();
+  for (const { invitation } of newest.values()) {
+    const joined = invitation.url ? normalizeLink(invitation.url) : null;
+    if (joined) seen.add(joined);
+  }
+  const links = ordered.flatMap((message) =>
+    findLinks(message.html, message.text)
+      .filter((link) => !seen.has(link.url) && !!seen.add(link.url))
+      .map((link) => ({ ...link, messageId: message.id, from: message.from, date: message.date })),
+  );
+  return { attachments, invitations: [...newest.values()], links };
 }
 
 /** The conversation's details with the user's answer recorded on every message about that meeting. */
@@ -82,4 +103,32 @@ export function formatEventTime(
   if (!to || to.getTime() <= from.getTime()) return `${dayFormat(from)} · ${TIME_FORMAT.format(from)}`;
   if (sameDay(from, to)) return `${dayFormat(from)} · ${TIME_FORMAT.format(from)} – ${TIME_FORMAT.format(to)}`;
   return `${dayFormat(from)}, ${TIME_FORMAT.format(from)} – ${dayFormat(to)}, ${TIME_FORMAT.format(to)}`;
+}
+
+/** A text cut into plain pieces and the addresses in it, so a note's links can be clicked. */
+export function linkify(text: string): ({ text: string } | { url: string })[] {
+  const pieces: ({ text: string } | { url: string })[] = [];
+  let at = 0;
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"']+/gi)) {
+    const url = match[0].replace(/[.,;:!?)\]]+$/, "");
+    const start = match.index!;
+    if (start > at) pieces.push({ text: text.slice(at, start) });
+    if (normalizeLink(url)) pieces.push({ url });
+    else pieces.push({ text: url });
+    at = start + url.length;
+  }
+  if (at < text.length) pieces.push({ text: text.slice(at) });
+  return pieces;
+}
+
+/** An address short enough for a line of notes: the host and the start of the path. */
+export function shortUrl(url: string): string {
+  try {
+    const { host, pathname } = new URL(url);
+    const path = pathname === "/" ? "" : pathname;
+    return path.length > 24 ? `${host}${path.slice(0, 24)}…` : `${host}${path}`;
+  } catch {
+    // expected: only addresses that parsed reach here, but a value that does not is shown whole.
+    return url;
+  }
 }

@@ -124,6 +124,58 @@ describe("BodyPrefetcher", () => {
     expect(batches).toHaveLength(1);
   });
 
+  describe("pinned mail", () => {
+    const pinnedRow = (uid: number, ageDays: number) => ({ ...row(uid, ageDays, "pinned"), pinned: true });
+
+    it("is downloaded whatever its age, and whichever folders were chosen", async () => {
+      settings = { ...DEFAULT_OFFLINE_SETTINGS, folders: ["spam"], lookbackDays: 7 };
+      const { provider } = fakeProvider();
+      await launch().schedule("acc", provider, "pinned", [pinnedRow(1, 1), pinnedRow(2, 400)]);
+      expect((provider.prefetch as ReturnType<typeof vi.fn>).mock.calls).toEqual([["pinned", ["1", "2"]]]);
+    });
+
+    it("is downloaded even when the saved text is full of newer mail", async () => {
+      settings = { ...DEFAULT_OFFLINE_SETTINGS, limit: "size" };
+      roomFor = () => false;
+      const { provider, batches } = fakeProvider();
+      await launch().schedule("acc", provider, "pinned", [pinnedRow(1, 400)]);
+      expect(batches.flat()).toEqual(["1"]);
+
+      batches.length = 0;
+      await launch().schedule("acc", provider, "inbox", [row(2, 1)]);
+      expect(batches).toEqual([]);
+    });
+
+    it("does not replace what the Inbox is still downloading", async () => {
+      const { provider, batches } = fakeProvider();
+      const prefetcher = launch();
+      const inbox = prefetcher.schedule("acc", provider, "inbox", Array.from({ length: 20 }, (_, index) => row(index + 1, index)));
+      await prefetcher.schedule("acc", provider, "pinned", [pinnedRow(99, 300)]);
+      await inbox;
+      expect(batches.flat()).toContain("99");
+      expect(batches.flat().filter((id) => id !== "99")).toHaveLength(20);
+    });
+
+    it("waits for the switch, and for the network", async () => {
+      const { provider, batches } = fakeProvider();
+      settings = { ...DEFAULT_OFFLINE_SETTINGS, prefetch: false };
+      await launch().schedule("acc", provider, "pinned", [pinnedRow(1, 1)]);
+      settings = { ...DEFAULT_OFFLINE_SETTINGS };
+      online = false;
+      await launch().schedule("acc", provider, "pinned", [pinnedRow(1, 1)]);
+      expect(batches).toEqual([]);
+    });
+
+    it("is queued from what the Pinned view already shows when the settings change", async () => {
+      settings = { ...DEFAULT_OFFLINE_SETTINGS, lookbackDays: 7 };
+      const { provider, batches } = fakeProvider();
+      (provider as unknown as { cached: (folder: MailFolder) => MessageSummary[] }).cached = (folder) =>
+        folder === "pinned" ? [pinnedRow(7, 300)] : [];
+      launch().scheduleCached("acc", provider);
+      await vi.waitFor(() => expect(batches.flat()).toEqual(["7"]));
+    });
+  });
+
   it("does nothing when it is turned off", async () => {
     settings = { ...DEFAULT_OFFLINE_SETTINGS, prefetch: false };
     const { provider, batches } = fakeProvider();

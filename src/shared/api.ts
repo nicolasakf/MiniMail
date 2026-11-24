@@ -30,7 +30,7 @@ import type {
 import type { ContactEntry } from "./contacts";
 import type { AppEvent, EventReport } from "./events";
 import type { LogoRequest, LogoSettings } from "./logos";
-import type { NotificationSettings, OpenConversationRequest } from "./notifications";
+import type { NotificationSettings, NotificationTestResult, NotificationToast, OpenConversationRequest } from "./notifications";
 import type { OfflineSettings } from "./offline";
 import type { UpdateSettings, UpdateState } from "./updates";
 import type { LegacyPrefs } from "./prefs";
@@ -190,8 +190,12 @@ export interface MiniMailApi {
     settings(): Promise<NotificationSettings>;
     /** Replaces the settings; answers with what was stored. Rejects invalid values. */
     setSettings(settings: NotificationSettings): Promise<NotificationSettings>;
-    /** Shows a sample notification so the user can check that the system lets MiniMail show them. */
-    test(): Promise<void>;
+    /** Shows a sample notification and answers how it ended, so the page can say when the system does not let MiniMail show them. */
+    test(): Promise<NotificationTestResult>;
+    /** Opens the system's notification settings, at MiniMail's entry when the system allows it. macOS only; nothing elsewhere. */
+    openSystemSettings(): Promise<void>;
+    /** Fires when new mail arrives while the window is in front and the choice is a toast instead of a system notification. */
+    onToast(listener: (toast: NotificationToast) => void): () => void;
   };
   offline: {
     settings(): Promise<OfflineSettings>;

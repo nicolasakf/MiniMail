@@ -129,6 +129,12 @@ const api: MiniMailApi = {
     settings: () => invoke(IPC.notificationsGet),
     setSettings: (settings) => invoke(IPC.notificationsSet, settings),
     test: () => invoke(IPC.notificationsTest),
+    openSystemSettings: () => invoke(IPC.notificationsOpenSystemSettings),
+    onToast: (listener) => {
+      const handler = (_event: unknown, toast: Parameters<typeof listener>[0]) => listener(toast);
+      ipcRenderer.on(IPC.notificationsToast, handler);
+      return () => ipcRenderer.removeListener(IPC.notificationsToast, handler);
+    },
   },
   offline: {
     settings: () => invoke(IPC.offlineGet),

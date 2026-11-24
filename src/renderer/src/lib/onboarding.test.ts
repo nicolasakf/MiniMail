@@ -32,10 +32,10 @@ describe("firstOpenStep", () => {
 });
 
 describe("ONBOARDING_STEPS", () => {
-  it("ends with two optional steps, the second one being the AI agent", () => {
-    expect(ONBOARDING_STEPS.map((step) => step.id)).toEqual(["account", "ai", "categories", "agent"]);
+  it("ends with three optional steps, the last one being the AI agent", () => {
+    expect(ONBOARDING_STEPS.map((step) => step.id)).toEqual(["account", "ai", "categories", "notifications", "agent"]);
     const optional = ONBOARDING_STEPS.filter((step) => "optional" in step && step.optional).map((step) => step.id);
-    expect(optional).toEqual(["categories", "agent"]);
+    expect(optional).toEqual(["categories", "notifications", "agent"]);
   });
 
   it("never reopens at the AI agent step: a guide that was left carries on at the first required one, or categories", () => {
@@ -50,6 +50,7 @@ describe("canContinue", () => {
     expect(canContinue("ai", 1, false)).toBe(false);
     expect(canContinue("ai", 1, true)).toBe(true);
     expect(canContinue("categories", 0, false)).toBe(true);
+    expect(canContinue("notifications", 0, false)).toBe(true);
     expect(canContinue("agent", 0, false)).toBe(true);
   });
 });

@@ -21,6 +21,20 @@ export interface OpenConversationRequest {
   folder: NotifyFolder;
 }
 
+/**
+ * How a sample notification ended. `not-allowed` is the system refusing (macOS: notifications are
+ * switched off for the app), which only the person can change in System Settings.
+ */
+export type NotificationTestResult = { status: "shown" } | { status: "not-allowed" } | { status: "failed"; message: string };
+
+/** What the page shows as a toast when new mail arrives while it is in front. */
+export interface NotificationToast {
+  title: string;
+  body: string;
+  /** The conversation the toast opens; absent for a group of messages. */
+  open?: OpenConversationRequest;
+}
+
 /** Stands for mail that sits in no category, in the category filter. */
 export const NO_CATEGORY = "__none__";
 
@@ -29,6 +43,10 @@ export type CategoryFilterMode = "all" | "only" | "except";
 
 /** What a notification shows of the message. */
 export type NotificationContent = "full" | "sender" | "hidden";
+
+/** What new mail does while MiniMail is the window in front. */
+export const WHEN_OPEN_CHOICES = ["quiet", "toast", "notification"] as const;
+export type WhenOpen = (typeof WHEN_OPEN_CHOICES)[number];
 
 /** The choices an account can set for itself instead of following the defaults for all accounts. */
 export interface AccountNotificationSettings {
@@ -43,8 +61,11 @@ export interface AccountNotificationSettings {
   content: NotificationContent;
   /** Play the system sound with each notification. */
   sound: boolean;
-  /** Stay quiet while MiniMail is the window in front. */
-  muteWhenFocused: boolean;
+  /**
+   * What happens while MiniMail is the window in front: nothing, a toast in the window, or the
+   * system notification. With the window behind, the system notification is always used.
+   */
+  whenOpen: WhenOpen;
 }
 
 /** The keys an account can override, in the order the page lists them. */
@@ -55,7 +76,7 @@ export const ACCOUNT_SETTING_KEYS = [
   "mutedSenders",
   "content",
   "sound",
-  "muteWhenFocused",
+  "whenOpen",
 ] as const satisfies readonly (keyof AccountNotificationSettings)[];
 export type AccountSettingKey = (typeof ACCOUNT_SETTING_KEYS)[number];
 
@@ -85,7 +106,7 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   content: "full",
   sound: true,
   dockBadge: true,
-  muteWhenFocused: true,
+  whenOpen: "quiet",
   groupBursts: true,
   mutedThreads: [],
 };
@@ -115,7 +136,7 @@ export function settingsForAccount(
     mutedSenders: pick("mutedSenders"),
     content: pick("content"),
     sound: pick("sound"),
-    muteWhenFocused: pick("muteWhenFocused"),
+    whenOpen: pick("whenOpen"),
   };
 }
 

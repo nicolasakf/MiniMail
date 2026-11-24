@@ -81,8 +81,8 @@ vi.mock("imapflow", () => {
       this.mailbox = { exists: server.messages.length, uidValidity: server.uidValidity };
       return { release };
     }
-    async search() {
-      return [];
+    async search(query?: { flagged?: boolean }) {
+      return query?.flagged ? server.messages.filter((message) => message.flags.has("\\Flagged")).map((message) => message.uid) : [];
     }
     async fetchOne(uid: string, query: { bodyParts?: (string | { key: string })[]; source?: unknown }) {
       const message = server.messages.find((candidate) => candidate.uid === Number(uid));
@@ -765,6 +765,18 @@ describe("ImapProvider with saved messages", () => {
     saved.setLimit(Math.round((bytes / 3) * 1.4));
     expect(saved.stats().messages).toBe(1);
     expect(saved.stats().oldest).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it("keeps pinned mail downloaded ahead of time as if it was just read, and under the Inbox", async () => {
+    server.messages[0].flags.add("\\Flagged");
+    const provider = relaunch();
+    expect((await provider.list("pinned", 100)).map((row) => row.id.split("|")[2])).toEqual(["1"]);
+    expect(await provider.prefetch("pinned", ["1"])).toBe(1);
+
+    // Dated 1 November 2026, yet ranked as read now: a full file drops this last.
+    expect(saved.stats().oldest).toBeGreaterThan(Date.now() - 60_000);
+    // The Inbox finds it without the network: Pinned is the Inbox seen through a filter.
+    expect(saved.forAccount("acc1").get("inbox", "1", server.uidValidity.toString())).toBeDefined();
   });
 
   it("does not download again what is already kept", async () => {

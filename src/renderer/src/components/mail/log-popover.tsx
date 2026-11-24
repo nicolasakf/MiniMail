@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useEventJournal } from "@/hooks/use-event-journal";
 import { buildRows, eventText, latestErrorId, type EventRow } from "@/lib/event-list";
 import { api } from "@/lib/api";
-import { FOLDER_STYLE } from "@/lib/folder-style";
+import { raisedActive } from "@/lib/folder-style";
 import { toast } from "@/lib/toast";
 import { undoStack, useUndoVersion } from "@/lib/undo-stack";
 import { cn } from "@/lib/utils";
@@ -261,7 +261,7 @@ export function LogPopover({ retryFor }: Props) {
             className={cn(
               "whitespace-nowrap rounded-[10px] px-2.5 py-1 text-xs font-medium",
               FLAT_KEY,
-              errorsOnly ? FOLDER_STYLE.trash.active : "text-muted-foreground hover:text-foreground",
+              errorsOnly ? raisedActive("trash") : "text-muted-foreground hover:text-foreground",
             )}
           >
             Errors only

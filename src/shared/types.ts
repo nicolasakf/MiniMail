@@ -278,6 +278,10 @@ export interface Invitation {
   organizer: Contact | null;
   /** The user's answer so far, or null when they have not answered. */
   response: InvitationResponse | null;
+  /** Where to join the call (Zoom, Meet, Teams...), or null when the invitation has none. Undefined: saved before this was read. */
+  url?: string | null;
+  /** The notes the organizer wrote, as plain text with their links in it, or null when there are none. Undefined: saved before this was read. */
+  notes?: string | null;
 }
 
 export interface MessageDetail extends MessageSummary {
@@ -444,6 +448,8 @@ export interface UiPrefs {
   pinnedDomains: string[];
   /** The categories minimized to the dock on the right of the list. */
   minimizedCategories: string[];
+  /** The searches typed in the search box, newest first, each once. */
+  recentSearches: string[];
 }
 
 /** Most drafts kept at once; saving another drops the oldest. */

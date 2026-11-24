@@ -56,6 +56,21 @@ body,
 }
 
 /*
+ * The toast itself: the `group-[.toaster]:rounded-2xl` on it out-ranks `.corner-squircle` (and so does
+ * Sonner's own radius), which left it with a plain 16px corner. Same fix as the buttons below.
+ */
+.toaster [data-sonner-toast][data-styled='true'] {
+  border-radius: 1rem;
+}
+
+@supports (corner-shape: squircle) {
+  .toaster [data-sonner-toast][data-styled='true'] {
+    corner-shape: squircle;
+    border-radius: 1.8rem;
+  }
+}
+
+/*
  * Sonner styles its action/cancel buttons with `[data-sonner-toast][data-styled='true']
  * [data-button] { border-radius: 4px }`, which out-ranks `.corner-squircle`. Match it
  * with one more class so toast buttons get the same squircle as every other button.

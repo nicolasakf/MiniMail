@@ -102,11 +102,12 @@ export function registerIpc(options: {
   rendererUrl: string | undefined;
   openExternal: (url: string) => Promise<void>;
   openLog: () => Promise<void>;
+  openNotificationSettings: () => Promise<void>;
   cli: CliController;
   pageBridge: PageBridge;
   updater: Updater;
 }): void {
-  const { service, attachmentFiles, notifier, notificationSettings, offlineSettings, categorizer, completer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, journal, oauthConfig, rendererUrl, openExternal, openLog, cli, pageBridge, updater } = options;
+  const { service, attachmentFiles, notifier, notificationSettings, offlineSettings, categorizer, completer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, journal, oauthConfig, rendererUrl, openExternal, openLog, openNotificationSettings, cli, pageBridge, updater } = options;
 
   /**
    * Registers a handler. Whatever it throws is recorded (so no failure goes unseen, even one nobody
@@ -297,6 +298,7 @@ export function registerIpc(options: {
     return saved;
   });
   handle(IPC.notificationsTest, () => notifier.test());
+  handle(IPC.notificationsOpenSystemSettings, () => openNotificationSettings());
   handle(IPC.offlineGet, () => offlineSettings.get());
   handle(IPC.offlineSet, (settings: unknown) => {
     const saved = offlineSettings.set(offlineSettingsSchema.parse(settings));

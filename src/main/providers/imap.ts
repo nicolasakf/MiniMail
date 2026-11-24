@@ -923,7 +923,8 @@ export class ImapProvider implements MailProvider {
             invitation: event ? invitationFromIcs(event) : null,
             inline: plan.inline.map(({ id, contentType, size, cid, encoding }) => ({ id, contentType, size, cid, encoding })),
           };
-          this.bodies?.put(folder, String(message.uid), scope, body, embed ? undefined : Date.parse(summary.date));
+          // Mail downloaded ahead of time ranks by its date; pinned mail, like mail being opened, ranks as read now.
+          this.bodies?.put(folder, String(message.uid), scope, body, embed || folder === "pinned" ? undefined : Date.parse(summary.date));
           const html =
             embed && usesCidImages(body.html) && body.inline.length > 0
               ? await this.embeddedImages(client, message.uid, body.html ?? "", body.inline)

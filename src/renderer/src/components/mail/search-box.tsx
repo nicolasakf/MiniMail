@@ -17,6 +17,7 @@ import {
 import type { Account, Category } from "@shared/types";
 
 import { useContactIndex } from "@/hooks/use-contact-index";
+import { useRecentSearches } from "@/hooks/use-recent-searches";
 import { cn } from "@/lib/utils";
 
 /** One line of the list under the box: a field (`from:`) or a value for the field being typed. */
@@ -25,7 +26,9 @@ interface Choice {
   label: string;
   /** Smaller, muted text after the label. */
   hint: string;
-  pick: { field: SearchField; value?: string };
+  pick?: { field: SearchField; value?: string };
+  /** A search typed before: picking it puts it back in the box. */
+  recent?: string;
 }
 
 interface SearchBoxProps {
@@ -46,6 +49,8 @@ interface SearchBoxProps {
  * user's own names for the others. A finished filter (a space follows it) becomes a chip; click a
  * chip, or press Backspace in the empty box, to turn it back into text and edit it, and × removes it.
  *
+ * Focusing the empty box lists the searches typed before (newest first, each once); one click puts it back.
+ *
  * The text stays the one source of truth: the chips are read out of `query` (`splitSearch`) and written
  * back into it (`joinSearch`), so a search set from elsewhere shows up as chips too. See
  * `shared/search-query.ts` for how it is read.
@@ -57,6 +62,12 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
   const [highlight, setHighlight] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const [focused, setFocused] = useState(false);
+  const { recent, remember } = useRecentSearches();
+  /** The recent search the arrow keys are on; -1 until they are used, so Enter in the empty box does nothing. */
+  const [recentHighlight, setRecentHighlight] = useState(-1);
+  // The newest text of the box, for the searches that end without a blur (the box closing, Esc).
+  const latestQuery = useRef(query);
+  latestQuery.current = query;
   /** Where the cursor goes once the text a change wrote has been rendered. */
   const nextCaret = useRef<number | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -72,7 +83,10 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
 
   const suggestions = useMemo(() => (focused && !dismissed ? suggestSearch(draft, caret, extra) : null), [focused, dismissed, draft, caret, extra]);
 
+  const showRecent = focused && !dismissed && query.trim() === "" && recent.length > 0;
+
   const choices = useMemo<Choice[]>(() => {
+    if (showRecent) return recent.map((text) => ({ key: text, label: text, hint: "", recent: text }));
     if (!suggestions) return [];
     if (suggestions.kind === "fields") {
       return suggestions.fields.map((field) => ({
@@ -109,10 +123,18 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
       hint: value.hint,
       pick: { field, value: prefix + value.value },
     }));
-  }, [suggestions, contacts, accounts]);
+  }, [showRecent, recent, suggestions, contacts, accounts]);
 
   const open = choices.length > 0;
-  const active = Math.min(highlight, Math.max(choices.length - 1, 0));
+  const active = showRecent ? recentHighlight : Math.min(highlight, Math.max(choices.length - 1, 0));
+
+  // A search that was typed is remembered when the box goes away without a blur (it closes, or the page leaves the list).
+  useEffect(
+    () => () => {
+      remember(latestQuery.current);
+    },
+    [remember],
+  );
 
   // The caret is read after every change of the text: the box may have rewritten it (a word that
   // became a chip leaves the rest of the text), and a suggestion says where the cursor should go.
@@ -136,13 +158,20 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
     const joined = joinSearch(nextChips, text);
     nextCaret.current = splitSearch(joined).draft === text ? position : null;
     setHighlight(0);
+    setRecentHighlight(-1);
     setDismissed(false);
     onQueryChange(joined);
     if (refocus) inputRef.current?.focus();
   };
 
   const pick = (choice: Choice) => {
-    if (!suggestions) return;
+    if (choice.recent !== undefined) {
+      // The trailing space finishes the last word, so a filter at the end comes back as a chip.
+      const text = `${choice.recent} `;
+      change([], text, text.length, true);
+      return;
+    }
+    if (!suggestions || !choice.pick) return;
     const next = applySuggestion(draft, suggestions.token, choice.pick);
     change(chips, next.text, next.caret, true);
   };
@@ -212,9 +241,13 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
             autoComplete="off"
             spellCheck={false}
             className="h-8 min-w-[4.5rem] flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-            onFocus={() => setFocused(true)}
+            onFocus={() => {
+              setFocused(true);
+              setDismissed(false);
+            }}
             onBlur={() => {
               setFocused(false);
+              remember(query);
               // The word being typed is finished: `from:alice` becomes a chip.
               const finished = splitSearch(`${query} `);
               if (finished.chips.length > chips.length) onQueryChange(`${query} `);
@@ -230,11 +263,20 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
                 if (open) {
                   event.preventDefault();
                   setDismissed(true);
-                } else onClose();
-              } else if (open && plain && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                } else {
+                  remember(query);
+                  onClose();
+                }
+              } else if (showRecent && plain && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+                event.preventDefault();
+                setRecentHighlight(Math.max(-1, Math.min(active + (event.key === "ArrowDown" ? 1 : -1), choices.length - 1)));
+              } else if (showRecent && plain && event.key === "Enter" && active >= 0) {
+                event.preventDefault();
+                pick(choices[active]);
+              } else if (open && !showRecent && plain && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
                 event.preventDefault();
                 setHighlight((active + (event.key === "ArrowDown" ? 1 : -1) + choices.length) % choices.length);
-              } else if (open && plain && (event.key === "Enter" || event.key === "Tab")) {
+              } else if (open && !showRecent && plain && (event.key === "Enter" || event.key === "Tab")) {
                 event.preventDefault();
                 pick(choices[active]);
               } else if (event.key === "Backspace" && plain && draft === "" && chips.length > 0) {
@@ -264,9 +306,14 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
         <ul
           id="search-suggestions"
           role="listbox"
-          aria-label="Search filters"
+          aria-label={showRecent ? "Recent searches" : "Search filters"}
           className="corner-squircle absolute right-0 top-full z-50 mt-1 max-h-72 w-max min-w-80 max-w-[min(36rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl plate-1 p-1.5 text-popover-foreground shadow-overlay"
         >
+          {showRecent && (
+            <li role="presentation" className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">
+              Recent searches
+            </li>
+          )}
           {choices.map((choice, index) => (
             <li
               key={choice.key}
@@ -280,7 +327,7 @@ export function SearchBox({ inputRef, query, onQueryChange, onClose, onEnterList
               )}
               // Keep focus in the box, or its blur would close the list before the click lands.
               onMouseDown={(event) => event.preventDefault()}
-              onMouseEnter={() => setHighlight(index)}
+              onMouseEnter={() => (showRecent ? setRecentHighlight(index) : setHighlight(index))}
               onClick={() => pick(choice)}
             >
               <span className="max-w-full truncate font-medium">{choice.label}</span>

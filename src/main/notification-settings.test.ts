@@ -41,4 +41,22 @@ describe("NotificationSettingsStore", () => {
     expect(store.get().accounts).toEqual({ a1: { content: "hidden" } });
     expect(store.get()).not.toHaveProperty("quietHours");
   });
+
+  it("turns the old stay-quiet switch into the while-open choice, for the defaults and for accounts", () => {
+    const on = new NotificationSettingsStore(fileWith({ muteWhenFocused: true, sound: false }));
+    expect(on.get().whenOpen).toBe("quiet");
+    expect(on.get().sound).toBe(false);
+    expect(on.get()).not.toHaveProperty("muteWhenFocused");
+
+    const off = new NotificationSettingsStore(
+      fileWith({ muteWhenFocused: false, accounts: { a1: { muteWhenFocused: true, content: "hidden" }, a2: { muteWhenFocused: false } } }),
+    );
+    expect(off.get().whenOpen).toBe("notification");
+    expect(off.get().accounts).toEqual({ a1: { whenOpen: "quiet", content: "hidden" }, a2: { whenOpen: "notification" } });
+  });
+
+  it("keeps a while-open choice that is already saved and defaults to quiet without one", () => {
+    expect(new NotificationSettingsStore(fileWith({ whenOpen: "toast", muteWhenFocused: false })).get().whenOpen).toBe("toast");
+    expect(new NotificationSettingsStore(fileWith({ sound: true })).get().whenOpen).toBe("quiet");
+  });
 });

@@ -125,7 +125,9 @@ newer), one row per message, its content encrypted with the keychain like the ma
   optional) and what bounds it are set on the Advanced page (`OfflineSettings` in `shared/offline.ts`, on by default):
   `limit` is `days` (a look-back, 30 by default), `size` (newest first until the file reaches `maxMegabytes`) or
   `unlimited` (a gentle inline warning on the page). It only reaches the newest `MAIL_WINDOW` messages of each folder, the
-  ones the lists show. Providers do it in `prefetch`, which `get` shares its download with.
+  ones the lists show. **Pinned mail is the exception:** whenever the Pinned view is listed (or Settings change), all of it
+  is downloaded whatever its age and whichever folders were chosen (only the switch turns it off), it ignores `hasRoomFor`,
+  and it ranks as read now, so a full file drops it last. Providers do it in `prefetch`, which `get` shares its download with.
 - **Never an attachment file.** IMAP asks for the readable parts by number (`planBody` in `providers/imap-parts.ts`),
   never `source: true`; files are listed by name and size, and `AttachmentInfo.id` is the IMAP part number, so
   `attachment()` downloads that one part. Images the text embeds by `cid:` are only listed (`StoredBody.inline`) and are

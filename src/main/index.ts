@@ -9,7 +9,7 @@ import { autoUpdater } from "electron-updater";
 
 import { senderDomain } from "@shared/categories";
 import { IPC } from "@shared/ipc";
-import type { OpenConversationRequest } from "@shared/notifications";
+import type { NotificationTestResult, OpenConversationRequest } from "@shared/notifications";
 import { storeLimitBytes } from "@shared/offline";
 
 import { AiSettingsStore } from "./ai-settings";
@@ -126,6 +126,9 @@ let delivery: ComposeDelivery | null = null;
 let notifier: Notifier | null = null;
 let attachmentFiles: AttachmentFiles | null = null;
 let updater: Updater | null = null;
+/** The bundle id of the packaged app (`appId` in electron-builder.yml). */
+const MAC_BUNDLE_ID = "com.nicolasakf.minimail";
+
 /** Notifications on screen; Electron drops the click handler of one that is garbage collected. */
 const liveNotifications = new Set<Notification>();
 
@@ -236,20 +239,37 @@ function setDockBadge(count: number): void {
   else app.setBadgeCount(count);
 }
 
+/** macOS answers `UNErrorDomain error 1` (UNErrorCodeNotificationsNotAllowed) when notifications are off for the app. */
+function isNotAllowed(error: unknown): boolean {
+  return /UNErrorDomain error 1\b/.test(String(error));
+}
+
 /** Shows an operating-system notification; clicking it brings MiniMail to the front and opens the message it is about. */
-function showNotification({ title, body, silent, open }: { title: string; body: string; silent: boolean; open?: OpenConversationRequest }): void {
+function showNotification({ title, body, silent, open }: { title: string; body: string; silent: boolean; open?: OpenConversationRequest }): Promise<NotificationTestResult> {
   if (!Notification.isSupported()) {
     reportError("notifications", "Notifications are not supported on this system");
-    return;
+    return Promise.resolve({ status: "failed", message: "Notifications are not supported on this system." });
   }
   recordInfo("notifications", "Showed a notification", "", { context: `${title} — ${body}` });
   const notification = new Notification({ title, body, silent });
   liveNotifications.add(notification);
   const done = (): void => void liveNotifications.delete(notification);
   notification.on("close", done);
+  const outcome = new Promise<NotificationTestResult>((resolve) => {
+    // The system answers within a moment; with no answer the notification is taken as shown.
+    const timer = setTimeout(() => resolve({ status: "shown" }), 3000);
+    notification.on("show", () => {
+      clearTimeout(timer);
+      resolve({ status: "shown" });
+    });
+    notification.on("failed", (_event, error) => {
+      clearTimeout(timer);
+      resolve(isNotAllowed(error) ? { status: "not-allowed" } : { status: "failed", message: String(error) });
+    });
+  });
   notification.on("failed", (_event, error) => {
     done();
-    reportError("notifications", "Could not show a notification", error);
+    reportError("notifications", isNotAllowed(error) ? "macOS does not allow notifications from MiniMail" : "Could not show a notification", error);
   });
   notification.on("click", () => {
     done();
@@ -260,6 +280,31 @@ function showNotification({ title, body, silent, open }: { title: string; body: 
     if (open) mainWindow.webContents.send(IPC.mailOpenConversation, open);
   });
   notification.show();
+  return outcome;
+}
+
+/**
+ * Opens System Settings at Notifications, at MiniMail's own entry when the system takes the bundle id
+ * (a packaged app only: a dev run is Electron or the launcher, not MiniMail). Each address falls back
+ * to the next, down to the older Notifications pane, and a system that opens none of them reports it.
+ */
+async function openNotificationSettings(): Promise<void> {
+  if (process.platform !== "darwin") return;
+  const pane = "x-apple.systempreferences:com.apple.Notifications-Settings.extension";
+  const urls = [
+    ...(app.isPackaged ? [`${pane}?id=${MAC_BUNDLE_ID}`] : []),
+    pane,
+    "x-apple.systempreferences:com.apple.preference.notifications",
+  ];
+  for (const url of urls.slice(0, -1)) {
+    try {
+      await shell.openExternal(url);
+      return;
+    } catch {
+      // expected: this macOS version does not know the address; the next, more general one is tried.
+    }
+  }
+  await shell.openExternal(urls[urls.length - 1]);
 }
 
 /** Brings the window to the front, making it first if it was closed or never shown. */
@@ -272,6 +317,15 @@ function showMainWindow(): void {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+}
+
+/** Shows new mail as a toast in the window; false when there is no page to show it in. */
+function showToast({ title, body, open }: { title: string; body: string; open?: OpenConversationRequest }): boolean {
+  const window = mainWindow;
+  if (!window || window.isDestroyed() || window.webContents.isLoading()) return false;
+  recordInfo("notifications", "Showed a toast", "", { context: `${title} — ${body}` });
+  window.webContents.send(IPC.notificationsToast, { title, body, ...(open ? { open } : {}) });
+  return true;
 }
 
 /** Opens a conversation in the window, waiting for the page when it is still loading (a hidden start). */
@@ -406,9 +460,9 @@ if (!app.requestSingleInstanceLock()) {
       list: (folder) => service!.list({ folder, limit: 40 }),
       accountIds: () => service!.listAccounts().map((account) => account.id),
       focused: () => BrowserWindow.getFocusedWindow() !== null,
-      sortingBusy: () => categorizer.state().ai.pending > 0,
       setBadge: setDockBadge,
       show: showNotification,
+      toast: showToast,
     });
     const drafts = new DraftStore(join(userData, "drafts.json"), safeStorage);
     delivery = new ComposeDelivery(
@@ -533,6 +587,7 @@ if (!app.requestSingleInstanceLock()) {
       rendererUrl,
       openExternal: openExternalSafely,
       openLog,
+      openNotificationSettings,
       cli,
       pageBridge: bridge,
       updater,

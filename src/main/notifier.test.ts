@@ -36,35 +36,47 @@ function message(id: string, patch: Partial<MessageSummary> = {}): MessageSummar
 }
 
 function setup(initial: Partial<NotificationSettings> = {}) {
-  let settings: NotificationSettings = { ...structuredClone(DEFAULT_NOTIFICATION_SETTINGS), muteWhenFocused: false, ...initial };
+  let settings: NotificationSettings = { ...structuredClone(DEFAULT_NOTIFICATION_SETTINGS), whenOpen: "notification", ...initial };
   const folders: Record<NotifyFolder, MessageSummary[]> = { inbox: [], archive: [], spam: [], trash: [] };
   const shown: ShownNotification[] = [];
+  const toasts: ShownNotification[] = [];
+  let pageOpen = true;
   const badge: number[] = [];
   let clock = NOW.getTime();
   let focused = false;
-  let busy = false;
   const notifier = new Notifier({
     settings: () => settings,
     list: async (folder): Promise<ListResult> => ({ messages: [...folders[folder]], errors: [] }),
     accountIds: () => ["a1"],
     focused: () => focused,
-    show: (notification) => shown.push(notification),
+    show: (notification) => {
+      shown.push(notification);
+    },
+    toast: (notification) => {
+      if (pageOpen) toasts.push(notification);
+      return pageOpen;
+    },
     setBadge: (count) => badge.push(count),
-    sortingBusy: () => busy,
     now: () => new Date(clock),
   });
   return {
     notifier,
     folders,
     shown,
+    toasts,
     badge,
     set: (patch: Partial<NotificationSettings>) => (settings = { ...settings, ...patch }),
     focus: (value: boolean) => (focused = value),
-    sorting: (value: boolean) => (busy = value),
+    page: (value: boolean) => (pageOpen = value),
     /** Moves the clock forward and checks. */
     check: async (ms = 10_000) => {
       clock += ms;
       await notifier.check();
+    },
+    /** Moves the clock and the timers forward together, so a check that was postponed runs. */
+    wait: async (ms: number) => {
+      clock += ms;
+      await vi.advanceTimersByTimeAsync(ms);
     },
   };
 }
@@ -139,34 +151,127 @@ describe("Notifier", () => {
   it("waits for the AI sorter before judging a category", async () => {
     const t = setup({ categories: { mode: "only", ids: ["work"] } });
     await t.check();
-    t.sorting(true);
-    t.folders.inbox = [message("9")]; // Rule-based category for now: none.
+    t.folders.inbox = [message("9", { sorting: true })]; // Rule-based category for now: none.
     await t.check();
     expect(t.shown).toHaveLength(0);
 
-    t.sorting(false);
     t.folders.inbox = [message("9", { categoryId: "work" })]; // The sorter answered.
     await t.check();
     expect(t.shown).toHaveLength(1);
   });
 
+  it("does not hold a message back for sorting that is for other mail", async () => {
+    const t = setup({ categories: { mode: "only", ids: ["work"] } });
+    await t.check();
+    t.folders.inbox = [message("15", { categoryId: "work" }), message("16", { sorting: true })];
+    await t.check();
+    expect(t.shown.map((item) => item.title)).toEqual(["Sender 15"]); // 16 is still being sorted.
+  });
+
   it("stops waiting for the sorter after a grace period and uses the category it has", async () => {
     const t = setup({ categories: { mode: "except", ids: ["promo"] } });
     await t.check();
-    t.sorting(true);
-    t.folders.inbox = [message("14")];
+    t.folders.inbox = [message("14", { sorting: true })];
     await t.check(5_000);
     expect(t.shown).toHaveLength(0);
-    await t.check(31_000); // Still busy, but the wait is over: judged by the category it has (none).
+    await t.check(31_000); // Still sorting, but the wait is over: judged by the category it has (none).
     expect(t.shown.map((item) => item.title)).toEqual(["Sender 14"]);
   });
 
-  it("stays quiet while focused", async () => {
-    const u = setup({ muteWhenFocused: true });
+  describe("with timers", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it("runs a check that came inside the gap when the gap ends, instead of dropping it", async () => {
+      const t = setup({ categories: { mode: "only", ids: ["work"] } });
+      await t.check();
+      t.folders.inbox = [message("17", { sorting: true })];
+      await t.check();
+      expect(t.shown).toHaveLength(0);
+
+      // The sorter answers a second later and asks for a check: too soon after the last one.
+      t.folders.inbox = [message("17", { categoryId: "work" })];
+      await t.check(1_000);
+      expect(t.shown).toHaveLength(0);
+      await t.wait(3_000);
+      expect(t.shown.map((item) => item.title)).toEqual(["Sender 17"]);
+    });
+
+    it("checks again when a message's wait for the sorter runs out, with nothing else to wake it", async () => {
+      const t = setup({ categories: { mode: "except", ids: ["promo"] } });
+      await t.check();
+      t.folders.inbox = [message("18", { sorting: true })];
+      await t.check();
+      expect(t.shown).toHaveLength(0);
+      await t.wait(31_000);
+      expect(t.shown.map((item) => item.title)).toEqual(["Sender 18"]);
+    });
+  });
+
+  it("stays quiet while focused when asked to", async () => {
+    const u = setup({ whenOpen: "quiet" });
     await u.check();
     u.focus(true);
     u.folders.inbox = [message("11")];
     await u.check();
+    expect(u.shown).toHaveLength(0);
+    expect(u.toasts).toHaveLength(0);
+  });
+
+  it("shows a toast instead of a notification while focused, and a notification otherwise", async () => {
+    const u = setup({ whenOpen: "toast" });
+    await u.check();
+    u.focus(true);
+    u.folders.inbox = [message("11")];
+    await u.check();
+    expect(u.shown).toHaveLength(0);
+    expect(u.toasts.map((item) => item.title)).toEqual(["Sender 11"]);
+    expect(u.toasts[0].open).toEqual(expect.objectContaining({ threadId: "t11" }));
+
+    u.focus(false);
+    u.folders.inbox = [message("12"), message("11")];
+    await u.check();
+    expect(u.shown.map((item) => item.title)).toEqual(["Sender 12"]);
+    expect(u.toasts).toHaveLength(1);
+  });
+
+  it("falls back to a notification when there is no page to show the toast in", async () => {
+    const u = setup({ whenOpen: "toast" });
+    await u.check();
+    u.focus(true);
+    u.page(false);
+    u.folders.inbox = [message("11")];
+    await u.check();
+    expect(u.shown.map((item) => item.title)).toEqual(["Sender 11"]);
+  });
+
+  it("notifies while focused when asked to, with no toast", async () => {
+    const u = setup({ whenOpen: "notification" });
+    await u.check();
+    u.focus(true);
+    u.folders.inbox = [message("11")];
+    await u.check();
+    expect(u.shown.map((item) => item.title)).toEqual(["Sender 11"]);
+    expect(u.toasts).toHaveLength(0);
+  });
+
+  it("follows each account's own choice while focused", async () => {
+    const u = setup({ whenOpen: "quiet", accounts: { a1: { whenOpen: "toast" } } });
+    await u.check();
+    u.focus(true);
+    u.folders.inbox = [message("11")];
+    await u.check();
+    expect(u.toasts).toHaveLength(1);
+    expect(u.shown).toHaveLength(0);
+  });
+
+  it("combines a burst into one toast too", async () => {
+    const u = setup({ whenOpen: "toast" });
+    await u.check();
+    u.focus(true);
+    u.folders.inbox = ["1", "2", "3", "4"].map((id) => message(id));
+    await u.check();
+    expect(u.toasts.map((item) => item.title)).toEqual(["4 new messages"]);
     expect(u.shown).toHaveLength(0);
   });
 
@@ -240,6 +345,21 @@ describe("Notifier", () => {
     t.shown.length = 0;
     await t.notifier.test();
     expect(t.shown[0].open).toEqual({ accountId: "a1", threadId: newer.threadId, folder: "inbox" });
+  });
+
+  it("answers how the sample ended when the system reports it", async () => {
+    const t = setup();
+    expect(await t.notifier.test()).toEqual({ status: "shown" });
+    const refused = new Notifier({
+      settings: () => DEFAULT_NOTIFICATION_SETTINGS,
+      list: async () => ({ messages: [], errors: [] }),
+      accountIds: () => ["a1"],
+      focused: () => false,
+      show: async () => ({ status: "not-allowed" }),
+      toast: () => false,
+      setBadge: () => undefined,
+    });
+    expect(await refused.test()).toEqual({ status: "not-allowed" });
   });
 });
 

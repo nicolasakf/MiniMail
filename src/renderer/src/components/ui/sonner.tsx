@@ -56,7 +56,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       toastOptions={{
         classNames: {
           toast:
-            "corner-squircle group toast w-fit max-w-[var(--toast-max-width)] group-[.toaster]:rounded-2xl group-[.toaster]:border-0 group-[.toaster]:bg-background group-[.toaster]:grain group-[.toaster]:text-foreground group-[.toaster]:shadow-overlay",
+            "corner-squircle group toast w-fit max-w-[var(--toast-max-width)] group-[.toaster]:border-0 group-[.toaster]:bg-background group-[.toaster]:grain group-[.toaster]:text-foreground group-[.toaster]:shadow-overlay",
           description: "group-[.toast]:text-muted-foreground",
           error:
             // A red wash over the solid toast background, so the list never shows through.

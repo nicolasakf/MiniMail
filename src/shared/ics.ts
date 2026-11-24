@@ -1,3 +1,4 @@
+import { meetingLinkIn, normalizeLink } from "./links";
 import type { Contact, Invitation, InvitationResponse } from "./types";
 
 /** One `NAME;PARAM=value:value` line of an iCalendar file. */
@@ -154,6 +155,19 @@ function parseTime(line: IcsLine | undefined): ParsedTime | null {
   }
 }
 
+/** The most of the organizer's notes that is kept. */
+export const MAX_NOTES_CHARS = 4000;
+
+/** Where to join the call: the calendar's own conference address, else a call link in the location or the notes. */
+function joinUrlOf(event: IcsEvent, location: string | null, notes: string | null): string | null {
+  for (const name of ["X-GOOGLE-CONFERENCE", "X-MICROSOFT-SKYPETEAMSMEETINGURL", "URL"]) {
+    const address = first(event, name)?.value;
+    const url = address ? normalizeLink(unescapeText(address)) : null;
+    if (url) return url;
+  }
+  return meetingLinkIn(location) ?? meetingLinkIn(notes);
+}
+
 /** The invitation an iCalendar REQUEST or CANCEL describes; null for any other method. */
 export function invitationFromIcs(event: IcsEvent): Invitation | null {
   if (event.method !== "REQUEST" && event.method !== "CANCEL") return null;
@@ -161,6 +175,9 @@ export function invitationFromIcs(event: IcsEvent): Invitation | null {
   const end = parseTime(first(event, "DTEND"));
   const summary = first(event, "SUMMARY")?.value;
   const location = first(event, "LOCATION")?.value;
+  const place = location ? unescapeText(location).trim() || null : null;
+  const description = first(event, "DESCRIPTION")?.value;
+  const notes = description ? unescapeText(description).trim().slice(0, MAX_NOTES_CHARS) || null : null;
   return {
     uid: event.uid,
     method: event.method,
@@ -168,9 +185,11 @@ export function invitationFromIcs(event: IcsEvent): Invitation | null {
     start: start?.iso ?? null,
     end: end?.iso ?? null,
     allDay: start?.allDay ?? false,
-    location: location ? unescapeText(location).trim() || null : null,
+    location: place,
     organizer: contactOf(first(event, "ORGANIZER")),
     response: null,
+    url: event.method === "CANCEL" ? null : joinUrlOf(event, place, notes),
+    notes,
   };
 }
 

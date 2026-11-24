@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { defaultUiPrefs, mergeLegacyPrefs, parseAppearanceValues } from "./prefs";
+import { defaultUiPrefs, mergeLegacyPrefs, parseAppearanceValues, parseRecentSearches, rememberSearch } from "./prefs";
 
 describe("mergeLegacyPrefs", () => {
   it("adds the old lists to the saved ones without losing or reordering what is saved", () => {
@@ -52,5 +52,24 @@ describe("parseAppearanceValues", () => {
     expect(parseAppearanceValues({ a: "x", b: 1, c: true, d: null, e: { f: 1 }, g: "y".repeat(100), h: NaN })).toEqual({ a: "x", b: 1, c: true, d: null });
     expect(parseAppearanceValues([1])).toBeNull();
     expect(parseAppearanceValues(null)).toBeNull();
+  });
+});
+
+describe("recent searches", () => {
+  it("puts the newest first and keeps each search once, letter case aside", () => {
+    expect(rememberSearch(["from:bob", "invoice"], "Invoice")).toEqual(["Invoice", "from:bob"]);
+    expect(rememberSearch(["a"], "  b   c ")).toEqual(["b c", "a"]);
+  });
+
+  it("ignores blank text and keeps only the newest eight", () => {
+    expect(rememberSearch(["a"], "   ")).toEqual(["a"]);
+    const nine = Array.from({ length: 9 }, (_, i) => `s${i}`);
+    expect(parseRecentSearches(nine)).toEqual(nine.slice(0, 8));
+    expect(rememberSearch(nine.slice(0, 8), "new")).toEqual(["new", ...nine.slice(0, 7)]);
+  });
+
+  it("reads anything that is not a list of text as empty", () => {
+    expect(parseRecentSearches("nope")).toEqual([]);
+    expect(parseRecentSearches([1, "ok", "", "x".repeat(300)])).toEqual(["ok"]);
   });
 });

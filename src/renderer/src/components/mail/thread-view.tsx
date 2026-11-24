@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 
-import { ArrowLeft, Ban, BellOff, Check, ChevronDown, Forward, FolderInput, ListX, Loader2, Paperclip, Pencil, Reply, ReplyAll, ShieldBan, User, Zap } from "lucide-react";
+import { ArrowLeft, Ban, BellOff, Check, ChevronDown, Forward, FolderInput, ListX, Loader2, Pencil, Reply, ReplyAll, ShieldBan, User, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "@/lib/toast";
 
@@ -61,7 +61,7 @@ import { ContactCard } from "./contact-card";
 import { MessageBody } from "./message-body";
 import { FindBar } from "./find-bar";
 import { FolderBadge } from "./folder-badge";
-import { ThreadCard } from "./thread-card";
+import { MessageAttachments, ThreadCard } from "./thread-card";
 import { AccountMark } from "./account-mark";
 import { SenderAvatar } from "./sender-avatar";
 import { noteShownError } from "@/lib/events";
@@ -876,6 +876,9 @@ export function ThreadView({
       toast.error(`Couldn't save ${attachment.filename}`, { description: failure instanceof Error ? failure.message : String(failure) });
     }
   };
+  const openLink = (url: string) => {
+    void api.system.openExternal(url).catch(() => undefined); // expected: recorded by the main process
+  };
   const respond = async (entry: ThreadInvitation, response: InvitationResponse) => {
     try {
       await api.mail.respondToInvitation(entry.messageId, response);
@@ -970,6 +973,7 @@ export function ThreadView({
             expecting={expecting}
             onOpenAttachment={openAttachment}
             onSaveAttachment={saveAttachment}
+            onOpenLink={openLink}
             onRespond={respond}
           />
           <ToolbarButton label="Reply" hint="R" onClick={() => startCompose("reply")}>
@@ -1095,7 +1099,15 @@ export function ThreadView({
                         </div>
                       </div>
                       {(message ? message.attachments.length > 0 : summary.hasAttachments) && (
-                        <Paperclip className="size-4 shrink-0 text-muted-foreground" />
+                        <MessageAttachments
+                          attachments={
+                            message
+                              ? message.attachments.map((attachment) => ({ ...attachment, messageId: message.id, from: message.from, date: message.date }))
+                              : null
+                          }
+                          onOpenAttachment={openAttachment}
+                          onSaveAttachment={saveAttachment}
+                        />
                       )}
                       <span className="shrink-0 text-xs text-muted-foreground">
                         {formatFullDate(header.date)}

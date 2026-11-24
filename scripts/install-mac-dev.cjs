@@ -55,7 +55,9 @@ try {
     JSON.stringify({ name, version, main: "main.cjs", project, node: process.execPath, npm }),
   );
 
-  execFileSync("/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", "Electron", bundle]);
+  // The signing identifier must be the bundle id: macOS checks notification permission against the signature, and
+  // a bundle signed as "Electron" is refused ("not allowed") even when Settings lists the app as allowed.
+  execFileSync("/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", bundleIdentifier, bundle]);
   execFileSync("/usr/bin/codesign", ["--verify", "--strict", bundle]);
   if (existsSync(destination)) renameSync(destination, previous);
   renameSync(bundle, destination);

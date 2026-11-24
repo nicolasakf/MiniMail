@@ -5,7 +5,6 @@ import { Archive, BellOff, Inbox, ListX, Paperclip, ShieldAlert, ShieldBan, Zap,
 import { accountDetail } from "@shared/accounts";
 import { isBlockedThread } from "@shared/blocklist";
 import { isMutedThread } from "@shared/notifications";
-import { isPriorityThread } from "@shared/priority";
 import { unsubscribeCommand } from "@shared/unsubscribe";
 import { logoRequestFor } from "@shared/logos";
 import { conversationFolder, MOVE_FOLDERS, type MoveFolder, type Thread } from "@shared/threads";
@@ -120,7 +119,8 @@ export const ThreadRow = memo(function ThreadRow({
 }: ThreadRowProps) {
   const [hovered, setHovered] = useState(false);
   const { showPreviews } = useAppearance();
-  const priority = isPriorityThread(usePriority(), thread);
+  // The bolt marks the conversation itself; a priority sender or domain in it does not show one.
+  const priority = usePriority().threads.includes(thread.id);
   // A muted conversation, or one from a muted sender or domain, is marked with a bell-off icon (Sent and Drafts show recipients).
   const { settings: notifySettings } = useNotificationSettings();
   const muted = notifySettings !== null && isMutedThread(notifySettings, thread) && folder !== "sent" && folder !== "drafts";

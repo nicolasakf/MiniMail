@@ -144,6 +144,15 @@ describe("matchesSearch", () => {
   it("finds attachments", () => {
     expect(hits("has:attachment")).toBe(false);
     expect(hits("has:attachment", message({ hasAttachments: true }))).toBe(true);
+    expect(hits("has:file")).toBe(false);
+    expect(hits("has:file", message({ hasAttachments: true }))).toBe(true);
+  });
+
+  it("finds invitations", () => {
+    expect(hits("has:invitation")).toBe(false);
+    expect(hits("has:invitation", message({ signal: "invitation" }))).toBe(true);
+    expect(hits("has:invitation", message({ hasAttachments: true }))).toBe(false);
+    expect(hits("has:file,invitation", message({ signal: "invitation" }))).toBe(true);
   });
 
   it("filters by folder", () => {

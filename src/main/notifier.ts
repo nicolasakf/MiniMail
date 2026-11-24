@@ -6,6 +6,7 @@ import {
   settingsForAccount,
   type AccountNotificationSettings,
   type NotificationSettings,
+  type NotificationTestResult,
   type NotifyFolder,
   type OpenConversationRequest,
 } from "@shared/notifications";
@@ -27,17 +28,24 @@ export interface NotifierDeps {
   accountIds: () => string[];
   /** MiniMail is the window in front. */
   focused: () => boolean;
-  show: (notification: ShownNotification) => void;
+  /** Shows a system notification. The promise, when given, says how it ended (only the sample waits for it). */
+  show: (notification: ShownNotification) => void | Promise<NotificationTestResult>;
+  /**
+   * Shows a toast in the window instead of a system notification. False when there is no page to
+   * show it in, and the notification is used instead.
+   */
+  toast: (notification: ShownNotification) => boolean;
   /** Sets the Dock badge; 0 clears it. */
   setBadge: (count: number) => void;
-  /** The AI sorter still has conversations to sort, so categories may be about to change. */
-  sortingBusy: () => boolean;
   now?: () => Date;
 }
 
-/** How long a new message waits for the AI sorter before it is judged by the category it has. */
+/**
+ * The longest a new message waits for the AI sorter before it is judged by the category it has.
+ * Normally the sorter answers within a second or two and asks for a check, so this is only the limit.
+ */
 const SORT_GRACE_MS = 30_000;
-/** Checks closer together than this are skipped: one push often fires several events. */
+/** Checks closer together than this are postponed to the end of the gap: one push often fires several events. */
 const MIN_GAP_MS = 4_000;
 /** Most separate notifications for one check when grouping is off; the rest fold into one. */
 const MAX_INDIVIDUAL = 6;
@@ -66,6 +74,8 @@ export class Notifier {
   private running = false;
   private rerun = false;
   private lastRun = 0;
+  /** The check that is due later (the end of the gap, or when a message's wait for the sorter runs out). */
+  private timer: { handle: ReturnType<typeof setTimeout>; at: number } | null = null;
   /** The user moved mail themselves, so what shows up in Archive, Spam or Trash is not "arriving". */
   private userMovedMail = false;
 
@@ -80,7 +90,7 @@ export class Notifier {
    * Shows a sample so the user can see how notifications look and that the system allows them.
    * Clicking it opens the newest Inbox conversation, so that click can be tried out too.
    */
-  async test(): Promise<void> {
+  async test(): Promise<NotificationTestResult> {
     const { content, sound } = this.deps.settings();
     let open: OpenConversationRequest | undefined;
     try {
@@ -92,12 +102,13 @@ export class Notifier {
     } catch (error) {
       reportError("notifications", "Could not find a conversation for the sample notification to open", error);
     }
-    this.deps.show({
+    const outcome = this.deps.show({
       title: content === "hidden" ? "New mail" : "MiniMail",
       body: "This is how a notification will look.",
       silent: !sound,
       ...(open ? { open } : {}),
     });
+    return (await outcome) ?? { status: "shown" };
   }
 
   /** Looks for new mail and notifies. Safe to call as often as you like. */
@@ -107,7 +118,12 @@ export class Notifier {
       return;
     }
     const clock = this.deps.now ?? (() => new Date());
-    if (!force && clock().getTime() - this.lastRun < MIN_GAP_MS) return;
+    const sinceLast = clock().getTime() - this.lastRun;
+    if (!force && sinceLast < MIN_GAP_MS) {
+      // Not dropped: the sorter often answers inside the gap, and that check must still happen.
+      this.schedule(MIN_GAP_MS - sinceLast);
+      return;
+    }
     this.running = true;
     try {
       do {
@@ -191,29 +207,59 @@ export class Notifier {
       .filter((message) => messageNotifies(message, settings))
       .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
     const focused = this.deps.focused();
-    const audible = wanted.filter((message) => {
-      const account = settingsForAccount(settings, message.accountId);
-      return !(account.muteWhenFocused && focused);
+    const toasts: MessageSummary[] = [];
+    const system = wanted.filter((message) => {
+      if (!focused) return true;
+      const { whenOpen } = settingsForAccount(settings, message.accountId);
+      if (whenOpen === "toast") toasts.push(message);
+      return whenOpen === "notification";
     });
-    if (audible.length === 0) return;
-    this.deliver(audible, settings);
+    if (toasts.length > 0) this.deliver(toasts, settings, (notification) => this.deps.toast(notification));
+    if (system.length > 0) this.deliver(system, settings);
   }
 
-  /** False while a message should wait for the AI sorter (only when a category filter makes that matter). */
+  /**
+   * False while this message should wait for the AI sorter (only when a category filter makes that
+   * matter). The sorter asks for a check when it answers; the check at the end of the wait is the limit.
+   */
   private sortedOrWaited(message: MessageSummary, settings: AccountNotificationSettings, now: Date): boolean {
-    if (settings.categories.mode === "all" || !this.deps.sortingBusy()) return true;
+    if (settings.categories.mode === "all" || !message.sorting) return true;
     const since = this.waiting.get(message.id) ?? now.getTime();
     this.waiting.set(message.id, since);
-    return now.getTime() - since >= SORT_GRACE_MS;
+    const left = SORT_GRACE_MS - (now.getTime() - since);
+    if (left <= 0) return true;
+    this.schedule(left);
+    return false;
   }
 
-  private deliver(messages: MessageSummary[], settings: NotificationSettings): void {
+  /** Checks again in `ms`, unless a check is already due sooner. */
+  private schedule(ms: number): void {
+    const at = (this.deps.now ?? (() => new Date()))().getTime() + ms;
+    if (this.timer && this.timer.at <= at) return;
+    if (this.timer) clearTimeout(this.timer.handle);
+    const handle = setTimeout(() => {
+      this.timer = null;
+      void this.check();
+    }, ms);
+    handle.unref?.();
+    this.timer = { handle, at };
+  }
+
+  /** Shows the messages as system notifications, or through `present` when it is given and takes them. */
+  private deliver(
+    messages: MessageSummary[],
+    settings: NotificationSettings,
+    present?: (notification: ShownNotification) => boolean,
+  ): void {
+    const show = (notification: ShownNotification): void => {
+      if (!present?.(notification)) this.deps.show(notification);
+    };
     const sounds = (batch: MessageSummary[]) =>
       batch.some((message) => settingsForAccount(settings, message.accountId).sound);
     const grouped = settings.groupBursts ? messages.length >= BURST_SIZE : messages.length > MAX_INDIVIDUAL;
     if (!grouped) {
       for (const message of messages) {
-        this.deps.show({ ...this.describe(message, settings), silent: !sounds([message]) });
+        show({ ...this.describe(message, settings), silent: !sounds([message]) });
       }
       return;
     }
@@ -221,7 +267,7 @@ export class Notifier {
       const names = [...new Set(batch.map(senderName))];
       const shown = names.slice(0, 2).join(", ");
       const more = names.length - 2;
-      this.deps.show({
+      show({
         title: `${batch.length} new messages`,
         body:
           batch.some((message) => settingsForAccount(settings, message.accountId).content === "hidden")
@@ -232,7 +278,7 @@ export class Notifier {
     };
     if (settings.groupBursts) return showBurst(messages);
     for (const message of messages.slice(-MAX_INDIVIDUAL)) {
-      this.deps.show({ ...this.describe(message, settings), silent: !sounds([message]) });
+      show({ ...this.describe(message, settings), silent: !sounds([message]) });
     }
     showBurst(messages.slice(0, -MAX_INDIVIDUAL));
   }

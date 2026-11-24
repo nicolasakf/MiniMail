@@ -189,7 +189,7 @@ export function AdvancedTab() {
           onCheckedChange={(prefetch) => settings && void save({ ...settings, prefetch })}
         />
 
-        <SettingsRow label="Folders" description={`The newest ${MAIL_WINDOW} messages of each.`}>
+        <SettingsRow label="Folders" description={`The newest ${MAIL_WINDOW} messages of each. Pinned mail is always downloaded.`}>
           <SettingsMultiTileField
             ariaLabel="Folders downloaded ahead of time"
             values={current.folders}

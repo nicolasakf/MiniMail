@@ -237,6 +237,18 @@ describe("BodyStore", () => {
     expect(view.missing("inbox", ["1", "2"], "1")).toEqual(["1", "2"]);
   });
 
+  it("downloads again an invitation saved before its call link and notes were read, once", () => {
+    const view = launch().forAccount("a");
+    const meeting = { uid: "u", method: "REQUEST" as const, title: "Sync", start: null, end: null, allDay: false, location: null, organizer: null, response: null };
+    view.put("inbox", "1", "1", body("<p>x</p>", { invitation: meeting })); // the old format: no url, no notes
+    view.put("inbox", "2", "1", body("<p>y</p>", { invitation: { ...meeting, url: null, notes: null } }));
+
+    expect(view.get("inbox", "1", "1")).toBeUndefined();
+    expect(view.missing("inbox", ["1", "2"], "1")).toEqual(["1"]);
+    expect(view.get("inbox", "2", "1")?.invitation?.url).toBeNull();
+    expect(reported).toEqual([]);
+  });
+
   it("sets aside a file that is not a database, reports it and starts a new one", () => {
     writeFileSync(file, "this is not a database, not even close".repeat(40));
     const view = launch().forAccount("a");

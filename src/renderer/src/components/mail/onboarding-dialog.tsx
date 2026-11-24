@@ -6,6 +6,7 @@ import type { Account, AiStatus, Category, CategoryState } from "@shared/types";
 
 import { Button } from "@/components/ui/button";
 import { CliAllowField } from "@/components/settings/cli-tab";
+import { SystemNotificationsNote } from "@/components/settings/system-notifications-note";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useCli } from "@/hooks/use-cli";
 import { api } from "@/lib/api";
@@ -71,6 +72,18 @@ function StepIntro({ title, children }: { title: string; children: string }) {
   );
 }
 
+/** Notifications: MiniMail shows them only when the system allows it, so the step points at System Settings. */
+function NotificationsStep() {
+  return (
+    <div className="space-y-5 px-6 py-5">
+      <StepIntro title="Get notified about new mail">
+        MiniMail shows a system notification when new mail arrives. Which mail, and how it looks, is set in Settings, under Notifications.
+      </StepIntro>
+      <SystemNotificationsNote />
+    </div>
+  );
+}
+
 /**
  * The last step: let an AI agent on this computer read mail through the `minimail` command. It is the
  * same switch as the CLI page in Settings (they share `CliAllowField`, which also asks about installing
@@ -126,7 +139,7 @@ export function OnboardingDialog({
       >
         <DialogHeader className="sr-only">
           <DialogTitle>Set up MiniMail</DialogTitle>
-          <DialogDescription>Connect an email account, connect an AI provider, look over your categories and, if you like, connect an AI agent.</DialogDescription>
+          <DialogDescription>Connect an email account, connect an AI provider, look over your categories, check that notifications are allowed and, if you like, connect an AI agent.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 edge-b px-6 pb-4 pt-5">
@@ -179,6 +192,8 @@ export function OnboardingDialog({
               <p className="text-xs text-muted-foreground">You can change them any time in Settings, under Categories.</p>
             </div>
           )}
+
+          {step === "notifications" && <NotificationsStep />}
 
           {step === "agent" && <AgentStep />}
         </div>

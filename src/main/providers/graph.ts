@@ -3,6 +3,8 @@ import { z } from "zod";
 import { CALENDAR_ACCESS_REQUIRED } from "@shared/accounts";
 import { classifyMessage } from "@shared/classify";
 import { makeMessageId, parseMessageId } from "@shared/ids";
+import { MAX_NOTES_CHARS } from "@shared/ics";
+import { meetingLinkIn, normalizeLink, notesFromHtml } from "@shared/links";
 import { isAuthenticated } from "@shared/logos";
 import { MAIL_WINDOW } from "@shared/mail-window";
 import { parseUnsubscribe } from "@shared/unsubscribe";
@@ -102,6 +104,9 @@ const eventMessageSchema = z.object({
       end: eventTimeSchema.nullish(),
       isAllDay: z.boolean().nullish(),
       location: z.object({ displayName: z.string().nullish() }).nullish(),
+      body: z.object({ contentType: z.string().nullish(), content: z.string().nullish() }).nullish(),
+      onlineMeeting: z.object({ joinUrl: z.string().nullish() }).nullish(),
+      onlineMeetingUrl: z.string().nullish(),
       organizer: recipientSchema.nullish(),
       responseStatus: z.object({ response: z.string().nullish() }).nullish(),
     })
@@ -725,7 +730,7 @@ export class GraphProvider implements MailProvider {
         invitation: summary.signal === "invitation" ? await this.invitationOf(nativeId, summary.subject, lane) : null,
         inline,
       };
-      this.bodies?.put(folder, nativeId, "", body, lane === "background" ? Date.parse(summary.date) : undefined);
+      this.bodies?.put(folder, nativeId, "", body, lane === "background" && folder !== "pinned" ? Date.parse(summary.date) : undefined);
       found.set(nativeId, { summary, body });
     });
     return found;
@@ -772,7 +777,7 @@ export class GraphProvider implements MailProvider {
       // Reading the event needs the calendar permission, which accounts added before it was asked for lack.
       // The message is still an invitation then, so the card shows it; answering explains what is missing.
       if (error instanceof GraphError && (error.status === 401 || error.status === 403)) {
-        return { uid: nativeId, method: "REQUEST", title: subject, start: null, end: null, allDay: false, location: null, organizer: null, response: null };
+        return { uid: nativeId, method: "REQUEST", title: subject, start: null, end: null, allDay: false, location: null, organizer: null, response: null, url: null, notes: null };
       }
       reportError("sync", "Could not read the calendar event of an invitation", error);
       return null;
@@ -796,6 +801,9 @@ export class GraphProvider implements MailProvider {
     const response = { accepted: "accepted", tentativelyAccepted: "tentative", declined: "declined" }[
       event?.responseStatus?.response ?? ""
     ] as Invitation["response"] | undefined;
+    const content = event?.body?.content?.trim() ?? "";
+    const notes = (event?.body?.contentType?.toLowerCase() === "html" ? notesFromHtml(content) : content).slice(0, MAX_NOTES_CHARS).trim();
+    const place = event?.location?.displayName || null;
     return {
       uid: event?.id ?? nativeId,
       method,
@@ -803,9 +811,11 @@ export class GraphProvider implements MailProvider {
       start: allDay && start ? start.slice(0, 10) : start,
       end: allDay && end ? end.slice(0, 10) : end,
       allDay,
-      location: event?.location?.displayName || null,
+      location: place,
       organizer: event?.organizer ? toContact(event.organizer) : null,
       response: response ?? null,
+      url: method === "CANCEL" ? null : (normalizeLink(event?.onlineMeeting?.joinUrl ?? event?.onlineMeetingUrl ?? "") ?? meetingLinkIn(place) ?? meetingLinkIn(notes)),
+      notes: notes || null,
     };
   }
 

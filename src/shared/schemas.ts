@@ -18,6 +18,7 @@ import {
   MAX_MUTED_THREADS,
   MAX_NOTIFICATION_IDS,
   NOTIFY_FOLDERS,
+  WHEN_OPEN_CHOICES,
   type NotificationSettings,
 } from "./notifications";
 import { MAIL_WINDOW } from "./mail-window";
@@ -45,6 +46,7 @@ import {
   MAX_MINIMIZED_CATEGORIES,
   MAX_PINNED_DOMAINS,
   parseAppearanceValues,
+  parseRecentSearches,
   parseStringList,
   type LegacyPrefs,
 } from "./prefs";
@@ -228,6 +230,7 @@ export const savedChoiceSchemas = {
   unsubscribed: z.unknown().transform(parseUnsubscribedLists),
   pinnedDomains: z.unknown().transform((value) => parseStringList(value, MAX_PINNED_DOMAINS)),
   minimizedCategories: z.unknown().transform((value) => parseStringList(value, MAX_MINIMIZED_CATEGORIES)),
+  recentSearches: z.unknown().transform(parseRecentSearches),
 };
 
 /** Any subset of the saved choices; what is left out keeps its value. */
@@ -316,7 +319,7 @@ const accountNotificationShape = {
   mutedSenders: z.array(z.string().min(3).max(320)).max(MAX_MUTED_SENDERS),
   content: z.enum(["full", "sender", "hidden"]),
   sound: z.boolean(),
-  muteWhenFocused: z.boolean(),
+  whenOpen: z.enum(WHEN_OPEN_CHOICES),
 };
 
 /** Every choice on the Notifications page; the whole object is replaced on each change. */

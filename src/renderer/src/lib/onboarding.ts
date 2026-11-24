@@ -4,6 +4,7 @@ export const ONBOARDING_STEPS = [
   { id: "account", title: "Email" },
   { id: "ai", title: "AI key" },
   { id: "categories", title: "Categories", optional: true },
+  { id: "notifications", title: "Notifications", optional: true },
   { id: "agent", title: "AI agent", optional: true },
 ] as const;
 

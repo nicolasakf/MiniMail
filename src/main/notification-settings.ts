@@ -23,6 +23,27 @@ function migrateMutedAccounts(saved: Record<string, unknown>): void {
 }
 
 /**
+ * Older files had a switch, `muteWhenFocused`, for "stay quiet while MiniMail is open". On is the
+ * `quiet` choice and off is the system notification, which is what each did. Accounts that set
+ * their own switch keep it as their own choice.
+ */
+function migrateMuteWhenFocused(saved: Record<string, unknown>): void {
+  const convert = (target: Record<string, unknown>): void => {
+    if (!Object.hasOwn(target, "muteWhenFocused")) return;
+    const old = target.muteWhenFocused;
+    delete target.muteWhenFocused;
+    if (target.whenOpen !== undefined || typeof old !== "boolean") return;
+    target.whenOpen = old ? "quiet" : "notification";
+  };
+  convert(saved);
+  const accounts = saved.accounts;
+  if (!accounts || typeof accounts !== "object" || Array.isArray(accounts)) return;
+  for (const own of Object.values(accounts)) {
+    if (own && typeof own === "object" && !Array.isArray(own)) convert(own as Record<string, unknown>);
+  }
+}
+
+/**
  * The Notifications page's choices, kept in a section of `settings.json` (they hold no mail data). A file
  * from an older version that lacks newer choices keeps the ones it has and gets defaults for the rest.
  */
@@ -36,6 +57,7 @@ export class NotificationSettingsStore {
       if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new Error("The saved notification settings are not an object");
       const saved = structuredClone(raw) as Record<string, unknown>;
       migrateMutedAccounts(saved);
+      migrateMuteWhenFocused(saved);
       const merged = notificationSettingsSchema.safeParse({ ...defaults(), ...saved });
       if (merged.success) this.value = merged.data;
       else reportError("storage", "The notification settings were invalid; using defaults", merged.error.message);

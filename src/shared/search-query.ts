@@ -54,7 +54,14 @@ export const SEARCH_FIELDS: readonly SearchFieldDef[] = [
   { name: "from", hint: "Who sent it" },
   { name: "to", hint: "Who it was sent to" },
   { name: "subject", hint: "Words in the subject" },
-  { name: "has", hint: "Has an attachment", values: [{ value: "attachment", hint: "A file is attached" }] },
+  {
+    name: "has",
+    hint: "A file or an invitation",
+    values: [
+      { value: "file", hint: "A file is attached" },
+      { value: "invitation", hint: "A calendar invitation" },
+    ],
+  },
   {
     name: "is",
     hint: "Unread, pinned, priority…",
@@ -240,7 +247,10 @@ function passesValue(message: MessageSummary, field: SearchField, value: string,
     case "subject":
       return message.subject.toLowerCase().includes(value);
     case "has":
-      return value.startsWith("attach") ? message.hasAttachments : true;
+      // `attachment` is what the filter was first called, and is still read.
+      if (value === "file" || value === "files" || value.startsWith("attach")) return message.hasAttachments;
+      if (value.startsWith("invit")) return message.signal === "invitation";
+      return true;
     case "is":
       switch (value) {
         case "unread":

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { mergeLegacyPrefs, defaultUiPrefs, parseAppearanceValues, parseColorMode, parseStringList, MAX_MINIMIZED_CATEGORIES, MAX_PINNED_DOMAINS, type LegacyPrefs } from "@shared/prefs";
+import { mergeLegacyPrefs, defaultUiPrefs, parseAppearanceValues, parseColorMode, parseRecentSearches, parseStringList, MAX_MINIMIZED_CATEGORIES, MAX_PINNED_DOMAINS, type LegacyPrefs } from "@shared/prefs";
 import { parseBlockList } from "@shared/blocklist";
 import { parsePriorityList } from "@shared/priority";
 import { shownFoldersSchema } from "@shared/schemas";
@@ -35,6 +35,8 @@ const fileSchema = z.object({
   unsubscribed: z.unknown().optional().transform(parseUnsubscribedLists),
   pinnedDomains: z.unknown().optional().transform((value) => parseStringList(value, MAX_PINNED_DOMAINS)),
   minimizedCategories: z.unknown().optional().transform((value) => parseStringList(value, MAX_MINIMIZED_CATEGORIES)),
+  /** Added after version 3; a file without it has no recent searches. */
+  recentSearches: z.unknown().optional().transform(parseRecentSearches),
 });
 
 /**

@@ -64,6 +64,8 @@ export const IPC = {
   notificationsGet: "notifications:get",
   notificationsSet: "notifications:set",
   notificationsTest: "notifications:test",
+  notificationsOpenSystemSettings: "notifications:open-system-settings",
+  notificationsToast: "notifications:toast",
   offlineGet: "offline:get",
   offlineSet: "offline:set",
   updatesState: "updates:state",

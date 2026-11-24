@@ -459,7 +459,7 @@ function FilterGroup({
         tooltip={unreadOnly ? "Showing unread only" : "Show unread only"}
         hint="⌘U"
         pressed={unreadOnly}
-        activeClassName="text-sidebar-primary hover:text-sidebar-primary"
+        activeClassName="grain shadow-raise-2 bg-sidebar-primary/15 text-sidebar-primary hover:shadow-raise-2 hover:bg-sidebar-primary/25 hover:text-sidebar-primary"
         onClick={() => onUnreadOnlyChange(!unreadOnly)}
       >
         {/* A closed envelope while only unread mail shows, an open one while everything does. */}

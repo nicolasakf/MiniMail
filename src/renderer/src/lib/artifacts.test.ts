@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Invitation, MessageDetail } from "@shared/types";
 
-import { collectArtifacts, formatEventTime, formatSize, withAnswer } from "./artifacts";
+import { collectArtifacts, formatEventTime, linkify, shortUrl, formatSize, withAnswer } from "./artifacts";
 
 const invitation = (patch: Partial<Invitation> = {}): Invitation => ({
   uid: "u1",
@@ -100,5 +100,50 @@ describe("formatEventTime", () => {
 
   it("adds the year for another year", () => {
     expect(formatEventTime(new Date(2027, 0, 5, 9).toISOString(), null, false, now)).toBe("Tue, Jan 5, 2027 · 9:00 AM");
+  });
+});
+
+describe("collectArtifacts links", () => {
+  it("lists a link quoted in later replies once, with the message that has it first", () => {
+    const body = '<a href="https://drive.google.com/file/d/abc/view">Plan</a>';
+    const { links } = collectArtifacts([
+      message("reply", "2026-11-02T00:00:00Z", { html: `<p>Thanks</p><blockquote>${body}</blockquote>` }),
+      message("first", "2026-11-01T00:00:00Z", { html: body }),
+    ]);
+    expect(links.map((link) => [link.messageId, link.label])).toEqual([["first", "Plan"]]);
+  });
+});
+
+describe("collectArtifacts invitation calls", () => {
+  it("does not list a call link again when the invitation already offers to join it", () => {
+    const { links, invitations } = collectArtifacts([
+      message("m", "2026-11-01T00:00:00Z", {
+        html: '<a href="https://us02web.zoom.us/j/123?pwd=x#top">Join</a> <a href="https://drive.google.com/file/d/abc/view">Agenda</a>',
+        invitation: invitation({ url: "https://us02web.zoom.us/j/123?pwd=x" }),
+      }),
+    ]);
+    expect(invitations).toHaveLength(1);
+    expect(links.map((link) => link.label)).toEqual(["Agenda"]);
+  });
+});
+
+describe("linkify", () => {
+  it("cuts a text into words and clickable addresses, leaving the punctuation after an address out of it", () => {
+    expect(linkify("Join: https://zoom.us/j/1, or see https://x.com/a.\nBye")).toEqual([
+      { text: "Join: " },
+      { url: "https://zoom.us/j/1" },
+      { text: ", or see " },
+      { url: "https://x.com/a" },
+      { text: ".\nBye" },
+    ]);
+    expect(linkify("no links")).toEqual([{ text: "no links" }]);
+  });
+});
+
+describe("shortUrl", () => {
+  it("keeps the host and the start of the path", () => {
+    expect(shortUrl("https://teams.microsoft.com/l/meetup-join/19%3ameeting_abcdefghij/0?context=x")).toBe("teams.microsoft.com/l/meetup-join/19%3ameet…");
+    expect(shortUrl("https://zoom.us/j/1")).toBe("zoom.us/j/1");
+    expect(shortUrl("https://zoom.us/")).toBe("zoom.us");
   });
 });

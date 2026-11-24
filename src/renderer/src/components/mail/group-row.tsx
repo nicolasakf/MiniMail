@@ -182,8 +182,9 @@ export const GroupRow = memo(function GroupRow({
       </span>
 
       <div
-        // Scrolls sideways (trackpad, or shift + wheel) to reach the senders that do not fit.
-        className="flex h-7 min-w-0 flex-1 gap-x-2.5 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        // Scrolls sideways (trackpad, or shift + wheel) to reach the senders that do not fit. The padding (cancelled by
+        // the negative margin) leaves room inside the clip for the raised plate a hovered chip draws around itself.
+        className="-mx-2 -my-2 flex h-11 min-w-0 flex-1 items-center gap-x-2.5 overflow-x-auto overflow-y-hidden p-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {shown.map((chip) => (
           <div

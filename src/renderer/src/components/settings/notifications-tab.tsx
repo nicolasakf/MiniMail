@@ -12,6 +12,7 @@ import {
   type CategoryFilterMode,
   type NotificationContent,
   type NotifyFolder,
+  type WhenOpen,
 } from "@shared/notifications";
 import type { Account, Category } from "@shared/types";
 
@@ -35,6 +36,7 @@ import {
   SettingsSwitchField,
 } from "./fields";
 import { NotificationPreview } from "./notification-previews";
+import { SystemNotificationsNote } from "./system-notifications-note";
 import { SettingsMultiTileField, SettingsVisualField } from "./visual-fields";
 
 const FOLDER_OPTIONS: { folder: NotifyFolder; label: string; description?: string }[] = [
@@ -54,6 +56,12 @@ const CONTENT_OPTIONS: { value: NotificationContent; label: string; preview: Rea
   { value: "full", label: "Sender and subject", preview: <NotificationPreview content="full" /> },
   { value: "sender", label: "Sender only", preview: <NotificationPreview content="sender" /> },
   { value: "hidden", label: "Hide details", preview: <NotificationPreview content="hidden" /> },
+];
+
+const WHEN_OPEN_OPTIONS: { value: WhenOpen; label: string }[] = [
+  { value: "quiet", label: "Nothing" },
+  { value: "toast", label: "Toast" },
+  { value: "notification", label: "Notification" },
 ];
 
 function CheckRow({
@@ -175,10 +183,26 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
 
   const sendTest = async () => {
     try {
-      await api.notifications.test();
-      toast.success("Test notification sent", {
-        description: "If nothing appeared, allow MiniMail in System Settings → Notifications.",
-      });
+      const result = await api.notifications.test();
+      if (result.status === "shown") {
+        toast.success("Test notification sent", {
+          description: "If nothing appeared, allow MiniMail in System Settings → Notifications.",
+        });
+      } else if (result.status === "not-allowed") {
+        toast.error("macOS is not allowing notifications from MiniMail", {
+          description: "Allow them in System Settings → Notifications. If MiniMail is already allowed there, macOS does not recognize this build of the app.",
+          ...(api.system.platform === "darwin"
+            ? {
+                action: {
+                  label: "Open System Settings",
+                  onClick: () => void api.notifications.openSystemSettings().catch(() => undefined /* expected: recorded by the main process */),
+                },
+              }
+            : {}),
+        });
+      } else {
+        toast.error("Could not show the test notification", { description: result.message });
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : String(error));
     }
@@ -232,6 +256,7 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
             <BellRing /> Send a test notification
           </Button>
         )}
+        {!account && <SystemNotificationsNote />}
       </div>
 
       <div className={cn("space-y-6", off && "pointer-events-none opacity-50")} aria-disabled={off}>
@@ -357,15 +382,23 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
             onCheckedChange={(sound) => change({ sound })}
           />
           {inherit("sound")}
-          <SettingsSwitchField
-            id="notify-focused"
-            label="Stay quiet while MiniMail is open"
-            description="No notification when MiniMail is the window in front."
-            checked={view.muteWhenFocused}
-            disabled={off}
-            onCheckedChange={(muteWhenFocused) => change({ muteWhenFocused })}
-          />
-          {inherit("muteWhenFocused")}
+          <div className="space-y-2">
+            <div className={cn("flex items-center justify-between gap-4 py-1", off && "opacity-60")}>
+              <div className="min-w-0 space-y-0.5">
+                <SettingsLabel label="While MiniMail is open" />
+                <p className="text-xs text-muted-foreground">What new mail does while MiniMail is in front. Behind other apps, it is always a system notification.</p>
+              </div>
+              <SettingsSegmentedField
+                ariaLabel="While MiniMail is open"
+                value={view.whenOpen}
+                options={WHEN_OPEN_OPTIONS}
+                disabled={off}
+                compact
+                onValueChange={(whenOpen) => change({ whenOpen })}
+              />
+            </div>
+            {inherit("whenOpen")}
+          </div>
           {account ? (
             <p className="text-xs text-muted-foreground">
               The Dock badge and combining bursts apply to every account. Choose All accounts to change them.

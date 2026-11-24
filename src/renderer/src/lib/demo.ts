@@ -1556,6 +1556,9 @@ export function createDemoApi(): MiniMailApi {
         demoNotifications = structuredClone(next);
         return structuredClone(demoNotifications);
       },
+      async openSystemSettings() {
+        // Browser demo: there is no system settings app to open.
+      },
       async test() {
         if (typeof Notification !== "undefined" && Notification.permission === "default") {
           await Notification.requestPermission();
@@ -1563,6 +1566,10 @@ export function createDemoApi(): MiniMailApi {
         if (typeof Notification !== "undefined" && Notification.permission === "granted") {
           new Notification("MiniMail", { body: "This is how a notification will look." });
         }
+        return { status: "shown" };
+      },
+      onToast() {
+        return () => {};
       },
     },
     events: demoEvents(),

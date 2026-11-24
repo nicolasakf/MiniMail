@@ -19,6 +19,7 @@ export function defaultUiPrefs(): UiPrefs {
     unsubscribed: {},
     pinnedDomains: [],
     minimizedCategories: [],
+    recentSearches: [],
   };
 }
 
@@ -47,6 +48,29 @@ export function parseStringList(value: unknown, max: number): string[] {
 }
 
 export const MAX_PINNED_DOMAINS = 2000;
+export const MAX_RECENT_SEARCHES = 8;
+const MAX_SEARCH_LENGTH = 200;
+
+/** The searches in a stored value: text with single spaces, each once (letter case aside), newest first, at most `MAX_RECENT_SEARCHES`. */
+export function parseRecentSearches(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const list: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    const text = entry.replace(/\s+/g, " ").trim();
+    if (text === "" || text.length > MAX_SEARCH_LENGTH || seen.has(text.toLowerCase())) continue;
+    seen.add(text.toLowerCase());
+    list.push(text);
+    if (list.length === MAX_RECENT_SEARCHES) break;
+  }
+  return list;
+}
+
+/** The list with `query` put first; an earlier copy of it (letter case aside) moves up instead of repeating. Blank text changes nothing. */
+export function rememberSearch(list: readonly string[], query: string): string[] {
+  return parseRecentSearches([query, ...list]);
+}
 export const MAX_MINIMIZED_CATEGORIES = 200;
 
 /**

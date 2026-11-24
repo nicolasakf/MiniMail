@@ -139,6 +139,12 @@ describe("GraphProvider with saved messages", () => {
     expect(saved.stats().oldest).toBeGreaterThan(Date.now() - 60_000);
   });
 
+  it("keeps pinned mail downloaded ahead of time as if it was just read, and under the Inbox", async () => {
+    expect(await relaunch().prefetch("pinned", ["m1"])).toBe(1);
+    expect(saved.stats().oldest).toBeGreaterThan(Date.now() - 60_000);
+    expect(saved.forAccount("acc1").get("inbox", "m1", "")).toBeDefined();
+  });
+
   it("does not download again what is already kept", async () => {
     const provider = relaunch();
     await provider.prefetch("inbox", ["m1"]);

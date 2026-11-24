@@ -87,7 +87,7 @@ export const CLI_DOCS: Readonly<Record<CliCommandId, CliDoc>> = {
   search: {
     about: "Searches mail with the syntax of MiniMail's search box. Plain words match anywhere in a message; `field:value` filters narrow it.",
     args: {
-      "<query>": "The words and filters. Fields: from:, to:, subject:, is: (unread, read, pinned, replied), has:attachment, in: (inbox, archive, sent, drafts, spam, trash), category:, account:, after:, before: (a date like 2026-01-31, or today, yesterday, week, month, year).",
+      "<query>": "The words and filters. Fields: from:, to:, subject:, is: (unread, read, pinned, replied), has: (file, invitation), in: (inbox, archive, sent, drafts, spam, trash), category:, account:, after:, before: (a date like 2026-01-31, or today, yesterday, week, month, year).",
     },
     options: {
       "--folder <list>": "Folders to search, separated by commas, or `all`. Default: the Inbox and the Archive, or what the query names with in:.",
@@ -95,7 +95,7 @@ export const CLI_DOCS: Readonly<Record<CliCommandId, CliDoc>> = {
     },
     examples: [
       ["minimail search from:anna is:unread", "Unread mail from Anna."],
-      ["minimail search invoice after:2026-10-01 has:attachment", "Invoices with a file since 1 October."],
+      ["minimail search invoice after:2026-10-01 has:file", "Invoices with a file since 1 October."],
       ["minimail search receipt --folder inbox,archive,trash", "Look in more than the default folders."],
       ["minimail search from:anna,bob subject:\"project plan\"", "Either sender; quotes keep a phrase together."],
     ],

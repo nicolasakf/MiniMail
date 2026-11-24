@@ -181,7 +181,7 @@ export function AppearanceTab() {
         <section className="max-w-2xl">
           <SettingsRow
             label="Split view"
-            info="Drag the edge of the list to change its width."
+            info="Whether emails are shown alongside the list or in full screen."
           >
             <SettingsVisualToggle
               ariaLabel="Split view"

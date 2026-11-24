@@ -323,7 +323,24 @@ describe("GraphProvider", () => {
         location: "Room 4",
         organizer: { name: "Priya", email: "priya@university.edu" },
         response: "tentative",
+        url: null,
+        notes: null,
       });
+    });
+
+    it("reads the call link and the notes of the meeting", async () => {
+      const withCall = {
+        ...eventMessage("meetingRequest"),
+        event: {
+          ...eventMessage("meetingRequest").event,
+          body: { contentType: "html", content: '<p>Agenda</p><p><a href="https://teams.microsoft.com/l/meetup-join/abc">Join now</a></p>' },
+          onlineMeeting: { joinUrl: "https://teams.microsoft.com/l/meetup-join/abc" },
+        },
+      };
+      stubFetch((call) => json(call.url.includes("eventMessage") ? withCall : full));
+      const [detail] = await provider().get("inbox", ["AAMk-1="]);
+      expect(detail.invitation?.url).toBe("https://teams.microsoft.com/l/meetup-join/abc");
+      expect(detail.invitation?.notes).toBe("Agenda\nJoin now https://teams.microsoft.com/l/meetup-join/abc");
     });
 
     it("recognises a cancellation and ignores replies from guests", async () => {

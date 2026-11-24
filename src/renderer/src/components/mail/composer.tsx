@@ -231,6 +231,10 @@ export function Composer({ seed, accounts, onClose, detached, minimized, tray, t
           onRestore={() => onMinimizedChange?.(false)} onClose={() => void session.requestClose()} />,
         tray,
       )}
+      {/* Expanded, the composer covers the window like a dialog: the app behind is shaded and blurred as behind Settings (same look as DialogOverlay). */}
+      {expanded && !detached && !minimized && (
+        <div aria-hidden className="pointer-events-none fixed inset-0 z-40 bg-[rgb(var(--shade-rgb)/calc(0.3*var(--sa)))] backdrop-blur-[2px] duration-200 animate-in fade-in-0" />
+      )}
       {/* Minimizing only hides the panel: the editor keeps its text, undo history and caret. */}
       <section
         ref={panel}

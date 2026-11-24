@@ -55,7 +55,26 @@ describe("invitationFromIcs", () => {
       location: "Room 4; Floor 2",
       organizer: { name: "Ada Lovelace", email: "ada@example.com" },
       response: null,
+      url: null,
+      notes: null,
     });
+  });
+
+  it("reads the call link and the notes", () => {
+    const withNotes = (...lines: string[]) => REQUEST.replace("SUMMARY:", [...lines, "SUMMARY:"].join("\r\n"));
+    const notes = "DESCRIPTION:Agenda\\nJoin: https://us02web.zoom.us/j/123?pwd=x\\, see you";
+    const read = (text: string) => invitationFromIcs(parseIcs(text)!);
+
+    expect(read(withNotes(notes))).toMatchObject({
+      url: "https://us02web.zoom.us/j/123?pwd=x",
+      notes: "Agenda\nJoin: https://us02web.zoom.us/j/123?pwd=x, see you",
+    });
+    // The calendar's own conference address comes first, then the location.
+    expect(read(withNotes(notes, "X-GOOGLE-CONFERENCE:https://meet.google.com/abc-defg-hij"))?.url).toBe("https://meet.google.com/abc-defg-hij");
+    expect(read(withNotes("LOCATION:https://meet.google.com/abc-defg-hij"))?.url).toBe("https://meet.google.com/abc-defg-hij");
+    // A file link in the notes is not a call; a cancelled meeting has nothing to join.
+    expect(read(withNotes("DESCRIPTION:https://drive.google.com/file/d/abc/view"))?.url).toBeNull();
+    expect(read(withNotes(notes).replace("METHOD:REQUEST", "METHOD:CANCEL"))?.url).toBeNull();
   });
 
   it("reads a time in a named zone", () => {

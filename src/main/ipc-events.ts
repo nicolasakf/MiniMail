@@ -67,6 +67,7 @@ const FAILED: Record<string, string> = {
   [IPC.notificationsGet]: "Could not read the notification settings",
   [IPC.notificationsSet]: "Could not save the notification settings",
   [IPC.notificationsTest]: "Could not show a test notification",
+  [IPC.notificationsOpenSystemSettings]: "Could not open the system notification settings",
   [IPC.offlineGet]: "Could not read the offline settings",
   [IPC.offlineSet]: "Could not save the offline settings",
   [IPC.updatesState]: "Could not read the update status",

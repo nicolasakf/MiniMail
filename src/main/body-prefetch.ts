@@ -21,6 +21,15 @@ interface Run {
 export const isOfflineFolder = (folder: MailFolder): folder is OfflineFolder => (OFFLINE_FOLDERS as readonly string[]).includes(folder);
 
 /**
+ * What is downloaded in one run: a folder the person chose, or the Pinned view. Pinned mail is always downloaded,
+ * whatever its age and whichever folders were chosen (only the switch turns it off), and it is kept as if just read.
+ */
+type Target = OfflineFolder | "pinned";
+
+const wanted = (settings: OfflineSettings, folder: MailFolder): folder is Target =>
+  folder === "pinned" || (isOfflineFolder(folder) && settings.folders.includes(folder));
+
+/**
  * Downloads the text of mail in the background, so opening it needs no network. After each list of a folder the
  * person chose (which is also what a message arriving causes) the messages that are not saved yet are downloaded,
  * newest first, a small batch at a time: those within the look-back, or, when the limit is a size, as many as fit.
@@ -44,9 +53,10 @@ export class BodyPrefetcher {
   /** A folder was just listed: queue what it shows that is within the limit and not saved yet. */
   schedule(accountId: string, provider: MailProvider, folder: MailFolder, rows: readonly MessageSummary[]): Promise<void> {
     const settings = this.settings();
-    if (!settings.prefetch || !provider.prefetch || !isOfflineFolder(folder) || !settings.folders.includes(folder)) return Promise.resolve();
-    const since = prefetchSince(settings, this.now());
-    const wanted = rows
+    if (!settings.prefetch || !provider.prefetch || !wanted(settings, folder)) return Promise.resolve();
+    // Pinned mail has no look-back: the person flagged it to keep it at hand.
+    const since = folder === "pinned" ? null : prefetchSince(settings, this.now());
+    const queued = rows
       .filter((row) => row.folder === folder)
       .map((row) => ({ row, date: Date.parse(row.date) }))
       .filter(({ date }) => Number.isFinite(date) && (since === null || date >= since))
@@ -58,7 +68,7 @@ export class BodyPrefetcher {
 
     const key = `${accountId}|${folder}`;
     const run = this.runs.get(key) ?? { queue: [], running: false };
-    run.queue = wanted;
+    run.queue = queued;
     this.runs.set(key, run);
     if (run.running) return Promise.resolve();
     run.running = true;
@@ -67,9 +77,11 @@ export class BodyPrefetcher {
     });
   }
 
-  /** The folders the person chose were not listed just now: queue what each already shows (after a change in Settings). */
+  /** The folders the person chose, and Pinned, were not listed just now: queue what each already shows (after a change in Settings). */
   scheduleCached(accountId: string, provider: MailProvider): void {
-    for (const folder of this.settings().folders) void this.schedule(accountId, provider, folder, provider.cached?.(folder) ?? []);
+    for (const folder of [...this.settings().folders, "pinned" as const]) {
+      void this.schedule(accountId, provider, folder, provider.cached?.(folder) ?? []);
+    }
   }
 
   /** Stops downloading for a removed account. */
@@ -81,15 +93,16 @@ export class BodyPrefetcher {
     }
   }
 
-  private async drain(accountId: string, provider: MailProvider, folder: OfflineFolder, run: Run): Promise<void> {
+  private async drain(accountId: string, provider: MailProvider, folder: Target, run: Run): Promise<void> {
     while (run.queue.length > 0) {
       const settings = this.settings();
-      if (!settings.prefetch || !settings.folders.includes(folder) || !this.online()) {
+      if (!settings.prefetch || !wanted(settings, folder) || !this.online()) {
         run.queue = [];
         return;
       }
       // Newest first, so once the newest left is not worth saving (the file is full of newer mail), none is.
-      if (!this.roomFor(run.queue[0].date)) {
+      // Pinned mail is kept as if just read, so it is always worth saving.
+      if (folder !== "pinned" && !this.roomFor(run.queue[0].date)) {
         run.queue = [];
         return;
       }
@@ -107,7 +120,7 @@ export class BodyPrefetcher {
   private async retryOneByOne(
     accountId: string,
     provider: MailProvider,
-    folder: OfflineFolder,
+    folder: Target,
     batch: readonly string[],
     cause: unknown,
   ): Promise<void> {

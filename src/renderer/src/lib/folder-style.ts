@@ -47,7 +47,21 @@ export function folderStyle(folder: string): FolderStyle | undefined {
   return folder !== "inbox" && Object.hasOwn(FOLDER_STYLE, folder) ? FOLDER_STYLE[folder as ShownFolder] : undefined;
 }
 
+/**
+ * The same tint a step stronger, for a raised key that is on while the pointer is over it. A flat key rises on hover
+ * (`hover:plate-1`), which would repaint its face and lower its shadow, so both are repeated here. The stronger tint reads
+ * darker on light plastic and lighter on dark (the tint follows the text color). Written out in full: Tailwind only
+ * generates classes it finds spelled in the source.
+ */
+const RAISED_HOVER: Record<ShownFolder, string> = {
+  inbox:
+    "hover:shadow-raise-2 hover:bg-[hsl(218.8_61.5%_52.2%/0.25)] dark:hover:bg-[hsl(219_82.2%_71.4%/0.25)]",
+  archive: "hover:shadow-raise-2 hover:bg-foreground/20",
+  trash: "hover:shadow-raise-2 hover:bg-destructive/25",
+  spam: "hover:shadow-raise-2 hover:bg-amber/25",
+};
+
 /** The list header's folder keys are raised, not sunk, while their folder is on; the tint and icon color are the same. */
 export function raisedActive(folder: ShownFolder): string {
-  return FOLDER_STYLE[folder].active.replace("shadow-pressed", "grain shadow-raise-2");
+  return `${FOLDER_STYLE[folder].active.replace("shadow-pressed", "grain shadow-raise-2")} ${RAISED_HOVER[folder]}`;
 }

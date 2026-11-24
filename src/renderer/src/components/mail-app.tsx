@@ -765,22 +765,33 @@ export function MailApp() {
   // A clicked notification opens the conversation it was about: leave whatever is on screen for
   // that folder, then open the conversation as soon as the list holds it (a new message may still be loading).
   const [pendingOpen, setPendingOpen] = useState<OpenConversationRequest | null>(null);
+  const openRequested = useCallback(
+    (request: OpenConversationRequest) => {
+      setScreen("mail");
+      setDrill(null);
+      setOpenGroupKind(null);
+      setChecked(new Set());
+      setQuery("");
+      setSearchOpen(false);
+      setScope("all");
+      setFolder(request.folder);
+      setOpenThreadId(null);
+      setPendingOpen(request);
+      void refresh(true);
+    },
+    [refresh, setFolder, setQuery, setScope],
+  );
+  useEffect(() => api.mail.onOpenConversation(openRequested), [openRequested]);
+  // New mail while the window is in front, for an account that asked for a toast instead of a system notification.
   useEffect(
     () =>
-      api.mail.onOpenConversation((request) => {
-        setScreen("mail");
-        setDrill(null);
-        setOpenGroupKind(null);
-        setChecked(new Set());
-        setQuery("");
-        setSearchOpen(false);
-        setScope("all");
-        setFolder(request.folder);
-        setOpenThreadId(null);
-        setPendingOpen(request);
-        void refresh(true);
+      api.notifications.onToast(({ title, body, open }) => {
+        toast(title, {
+          description: body || undefined,
+          ...(open ? { action: { label: "Open", onClick: () => openRequested(open) } } : {}),
+        });
       }),
-    [refresh, setFolder, setQuery, setScope],
+    [openRequested],
   );
   useEffect(() => {
     if (!pendingOpen) return;

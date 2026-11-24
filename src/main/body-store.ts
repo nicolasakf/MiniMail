@@ -116,6 +116,12 @@ export class BodyStore {
         }
         return undefined;
       }
+      // An invitation saved before its call link and notes were read has neither (undefined, not null). The
+      // calendar file is not kept, so the message is downloaded again once to fill them; it is only a copy of the server's.
+      if (body.invitation && body.invitation.url === undefined) {
+        db.prepare("DELETE FROM bodies WHERE account = ? AND folder = ? AND native = ? AND scope = ?").run(accountId, folder, nativeId, scope);
+        return undefined;
+      }
       db.prepare("UPDATE bodies SET accessed = ? WHERE account = ? AND folder = ? AND native = ? AND scope = ?").run(
         this.stamp(),
         accountId,
