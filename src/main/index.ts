@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { promises as dns } from "node:dns";
 
 import { app, BrowserWindow, dialog, net, Notification, powerMonitor, safeStorage, shell } from "electron";
+import { autoUpdater } from "electron-updater";
 
 import { senderDomain } from "@shared/categories";
 import { IPC } from "@shared/ipc";
@@ -55,6 +56,8 @@ import { BodyStore } from "./body-store";
 import { MailCache } from "./mail-cache";
 import { OfflineSettingsStore } from "./offline-settings";
 import { MailService } from "./service";
+import { UpdateSettingsStore } from "./update-settings";
+import { Updater } from "./updater";
 import { AccountStore } from "./store";
 
 perfLog("main bundle loaded");
@@ -122,6 +125,7 @@ let pollTimer: NodeJS.Timeout | null = null;
 let delivery: ComposeDelivery | null = null;
 let notifier: Notifier | null = null;
 let attachmentFiles: AttachmentFiles | null = null;
+let updater: Updater | null = null;
 /** Notifications on screen; Electron drops the click handler of one that is garbage collected. */
 const liveNotifications = new Set<Notification>();
 
@@ -499,6 +503,14 @@ if (!app.requestSingleInstanceLock()) {
       executable: process.execPath,
       appBundle: appBundleOf(process.execPath, app.isPackaged),
     }));
+    // Looks for a new version of MiniMail on GitHub; only the installed app can replace itself.
+    updater = new Updater({
+      autoUpdater,
+      currentVersion: app.getVersion(),
+      supported: app.isPackaged,
+      settings: new UpdateSettingsStore(settings.section("updates")),
+      onChange: (state) => mainWindow?.webContents.send(IPC.updatesChanged, state),
+    });
     registerIpc({
       service,
       attachmentFiles,
@@ -523,12 +535,14 @@ if (!app.requestSingleInstanceLock()) {
       openLog,
       cli,
       pageBridge: bridge,
+      updater,
     });
 
     registerComposerWindows(() => mainWindow, rendererUrl, protectNavigation);
     createWindow();
     startPolling();
     delivery.start();
+    updater.start();
     // The socket, the `minimail` command and the skills follow the saved choice: all absent while the CLI is off.
     void cli.apply();
     // The history is read after the window is on its way, in small slices, so it never delays launch.
@@ -555,6 +569,7 @@ if (!app.requestSingleInstanceLock()) {
     recordInfo("app", "MiniMail quit");
     flushJournal();
     delivery?.stop();
+    updater?.stop();
     void cliServer?.stop(); // removes the socket file at once
     if (pollTimer) clearInterval(pollTimer);
     setDockBadge(0);

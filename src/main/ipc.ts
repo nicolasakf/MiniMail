@@ -33,6 +33,7 @@ import {
   logoSettingsSchema,
   notificationSettingsSchema,
   offlineSettingsSchema,
+  updateSettingsSchema,
   savedDraftSchema,
   eventReportSchema,
   legacyPrefsSchema,
@@ -64,6 +65,7 @@ import type { LogoSettingsStore } from "./logos/logo-settings";
 import type { NotificationSettingsStore } from "./notification-settings";
 import type { OfflineSettingsStore } from "./offline-settings";
 import type { Notifier } from "./notifier";
+import type { Updater } from "./updater";
 import type { TrustedSenders } from "./trusted-senders";
 import { oauthCapabilities, type OAuthConfig } from "./oauth";
 import type { MailService } from "./service";
@@ -102,8 +104,9 @@ export function registerIpc(options: {
   openLog: () => Promise<void>;
   cli: CliController;
   pageBridge: PageBridge;
+  updater: Updater;
 }): void {
-  const { service, attachmentFiles, notifier, notificationSettings, offlineSettings, categorizer, completer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, journal, oauthConfig, rendererUrl, openExternal, openLog, cli, pageBridge } = options;
+  const { service, attachmentFiles, notifier, notificationSettings, offlineSettings, categorizer, completer, aiSettings, codes, logos, logoSettings, trusted, delivery, composeLibrary, drafts, prefs, journal, oauthConfig, rendererUrl, openExternal, openLog, cli, pageBridge, updater } = options;
 
   /**
    * Registers a handler. Whatever it throws is recorded (so no failure goes unseen, even one nobody
@@ -300,6 +303,13 @@ export function registerIpc(options: {
     service.offlineChanged(saved); // A new limit applies, and more folders or a longer look-back start downloading at once.
     return saved;
   });
+  handle(IPC.updatesState, () => updater.state());
+  handle(IPC.updatesCheck, () => updater.check(true));
+  handle(IPC.updatesDownload, () => updater.download());
+  handle(IPC.updatesInstall, () => updater.restartAndInstall());
+  handle(IPC.updatesDismiss, (version: unknown) => updater.dismiss(z.string().min(1).max(64).parse(version)));
+  handle(IPC.updatesGet, () => updater.settings());
+  handle(IPC.updatesSet, (settings: unknown) => updater.setSettings(updateSettingsSchema.parse(settings)));
   handle(IPC.openExternal, (url: unknown) => openExternal(z.string().parse(url)));
 
   handle(IPC.eventsList, () => journal.list());

@@ -134,6 +134,20 @@ const api: MiniMailApi = {
     settings: () => invoke(IPC.offlineGet),
     setSettings: (settings) => invoke(IPC.offlineSet, settings),
   },
+  updates: {
+    state: () => invoke(IPC.updatesState),
+    check: () => invoke(IPC.updatesCheck),
+    download: () => invoke(IPC.updatesDownload),
+    install: () => invoke(IPC.updatesInstall),
+    dismiss: (version) => invoke(IPC.updatesDismiss, version),
+    settings: () => invoke(IPC.updatesGet),
+    setSettings: (settings) => invoke(IPC.updatesSet, settings),
+    onChanged: (listener) => {
+      const handler = (_event: unknown, state: Parameters<typeof listener>[0]) => listener(state);
+      ipcRenderer.on(IPC.updatesChanged, handler);
+      return () => ipcRenderer.removeListener(IPC.updatesChanged, handler);
+    },
+  },
   cli: {
     get: () => invoke(IPC.cliGet),
     set: (settings) => invoke(IPC.cliSet, settings),

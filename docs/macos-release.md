@@ -19,6 +19,25 @@ tag and run `gh workflow run release-macos.yml --ref v<VERSION>`, substituting
 the tag for `v<VERSION>`. The workflow publishes the draft after verifying the
 app and disk image.
 
+## Updates for installed copies
+
+MiniMail looks for a new version on the newest published release of this repository
+(`releases/latest/download`, set in `electron-builder.yml` and `UPDATE_FEED_URL` in
+`src/shared/updates.ts`). The workflow therefore uploads three files to each release:
+
+| File | Used by |
+| --- | --- |
+| `MiniMail-<VERSION>-mac-arm64.dmg` | New installs. |
+| `MiniMail-<VERSION>-mac-arm64.zip` | Installed copies, which download it, check its hash and replace themselves. |
+| `latest-mac.yml` | Installed copies, to learn the newest version and the zip's hash. |
+
+The zip holds the same signed and notarized app as the disk image. macOS only lets an app
+replace itself with a build signed by the same developer. A release published without
+`latest-mac.yml` shows no update to anyone, and a copy that cannot read it records
+"Could not check for updates" in its Log. Copies older than the first one with this
+feature (0.16.2 and earlier) cannot update themselves: install the new version from the disk
+image once. A draft release is never offered, since `latest` skips drafts.
+
 ## Browser sign-in
 
 Create MiniMail's production OAuth registrations using the platform and

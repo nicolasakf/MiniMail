@@ -32,6 +32,7 @@ import type { AppEvent, EventReport } from "./events";
 import type { LogoRequest, LogoSettings } from "./logos";
 import type { NotificationSettings, OpenConversationRequest } from "./notifications";
 import type { OfflineSettings } from "./offline";
+import type { UpdateSettings, UpdateState } from "./updates";
 import type { LegacyPrefs } from "./prefs";
 
 /** Which sign-in methods this build can offer (OAuth needs client ids at build time). */
@@ -196,6 +197,23 @@ export interface MiniMailApi {
     settings(): Promise<OfflineSettings>;
     /** Replaces the settings; answers with what was stored. Rejects invalid values. */
     setSettings(settings: OfflineSettings): Promise<OfflineSettings>;
+  };
+  updates: {
+    /** Where updating MiniMail itself stands. `unsupported` in a development run. */
+    state(): Promise<UpdateState>;
+    /** Looks for a new version now, even with the automatic check off. Never rejects for a failed look: the state's `error` says why. */
+    check(): Promise<UpdateState>;
+    /** Downloads the new version found; it installs when MiniMail restarts or quits. */
+    download(): Promise<UpdateState>;
+    /** Quits MiniMail, installs the downloaded version and opens it again. */
+    install(): Promise<UpdateState>;
+    /** The notice about this version was closed: it is not shown again. */
+    dismiss(version: string): Promise<void>;
+    settings(): Promise<UpdateSettings>;
+    /** Replaces the settings; answers with what was stored. Rejects invalid values. */
+    setSettings(settings: UpdateSettings): Promise<UpdateSettings>;
+    /** The state changed (found a version, progress, done). Returns the way to stop listening. */
+    onChanged(listener: (state: UpdateState) => void): () => void;
   };
   cli: {
     /** What the CLI may do, whether it is running, and where its skill is installed. */

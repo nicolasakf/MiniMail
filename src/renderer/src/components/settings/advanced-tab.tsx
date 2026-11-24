@@ -13,11 +13,15 @@ import {
   type OfflineLimit,
   type OfflineSettings,
 } from "@shared/offline";
+import { DEFAULT_UPDATE_SETTINGS, isUpdateBusy, updateButton, type UpdateSettings } from "@shared/updates";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useUpdateState } from "@/hooks/use-update-state";
 import { api } from "@/lib/api";
 import { FOLDER_STYLE, raisedActive } from "@/lib/folder-style";
 import { toast } from "@/lib/toast";
+import { runUpdateStep } from "@/lib/updates";
 
 import { SettingsPageHeader, SettingsRow, SettingsSectionTitle, SettingsSegmentedField, SettingsSwitchField } from "./fields";
 import { SettingsMultiTileField } from "./visual-fields";
@@ -80,7 +84,62 @@ function NumberBox({
   );
 }
 
-/** Choices most people never change: for now, how much mail is kept ready on this computer. */
+/** Looking for a new version of MiniMail: the automatic check, and the one button for the step the update is at. */
+function UpdatesSection() {
+  const state = useUpdateState();
+  const [settings, setSettings] = useState<UpdateSettings | null>(null);
+
+  useEffect(() => {
+    api.updates
+      .settings()
+      .then(setSettings)
+      .catch(() => undefined); // expected: recorded by the main process
+  }, []);
+
+  /** Saves the change at once; if it fails the saved value comes back and a toast says why. */
+  const save = async (next: UpdateSettings): Promise<void> => {
+    const before = settings;
+    setSettings(next);
+    try {
+      setSettings(await api.updates.setSettings(next));
+    } catch (error) {
+      setSettings(before);
+      toast.error(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const button = updateButton(state);
+  return (
+    <section className="space-y-3">
+      <SettingsSectionTitle title="Updates" />
+      <SettingsSwitchField
+        id="update-check"
+        label="Check for updates"
+        description="Looks for a new version of MiniMail when it starts and once a day."
+        checked={(settings ?? DEFAULT_UPDATE_SETTINGS).check}
+        disabled={settings === null}
+        onCheckedChange={(check) => void save({ check })}
+      />
+      <SettingsRow label="Version" description={state.currentVersion ? `MiniMail ${state.currentVersion}` : undefined}>
+        {button ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={button.disabled || isUpdateBusy(state.status)}
+            onClick={() => void runUpdateStep(button.step)}
+          >
+            {button.label}
+          </Button>
+        ) : (
+          <p className="pt-1 text-xs text-muted-foreground">Only the installed app can update itself.</p>
+        )}
+      </SettingsRow>
+    </section>
+  );
+}
+
+/** Choices most people never change: how much mail is kept ready on this computer, and looking for updates. */
 export function AdvancedTab() {
   const [settings, setSettings] = useState<OfflineSettings | null>(null);
 
@@ -211,6 +270,7 @@ export function AdvancedTab() {
           </div>
         </SettingsRow>
       </section>
+      <UpdatesSection />
     </div>
   );
 }

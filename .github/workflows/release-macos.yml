@@ -81,11 +81,16 @@ jobs:
           xcrun stapler staple "$dmg"
           xcrun stapler validate "$dmg"
           spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
-      - name: Publish the verified installer
+      - name: Publish the verified installer and its update files
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="${GITHUB_REF_NAME#v}"
           dmg="dist/MiniMail-$version-mac-arm64.dmg"
-          gh release upload "$GITHUB_REF_NAME" "$dmg" --clobber
+          zip="dist/MiniMail-$version-mac-arm64.zip"
+          # Installed copies update from the zip, which latest-mac.yml names and hashes; they look for both on the latest release.
+          test -f "$zip"
+          grep -qF "MiniMail-$version-mac-arm64.zip" dist/latest-mac.yml
+          grep -qx "version: $version" dist/latest-mac.yml
+          gh release upload "$GITHUB_REF_NAME" "$dmg" "$zip" dist/latest-mac.yml --clobber
           gh release edit "$GITHUB_REF_NAME" --draft=false

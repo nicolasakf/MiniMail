@@ -89,6 +89,29 @@ category, priority, mute, block, the moves), Drafts (`draft new|reply|reply-all|
   command, `allowedRecipients`, `hideLinks`, `pathLink`, `skillTargets`; older versions are upgraded by `STEPS` in `settings.ts`). Off by
   default. Organize block, mute and priority name addresses or `@domains` one by one, so they do not go through `TargetsDialog`.
 
+## Updating MiniMail itself
+
+The installed app looks for a new version on this repository's newest GitHub release, modelled on Orion's updater
+(`electron-updater`, generic provider on `releases/latest/download`). Code: `src/main/updater.ts` (`Updater`, with the
+library passed in so tests need no Electron), `update-settings.ts`, `shared/updates.ts` (states, `updateButton`,
+`updateNotice`: the one wording every place uses), `renderer/src/components/update-toasts.tsx` and the Updates section of
+the Advanced page.
+
+- **Quiet by default.** It checks 30 seconds after start and once a day (`check` setting, on by default; the `updates`
+  section of `settings.json`), waits for the network instead of failing, and never downloads on its own
+  (`autoDownload` off). The notice has **Update**, then **Restart and update**; a downloaded update also installs the next
+  time MiniMail quits (`autoInstallOnAppQuit`). Closing the "available" notice is saved as `dismissed` for that
+  version. A development run (`!app.isPackaged`) is `unsupported`: no timers, no feed, no button.
+- **Failures:** every one goes through `reportError("updates", ...)` once (the library emits `error` and rejects with the
+  same error; `Updater` handles it once). The page shows an error toast only for a step the person started (their
+  check, Update, Restart); a failed daily check is only in the Log.
+- **The release must carry the update files:** `electron-builder.yml` has the `publish` URL (that is what writes
+  `latest-mac.yml`), `package:mac` builds `dmg zip`, and the workflow uploads the zip and `latest-mac.yml` with the dmg
+  (see `docs/macos-release.md`). Keep the URL in `electron-builder.yml` and `UPDATE_FEED_URL` the same. A release
+  without `latest-mac.yml` is invisible to every installed copy.
+- **Not mail actions.** Updating is not undoable and not a mail command, so it has no entry in the context menu, the
+  toolbars or `CLI_COMMANDS`.
+
 ## Saved message text (open mail without the network)
 
 The text of a downloaded message is kept in `message-text.sqlite` (`body-store.ts`, `node:sqlite`, so Node 22.13 or

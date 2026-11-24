@@ -69,6 +69,13 @@ const FAILED: Record<string, string> = {
   [IPC.notificationsTest]: "Could not show a test notification",
   [IPC.offlineGet]: "Could not read the offline settings",
   [IPC.offlineSet]: "Could not save the offline settings",
+  [IPC.updatesState]: "Could not read the update status",
+  [IPC.updatesCheck]: "Could not check for updates",
+  [IPC.updatesDownload]: "Could not download the update",
+  [IPC.updatesInstall]: "Could not install the update",
+  [IPC.updatesDismiss]: "Could not remember that the update notice was closed",
+  [IPC.updatesGet]: "Could not read the update settings",
+  [IPC.updatesSet]: "Could not save the update settings",
   [IPC.cliGet]: "Could not read the CLI settings",
   [IPC.cliSet]: "Could not save the CLI settings",
   [IPC.openExternal]: "Could not open the link",
@@ -111,6 +118,7 @@ const DONE: Record<string, string> = {
   [IPC.notificationsSet]: "Changed the notification settings",
   [IPC.notificationsTest]: "Showed a test notification",
   [IPC.offlineSet]: "Changed the offline settings",
+  [IPC.updatesSet]: "Changed the update settings",
   [IPC.openExternal]: "Opened a link",
 };
 

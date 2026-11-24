@@ -2,6 +2,7 @@ import { ThemeProvider } from "next-themes";
 
 import { DetachedComposer } from "@/components/mail/detached-composer";
 import { MailApp } from "@/components/mail-app";
+import { UpdateToasts } from "@/components/update-toasts";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -10,7 +11,14 @@ export function App() {
   return (
     <ThemeProvider attribute="class" themes={["light", "dark"]} defaultTheme="dark" enableSystem disableTransitionOnChange>
       <TooltipProvider delayDuration={300}>
-        {new URLSearchParams(window.location.search).has("composer") ? <DetachedComposer /> : <MailApp />}
+        {new URLSearchParams(window.location.search).has("composer") ? (
+          <DetachedComposer />
+        ) : (
+          <>
+            <MailApp />
+            <UpdateToasts />
+          </>
+        )}
         <Toaster />
       </TooltipProvider>
     </ThemeProvider>

@@ -14,3 +14,8 @@ mac:
   notarize: true
 dmg:
   sign: true
+# Where installed copies look for a new version (UPDATE_FEED_URL in src/shared/updates.ts). This is what makes
+# electron-builder write latest-mac.yml next to the zip; nothing is uploaded from here (--publish never).
+publish:
+  provider: generic
+  url: https://github.com/nicolasakf/MiniMail/releases/latest/download

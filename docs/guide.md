@@ -301,6 +301,10 @@ MiniMail has a `minimail` command that lets an AI agent on your computer, such a
 - **In your own terminal.** While the CLI is on, MiniMail keeps a link at `~/.local/bin/minimail` (make sure that folder is on your PATH; "Use minimail in your terminal" turns it off). Agents try `minimail` first and use the full path if the shell cannot find it. `minimail help` lists everything, and `minimail show <id> --headers` shows where a message came from without its text.
 - **Who can use it.** While it is on, any program running as you can use the command, so keep it off when you do not need it. It does not work from other users or other computers.
 
+## Updates
+
+The installed app looks for a new version on this repository's newest [release](https://github.com/nicolasakf/MiniMail/releases/latest) when it starts and once a day, and shows a notice when there is one. **Update** downloads it (the signed, notarized zip of the release; macOS only accepts an update signed by the same developer), then **Restart and update** installs it. If you close the notice, it is not shown again for that version, and **Settings, Advanced** still offers the update. A downloaded update also installs the next time MiniMail quits. **Settings, Advanced** turns the automatic check off; **Check for updates** there always works. A development run (`npm run dev`) never updates itself. A failed check is recorded in the Log.
+
 ## Layout
 
 ```

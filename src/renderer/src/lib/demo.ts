@@ -4,6 +4,7 @@ import { defaultUiPrefs } from "@shared/prefs";
 import { trustKey } from "@shared/trust";
 import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings } from "@shared/notifications";
 import { DEFAULT_OFFLINE_SETTINGS, type OfflineSettings } from "@shared/offline";
+import { DEFAULT_UPDATE_SETTINGS, type UpdateSettings } from "@shared/updates";
 import { DEFAULT_CLI_SETTINGS, SKILL_TARGETS, type CliSettings, type CliState } from "@shared/cli";
 import { DEFAULT_LOGO_SETTINGS, isFreemail, logoKey, type LogoRequest, type LogoSettings } from "@shared/logos";
 import type { AccountCapabilities, MiniMailApi } from "@shared/api";
@@ -1033,6 +1034,7 @@ export function createDemoApi(): MiniMailApi {
   let demoDrafts: SavedDraft[] = [];
   let demoNotifications: NotificationSettings = structuredClone(DEFAULT_NOTIFICATION_SETTINGS);
   let demoOffline: OfflineSettings = { ...DEFAULT_OFFLINE_SETTINGS };
+  let demoUpdates: UpdateSettings = { ...DEFAULT_UPDATE_SETTINGS };
   let demoCli: CliSettings = structuredClone(DEFAULT_CLI_SETTINGS);
   const demoCliState = (): CliState => ({
     settings: structuredClone(demoCli),
@@ -1521,6 +1523,30 @@ export function createDemoApi(): MiniMailApi {
         demoOffline = { ...next };
         return { ...demoOffline };
       },
+    },
+    // The demo is not an installed app, so there is nothing to update.
+    updates: {
+      async state() {
+        return { status: "unsupported", currentVersion: "demo" };
+      },
+      async check() {
+        return { status: "unsupported", currentVersion: "demo" };
+      },
+      async download() {
+        return { status: "unsupported", currentVersion: "demo" };
+      },
+      async install() {
+        return { status: "unsupported", currentVersion: "demo" };
+      },
+      async dismiss() {},
+      async settings() {
+        return { ...demoUpdates };
+      },
+      async setSettings(next) {
+        demoUpdates = { ...next };
+        return { ...demoUpdates };
+      },
+      onChanged: () => () => undefined,
     },
     notifications: {
       async settings() {

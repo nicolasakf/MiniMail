@@ -31,6 +31,7 @@ import {
   MAX_NAME_LENGTH,
   MIN_CRITERIA_LENGTH,
 } from "./categories";
+import type { UpdateSettings } from "./updates";
 import { MODEL_PURPOSES, SORT_MODEL_PATTERN } from "./ai-models";
 import { AI_PROVIDERS, CHAT_PROVIDERS } from "./ai-providers";
 import { COMPLETION_LENGTHS, COMPLETION_LIMITS } from "./completion";
@@ -301,6 +302,9 @@ export const offlineSettingsSchema: z.ZodType<OfflineSettings> = z.object({
   lookbackDays: z.number().int().min(MIN_LOOKBACK_DAYS).max(MAX_LOOKBACK_DAYS),
   maxMegabytes: z.number().int().min(MIN_MEGABYTES).max(MAX_MEGABYTES),
 });
+
+/** The Advanced page's choice about looking for a new version of MiniMail; the whole object is replaced on each change. */
+export const updateSettingsSchema: z.ZodType<UpdateSettings> = z.object({ check: z.boolean() });
 
 const accountNotificationShape = {
   enabled: z.boolean(),
