@@ -4,8 +4,8 @@ import { describeCause, recordAction, recordInfo, reportError } from "./events";
 import { isNetworkOnline } from "./network";
 import type { UpdateSettingsStore } from "./update-settings";
 
-/** The first look for a new version comes this long after start, so it never competes with opening the mail. */
-export const FIRST_CHECK_DELAY_MS = 30_000;
+/** The first look for a new version comes this long after start: long enough for the window to open, short enough to be news. */
+export const FIRST_CHECK_DELAY_MS = 5_000;
 /** After that, once a day. */
 export const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /** A background check that found no network tries again after this long. */
@@ -45,7 +45,7 @@ function firstLine(text: string): string {
 }
 
 /**
- * Keeps MiniMail up to date from its GitHub releases, the way Orion does: it looks for a new version when the
+ * Keeps MiniMail up to date from its GitHub releases, the way Orion does: it looks for a new version a few seconds after the
  * app starts and once a day, tells the page when there is one, and downloads and installs it only when the
  * person says so. A downloaded update that was not installed yet installs the next time MiniMail quits.
  *
@@ -63,6 +63,8 @@ export class Updater {
   private looking = false;
   private downloading = false;
   private announced: string | undefined;
+  /** The version whose notice the person closed. Kept for this run only: the next start shows the notice again. */
+  private dismissedVersion: string | undefined;
   /** Errors already handled, so one that both the library's event and the rejected call report is dealt with once. */
   private readonly handled = new WeakSet<object>();
   private firstTimer: ReturnType<typeof setTimeout> | null = null;
@@ -76,7 +78,7 @@ export class Updater {
 
   state(): UpdateState {
     const { latestVersion } = this.current;
-    const dismissed = this.current.status === "available" && latestVersion !== undefined && this.options.settings.dismissed() === latestVersion;
+    const dismissed = this.current.status === "available" && latestVersion !== undefined && this.dismissedVersion === latestVersion;
     return { ...this.current, ...(dismissed ? { dismissed: true } : {}) };
   }
 
@@ -92,9 +94,9 @@ export class Updater {
     return saved;
   }
 
-  /** The person closed the notice about this version: it is not shown again, though checking by hand still offers it. */
+  /** The person closed the notice about this version: it is not shown again until MiniMail starts again. The sidebar button stays. */
   dismiss(version: string): void {
-    this.options.settings.dismiss(version);
+    this.dismissedVersion = version;
     this.options.onChange(this.state());
   }
 

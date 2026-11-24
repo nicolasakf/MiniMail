@@ -29,10 +29,8 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 const open = () => new UpdateSettingsStore(sectionAt(file, "updates"));
 
 describe("UpdateSettingsStore", () => {
-  it("looks for updates by default, and has no notice closed", () => {
-    const store = open();
-    expect(store.get()).toEqual({ check: true });
-    expect(store.dismissed()).toBeUndefined();
+  it("looks for updates by default", () => {
+    expect(open().get()).toEqual({ check: true });
   });
 
   it("saves the choice in its own section, with its version, and reads it back after a restart", () => {
@@ -41,21 +39,14 @@ describe("UpdateSettingsStore", () => {
     expect(open().get()).toEqual({ check: false });
   });
 
-  it("remembers the closed notice next to the choice, and keeps it when the choice changes", () => {
+  it("reads the section 0.17.0 and 0.17.1 saved, with its closed notice, and drops that notice when it saves", () => {
+    seedSection(file, "updates", { version: 1, check: false, dismissed: "0.17.1" });
     const store = open();
-    store.dismiss("0.17.0");
-    store.set({ check: false });
-    expect(savedSection(file, "updates")).toEqual({ version: 1, check: false, dismissed: "0.17.0" });
-    const again = open();
-    expect(again.dismissed()).toBe("0.17.0");
-    expect(again.get()).toEqual({ check: false });
-  });
-
-  it("keeps the choice when a notice is closed", () => {
-    const store = open();
-    store.set({ check: false });
-    store.dismiss("0.18.0");
-    expect(open().get()).toEqual({ check: false });
+    expect(store.get()).toEqual({ check: false });
+    expect(reported).toEqual([]);
+    expect(savedSection(file, "updates")).toEqual({ version: 1, check: false, dismissed: "0.17.1" });
+    store.set({ check: true });
+    expect(savedSection(file, "updates")).toEqual({ version: 1, check: true });
   });
 
   it("reads a section that names no version as version 1 and fills in what it lacks", () => {
@@ -78,7 +69,6 @@ describe("UpdateSettingsStore", () => {
     expect(store.get()).toEqual({ check: true });
     expect(reported).toHaveLength(1);
     expect(() => store.set({ check: false })).toThrow(/newer version/);
-    expect(() => store.dismiss("0.17.0")).toThrow(/newer version/);
     expect(savedSection(file, "updates")).toEqual({ version: 9, check: false, channel: "beta" });
   });
 

@@ -9,21 +9,19 @@ import type { SettingsSection } from "./settings-file";
 /** The version of the `updates` section of `settings.json`. */
 const UPDATE_SETTINGS_VERSION = 1;
 
+// Versions 0.17.0 and 0.17.1 also saved a `dismissed` version here; it is ignored, and dropped the next time the section is saved.
 const savedSchema = z.object({
   check: z.boolean().default(DEFAULT_UPDATE_SETTINGS.check),
-  dismissed: z.string().max(64).optional(),
 });
 
 /**
  * The Advanced page's choice about looking for a new version, kept in the `updates` section of
- * `settings.json`, plus the version whose notice the person closed (so it is not shown again). A
- * missing section means the defaults; a value that cannot be read is reported and the defaults are used.
+ * `settings.json`. A missing section means the defaults; a value that cannot be read is reported and the defaults are used.
  * A section saved by a newer version of the app is left as it is: the defaults are used, and
  * changes are refused instead of overwriting it.
  */
 export class UpdateSettingsStore {
   private value: UpdateSettings = { ...DEFAULT_UPDATE_SETTINGS };
-  private dismissedVersion: string | undefined;
   private newer = false;
 
   constructor(private readonly section: SettingsSection) {
@@ -43,7 +41,6 @@ export class UpdateSettingsStore {
       const parsed = savedSchema.safeParse(saved);
       if (parsed.success) {
         this.value = { check: parsed.data.check };
-        this.dismissedVersion = parsed.data.dismissed;
       } else {
         reportError("storage", "The update settings were invalid; using defaults", parsed.error.message);
       }
@@ -56,24 +53,11 @@ export class UpdateSettingsStore {
     return { ...this.value };
   }
 
-  /** The version whose notice the person closed, if any. */
-  dismissed(): string | undefined {
-    return this.dismissedVersion;
-  }
-
   set(next: UpdateSettings): UpdateSettings {
-    this.save({ check: next.check }, this.dismissedVersion);
-    return this.get();
-  }
-
-  dismiss(version: string): void {
-    this.save(this.value, version);
-  }
-
-  private save(value: UpdateSettings, dismissed: string | undefined): void {
     if (this.newer) throw new Error("The update settings were saved by a newer version of MiniMail, so this change was not saved");
-    this.section.write({ version: UPDATE_SETTINGS_VERSION, ...value, ...(dismissed ? { dismissed } : {}) });
-    this.value = { ...value };
-    this.dismissedVersion = dismissed;
+    const stored = { check: next.check };
+    this.section.write({ version: UPDATE_SETTINGS_VERSION, ...stored });
+    this.value = stored;
+    return this.get();
   }
 }

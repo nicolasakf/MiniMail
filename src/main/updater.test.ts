@@ -224,19 +224,42 @@ describe("Updater checks", () => {
 });
 
 describe("Updater notice", () => {
-  it("marks the version dismissed once the person closed its notice, and a newer one is not", async () => {
-    const { updater, fake, changes, settings } = setup();
+  it("marks the version dismissed once the person closed its notice, for this run only, and a newer one is not", async () => {
+    const { updater, fake, changes } = setup();
     fake.checkForUpdates.mockResolvedValue(newer);
     await updater.check(false);
     expect(updater.state().dismissed).toBeUndefined();
     updater.dismiss("0.17.0");
     expect(updater.state().dismissed).toBe(true);
     expect(changes.at(-1)?.dismissed).toBe(true);
-    expect(settings.dismissed()).toBe("0.17.0");
     fake.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: { version: "0.18.0" } });
     await updater.check(true);
     expect(updater.state()).toMatchObject({ latestVersion: "0.18.0" });
     expect(updater.state().dismissed).toBeUndefined();
+  });
+});
+
+describe("Updater at start", () => {
+  it("looks a few seconds after start, so the notice and the sidebar button are there at once", async () => {
+    const { updater, fake } = setup();
+    fake.checkForUpdates.mockResolvedValue(newer);
+    updater.start();
+    await vi.advanceTimersByTimeAsync(FIRST_CHECK_DELAY_MS);
+    expect(FIRST_CHECK_DELAY_MS).toBeLessThanOrEqual(5_000);
+    expect(updater.state()).toMatchObject({ status: "available", latestVersion: "0.17.0" });
+    updater.stop();
+  });
+
+  it("shows the notice again at the next start: a closed notice is remembered for the run only", async () => {
+    const first = setup();
+    first.fake.checkForUpdates.mockResolvedValue(newer);
+    await first.updater.check(false);
+    first.updater.dismiss("0.17.0");
+    expect(first.updater.state().dismissed).toBe(true);
+    const second = new Updater({ autoUpdater: first.asUpdater(), currentVersion: "0.16.2", supported: true, settings: first.settings, onChange: () => undefined, online: () => true });
+    await second.check(false);
+    expect(second.state()).toMatchObject({ status: "available", latestVersion: "0.17.0" });
+    expect(second.state().dismissed).toBeUndefined();
   });
 });
 

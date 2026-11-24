@@ -1,8 +1,9 @@
-import { Check, ChartColumn, CircleAlert, LoaderCircle, Mail, NotebookPen, Send, Settings, type LucideIcon } from "lucide-react";
+import { Check, ChartColumn, CircleAlert, Download, LoaderCircle, Mail, NotebookPen, RefreshCw, Send, Settings, type LucideIcon } from "lucide-react";
 
 import { accountLabel } from "@shared/accounts";
 import type { AppEvent } from "@shared/events";
 import type { Account, MailFolder } from "@shared/types";
+import { updateButton } from "@shared/updates";
 
 import { LogPopover } from "@/components/mail/log-popover";
 import { FLAT_KEY } from "@/components/ui/keys";
@@ -10,8 +11,43 @@ import { ShortcutHint } from "@/components/ui/keyboard-shortcut-badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useIsMac } from "@/hooks/use-platform";
 import { useShortcutHints } from "@/hooks/use-shortcut-hints";
+import { useUpdateState } from "@/hooks/use-update-state";
 import { FOLDER_TITLES } from "@/lib/format";
+import { runUpdateStep } from "@/lib/updates";
 import { cn } from "@/lib/utils";
+
+/**
+ * Shown only while an update is waiting, downloading or ready to restart: one button for the step it is at (the wording
+ * of `updateButton`, the same as in Settings), in the full highlight color so it draws the eye.
+ */
+function UpdateButton() {
+  const state = useUpdateState();
+  const button = updateButton(state);
+  if (!button || state.status === "idle" || state.status === "current" || state.status === "checking") return null;
+  const busy = state.status === "downloading" || state.status === "installing";
+  const Icon = busy ? LoaderCircle : state.status === "downloaded" ? RefreshCw : Download;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={button.label}
+          disabled={button.disabled}
+          onClick={() => void runUpdateStep(button.step)}
+          className={cn(
+            "electron-no-drag relative flex size-9 items-center justify-center rounded-full",
+            FLAT_KEY,
+            // A raised insert in the full highlight color, like the folder you are in and the Compose button.
+            "grain bg-sidebar-primary text-sidebar-primary-foreground shadow-raise-1 hover:bg-sidebar-primary",
+          )}
+        >
+          <Icon className={cn("size-5", busy && "animate-spin")} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{button.label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 interface RailButtonProps {
   icon: LucideIcon;
@@ -226,6 +262,7 @@ export function Rail({
               </TooltipContent>
             </Tooltip>
           )}
+          <UpdateButton />
           <LogPopover retryFor={retryFor} />
           <Tooltip>
             <TooltipTrigger asChild>

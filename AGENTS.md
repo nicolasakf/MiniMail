@@ -97,11 +97,12 @@ library passed in so tests need no Electron), `update-settings.ts`, `shared/upda
 `updateNotice`: the one wording every place uses), `renderer/src/components/update-toasts.tsx` and the Updates section of
 the Advanced page.
 
-- **Quiet by default.** It checks 30 seconds after start and once a day (`check` setting, on by default; the `updates`
+- **Quiet by default.** It checks 5 seconds after every start and once a day (`check` setting, on by default; the `updates`
   section of `settings.json`), waits for the network instead of failing, and never downloads on its own
   (`autoDownload` off). The notice has **Update**, then **Restart and update**; a downloaded update also installs the next
-  time MiniMail quits (`autoInstallOnAppQuit`). Closing the "available" notice is saved as `dismissed` for that
-  version. A development run (`!app.isPackaged`) is `unsupported`: no timers, no feed, no button.
+  time MiniMail quits (`autoInstallOnAppQuit`). Closing the "available" notice is remembered for that version until the
+  next start (in memory, not saved); the sidebar button above the Log button (`rail.tsx`, highlight color) stays while an update is
+  waiting, downloading or ready. A development run (`!app.isPackaged`) is `unsupported`: no timers, no feed, no button.
 - **Failures:** every one goes through `reportError("updates", ...)` once (the library emits `error` and rejects with the
   same error; `Updater` handles it once). The page shows an error toast only for a step the person started (their
   check, Update, Restart); a failed daily check is only in the Log.
