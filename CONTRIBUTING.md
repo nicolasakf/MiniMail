@@ -4,7 +4,7 @@ Bug reports, documentation fixes, and pull requests are welcome. If you’re con
 
 ## Run MiniMail locally
 
-Use Node.js 24 to match the release workflow. From the repository root, run these commands for the browser demo with fictional accounts and messages.
+Use Node.js 22.13 or newer. From the repository root, run these commands for the browser demo with fictional accounts and messages.
 
 ```sh
 npm ci --legacy-peer-deps

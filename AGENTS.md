@@ -106,8 +106,8 @@ the Advanced page.
   same error; `Updater` handles it once). The page shows an error toast only for a step the person started (their
   check, Update, Restart); a failed daily check is only in the Log.
 - **The release must carry the update files:** `electron-builder.yml` has the `publish` URL (that is what writes
-  `latest-mac.yml`), `package:mac` builds `dmg zip`, and the workflow uploads the zip and `latest-mac.yml` with the dmg
-  (see `docs/macos-release.md`). Keep the URL in `electron-builder.yml` and `UPDATE_FEED_URL` the same. A release
+  `latest-mac.yml`), `package:mac` builds `dmg zip`, and the release uploads the zip and `latest-mac.yml` with the dmg
+  (built on the Mac, there is no CI release; see `docs/macos-release.md`). Keep the URL in `electron-builder.yml` and `UPDATE_FEED_URL` the same. A release
   without `latest-mac.yml` is invisible to every installed copy.
 - **Not mail actions.** Updating is not undoable and not a mail command, so it has no entry in the context menu, the
   toolbars or `CLI_COMMANDS`.

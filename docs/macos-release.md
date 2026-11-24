@@ -1,29 +1,73 @@
 # Releasing MiniMail for macOS
 
-MiniMail's GitHub release workflow builds an Apple Silicon DMG from the release
-tag. It checks the Developer ID signature and Apple's notarization ticket before
-publishing the installer.
+MiniMail is released from a Mac that holds the Developer ID certificate and a notarization
+profile in its Keychain. There is no CI release: the signing key and the Apple credentials
+stay on that Mac. A release is an Apple Silicon disk image, plus the zip and `latest-mac.yml`
+that installed copies update from (see [Updates for installed copies](#updates-for-installed-copies)).
 
-Set these repository secrets in GitHub Actions:
+## One-time setup
 
-| Secret | Value |
-| --- | --- |
-| `MACOS_CSC_LINK` | Base64-encoded Developer ID Application certificate and private key export (`.p12`). |
-| `MACOS_CSC_KEY_PASSWORD` | Password used to export the `.p12`. |
-| `APPLE_API_KEY` | App Store Connect `.p8` private key, as PEM or base64. |
-| `APPLE_API_KEY_ID` | App Store Connect key ID. |
-| `APPLE_API_ISSUER` | App Store Connect issuer ID. |
+- A **Developer ID Application** certificate with its private key in the login Keychain.
+  `security find-identity -v -p codesigning` lists it.
+- A `notarytool` Keychain profile named `MiniMail`, made once with
+  `xcrun notarytool store-credentials MiniMail`. `xcrun notarytool history --keychain-profile MiniMail`
+  checks that it works.
+- Node.js 22.13 or newer, the GitHub CLI (`gh`) signed in, and no other `APPLE_*` or `CSC_*`
+  variables in the shell, since they can override the identity or the profile.
 
-Push a tag matching the version in `package.json`. Create a draft release for the
-tag and run `gh workflow run release-macos.yml --ref v<VERSION>`, substituting
-the tag for `v<VERSION>`. The workflow publishes the draft after verifying the
-app and disk image.
+## Release steps
+
+The examples release `0.17.1`; use the new version everywhere.
+
+1. Set `version` in `package.json` and in the first two places it appears in `package-lock.json`.
+   Commit, push `main`, then tag that commit and push the tag:
+   `git tag -a v0.17.1 -m "MiniMail v0.17.1" && git push origin v0.17.1`.
+2. Build from a clean export of the tag, so uncommitted work and local files such as `.env.local`
+   stay out of the app:
+
+   ```bash
+   release=$(mktemp -d)
+   git archive v0.17.1 | tar -x -C "$release" && cd "$release"
+   npm ci --legacy-peer-deps
+   npm run typecheck && npm test
+   npm run build:release
+   APPLE_KEYCHAIN_PROFILE=MiniMail npm run package:mac
+   ```
+
+   `package:mac` signs the app with the Developer ID (hardened runtime), notarizes and staples
+   it, and writes `dist/MiniMail-0.17.1-mac-arm64.dmg`, the matching `.zip` and `dist/latest-mac.yml`.
+3. Notarize and staple the disk image. Staple only after Apple answers `Accepted`.
+
+   ```bash
+   dmg=dist/MiniMail-0.17.1-mac-arm64.dmg
+   xcrun notarytool submit "$dmg" --keychain-profile MiniMail --wait
+   xcrun stapler staple "$dmg"
+   ```
+4. Check the result: `codesign --verify --deep --strict dist/mac-arm64/MiniMail.app`,
+   `xcrun stapler validate` and `spctl --assess --type execute` on the app, and
+   `xcrun stapler validate` and `spctl --assess --type open --context context:primary-signature`
+   on the disk image. Mount the image and check that it holds `MiniMail.app` and an `Applications` link.
+5. Stapling changed the disk image, so refresh its entry in `dist/latest-mac.yml`: the `sha512`
+   (`openssl dgst -sha512 -binary "$dmg" | base64`) and the `size` (`stat -f %z "$dmg"`). Installed
+   copies read only the zip's entry, which must stay as the build wrote it.
+6. Publish. Create the release as a draft, upload the three files, compare each digest with the
+   local file, then publish:
+
+   ```bash
+   gh release create v0.17.1 --verify-tag --draft --title "MiniMail v0.17.1" --notes-file notes.md
+   gh release upload v0.17.1 "$dmg" "${dmg%.dmg}.zip" dist/latest-mac.yml
+   gh release view v0.17.1 --json assets --jq '.assets[] | "\(.name) \(.digest)"'   # compare with shasum -a 256
+   gh release edit v0.17.1 --draft=false
+   ```
+
+   Then check that `https://github.com/nicolasakf/MiniMail/releases/latest/download/latest-mac.yml`
+   answers with the new version.
 
 ## Updates for installed copies
 
 MiniMail looks for a new version on the newest published release of this repository
 (`releases/latest/download`, set in `electron-builder.yml` and `UPDATE_FEED_URL` in
-`src/shared/updates.ts`). The workflow therefore uploads three files to each release:
+`src/shared/updates.ts`). Every release therefore carries three files:
 
 | File | Used by |
 | --- | --- |
@@ -51,16 +95,15 @@ on servers.
 For Microsoft, use an Entra registration that supports both organizational and
 personal accounts. Organization-level app approval can still apply.
 
-| GitHub Actions setting | Value |
+| Variable | Value |
 | --- | --- |
-| Repository variable `MINIMAIL_GOOGLE_CLIENT_ID` | Google **Desktop app** OAuth client ID. |
-| Repository secret `MINIMAIL_GOOGLE_CLIENT_SECRET` | Companion credential from the Google desktop client. Google treats installed apps as public clients, and the value is extractable from the installer. Use a dedicated desktop registration. |
+| `MINIMAIL_RELEASE_GOOGLE_CLIENT_ID` | Google **Desktop app** OAuth client ID. |
+| `MINIMAIL_RELEASE_GOOGLE_CLIENT_SECRET` | Companion credential from the Google desktop client. Google treats installed apps as public clients, and the value is extractable from the installer. Use a dedicated desktop registration. |
 
 Microsoft needs no setting: its Entra client ID is public (PKCE, no secret) and is built
 into the app (`MICROSOFT_CLIENT_ID` in `src/main/index.ts`).
 
-The workflow passes these settings only to the build step. For a local release
-build, the equivalent process variables are `MINIMAIL_RELEASE_GOOGLE_CLIENT_ID` and
-`MINIMAIL_RELEASE_GOOGLE_CLIENT_SECRET`.
-Release mode ignores local `.env.local` OAuth settings. If the Google release
-settings are missing, browser sign-in for Google is unavailable.
+Set the two variables in the shell that runs `npm run build:release`; they reach only that
+build. Release mode ignores local `.env.local` OAuth settings. If the Google release
+settings are missing, browser sign-in for Google is unavailable, and Gmail accounts use an
+app password. Releases so far were built without them.
