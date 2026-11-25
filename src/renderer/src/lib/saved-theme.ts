@@ -14,6 +14,6 @@ export function migrateSavedTheme(open: () => Pick<Storage, "getItem" | "setItem
     if (storage.getItem(THEME_STORAGE_KEY) === "dimmed") storage.setItem(THEME_STORAGE_KEY, "dark");
   } catch (error) {
     reportError("storage", "Could not update the saved color mode", error);
-    // The page opens with the default (Dark), which is where a dimmed choice goes anyway.
+    // The page opens with the default (System).
   }
 }

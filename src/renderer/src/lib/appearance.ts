@@ -60,7 +60,7 @@ export const DEFAULT_ACCENT_COLOR = "#2563EB";
 export const DEFAULT_APPEARANCE: Appearance = {
   textSize: "default",
   showPreviews: true,
-  categoryLayout: "horizontal",
+  categoryLayout: "vertical",
   splitView: false,
   splitListWidth: 400,
   accentColor: null,

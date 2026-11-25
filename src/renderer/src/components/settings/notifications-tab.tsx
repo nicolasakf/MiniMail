@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from "react";
 
 import { BellRing } from "lucide-react";
-import { toast } from "@/lib/toast";
 
 import { iconFor } from "@shared/categories";
 import {
@@ -20,8 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { useNotificationSettings } from "@/hooks/use-notification-settings";
-import { api } from "@/lib/api";
 import { FOLDER_STYLE, raisedActive } from "@/lib/folder-style";
+import { sendTestNotification } from "@/lib/test-notification";
 import { cn } from "@/lib/utils";
 
 import { AccountSwitcher } from "../mail/list-header";
@@ -181,33 +180,6 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
   const inherit = (...keys: AccountSettingKey[]) =>
     accountId ? <InheritNote overridden={isOverridden(...keys)} onReset={() => reset(...keys)} /> : null;
 
-  const sendTest = async () => {
-    try {
-      const result = await api.notifications.test();
-      if (result.status === "shown") {
-        toast.success("Test notification sent", {
-          description: "If nothing appeared, allow MiniMail in System Settings → Notifications.",
-        });
-      } else if (result.status === "not-allowed") {
-        toast.error("macOS is not allowing notifications from MiniMail", {
-          description: "Allow them in System Settings → Notifications. If MiniMail is already allowed there, macOS does not recognize this build of the app.",
-          ...(api.system.platform === "darwin"
-            ? {
-                action: {
-                  label: "Open System Settings",
-                  onClick: () => void api.notifications.openSystemSettings().catch(() => undefined /* expected: recorded by the main process */),
-                },
-              }
-            : {}),
-        });
-      } else {
-        toast.error("Could not show the test notification", { description: result.message });
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
-    }
-  };
-
   const categoryChoices = [
     ...categories.map((category) => ({ id: category.id, name: category.name, category })),
     { id: NO_CATEGORY, name: "No category", category: null },
@@ -252,7 +224,7 @@ export function NotificationsTab({ accounts, categories, onOpenSenders }: Notifi
         />
         {inherit("enabled")}
         {!account && (
-          <Button type="button" variant="outline" size="sm" disabled={off} onClick={() => void sendTest()}>
+          <Button type="button" variant="outline" size="sm" disabled={off} onClick={() => void sendTestNotification()}>
             <BellRing /> Send a test notification
           </Button>
         )}

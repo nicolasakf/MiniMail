@@ -11,6 +11,7 @@ import {
 import type { Thread } from "@shared/threads";
 
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePinnedDomains } from "@/hooks/use-pinned-domains";
 import { useBlockList } from "@/lib/blocklist";
@@ -482,24 +483,10 @@ export function GroupByDomainButton({ state }: { state: SenderPanelState }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          type="button"
-          role="switch"
-          aria-label="Group by domain"
-          aria-checked={byDomain}
-          onClick={toggleByDomain}
-          className={cn(
-            "ml-3 inline-flex h-7 w-12 shrink-0 items-center rounded-full p-1 shadow-raise-2 outline-none transition-[background-color,box-shadow] focus-visible:shadow-raise-2-glow",
-            byDomain ? "bg-sidebar-primary" : "bg-transparent",
-          )}
-        >
-          <span
-            className={cn(
-              "plate-3 pointer-events-none block size-5 rounded-full transition-transform",
-              byDomain ? "translate-x-5" : "translate-x-0",
-            )}
-          />
-        </button>
+        {/* The tooltip trigger is a wrapper: on the switch itself its `data-state` would replace the switch's own (checked / unchecked). */}
+        <span className="ml-3 inline-flex">
+          <Switch aria-label="Group by domain" checked={byDomain} onCheckedChange={toggleByDomain} />
+        </span>
       </TooltipTrigger>
       <TooltipContent side="bottom">{byDomain ? "Stop grouping by domain" : "Group by domain"}</TooltipContent>
     </Tooltip>
