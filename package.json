@@ -1,6 +1,6 @@
 {
   "name": "minimail",
-  "version": "0.19.0",
+  "version": "0.20.0",
   "description": "Desktop email client with a unified inbox and categories you define in plain language",
   "private": true,
   "license": "Apache-2.0",
