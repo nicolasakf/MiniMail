@@ -2,8 +2,8 @@
 
 MiniMail is released from a Mac that holds the Developer ID certificate and a notarization
 profile in its Keychain. There is no CI release: the signing key and the Apple credentials
-stay on that Mac. A release is an Apple Silicon disk image, plus the zip and `latest-mac.yml`
-that installed copies update from (see [Updates for installed copies](#updates-for-installed-copies)).
+stay on that Mac. A release is two disk images, for Apple Silicon (`arm64`) and Intel (`x64`),
+plus their zips and the `latest-mac.yml` that installed copies update from (see [Updates for installed copies](#updates-for-installed-copies)).
 
 ## One-time setup
 
@@ -34,28 +34,31 @@ The examples release `0.17.1`; use the new version everywhere.
    APPLE_KEYCHAIN_PROFILE=MiniMail npm run package:mac
    ```
 
-   `package:mac` signs the app with the Developer ID (hardened runtime), notarizes and staples
-   it, and writes `dist/MiniMail-0.17.1-mac-arm64.dmg`, the matching `.zip` and `dist/latest-mac.yml`.
-3. Notarize and staple the disk image. Staple only after Apple answers `Accepted`.
+   `package:mac` builds one app per architecture, signs each with the Developer ID (hardened runtime),
+   notarizes and staples it, and writes `dist/MiniMail-0.17.1-mac-arm64.dmg` and `dist/MiniMail-0.17.1-mac-x64.dmg`,
+   the matching `.zip` files and one `dist/latest-mac.yml`.
+3. Notarize and staple both disk images. Staple only after Apple answers `Accepted`.
 
    ```bash
-   dmg=dist/MiniMail-0.17.1-mac-arm64.dmg
-   xcrun notarytool submit "$dmg" --keychain-profile MiniMail --wait
-   xcrun stapler staple "$dmg"
+   for dmg in dist/MiniMail-0.17.1-mac-{arm64,x64}.dmg; do
+     xcrun notarytool submit "$dmg" --keychain-profile MiniMail --wait
+     xcrun stapler staple "$dmg"
+   done
    ```
-4. Check the result: `codesign --verify --deep --strict dist/mac-arm64/MiniMail.app`,
+4. Check both results (`dist/mac-arm64/MiniMail.app` is Apple Silicon, `dist/mac/MiniMail.app` is Intel;
+   `lipo -archs` on the binary says which): `codesign --verify --deep --strict` on the app,
    `xcrun stapler validate` and `spctl --assess --type execute` on the app, and
    `xcrun stapler validate` and `spctl --assess --type open --context context:primary-signature`
    on the disk image. Mount the image and check that it holds `MiniMail.app` and an `Applications` link.
-5. Stapling changed the disk image, so refresh its entry in `dist/latest-mac.yml`: the `sha512`
+5. Stapling changed the disk images, so refresh their entries in `dist/latest-mac.yml`: the `sha512`
    (`openssl dgst -sha512 -binary "$dmg" | base64`) and the `size` (`stat -f %z "$dmg"`). Installed
-   copies read only the zip's entry, which must stay as the build wrote it.
-6. Publish. Create the release as a draft, upload the three files, compare each digest with the
+   copies read only the zips' entries, which must stay as the build wrote them.
+6. Publish. Create the release as a draft, upload the five files, compare each digest with the
    local file, then publish:
 
    ```bash
    gh release create v0.17.1 --verify-tag --draft --title "MiniMail v0.17.1" --notes-file notes.md
-   gh release upload v0.17.1 "$dmg" "${dmg%.dmg}.zip" dist/latest-mac.yml
+   gh release upload v0.17.1 dist/MiniMail-0.17.1-mac-{arm64,x64}.{dmg,zip} dist/latest-mac.yml
    gh release view v0.17.1 --json assets --jq '.assets[] | "\(.name) \(.digest)"'   # compare with shasum -a 256
    gh release edit v0.17.1 --draft=false
    ```
@@ -67,15 +70,17 @@ The examples release `0.17.1`; use the new version everywhere.
 
 MiniMail looks for a new version on the newest published release of this repository
 (`releases/latest/download`, set in `electron-builder.yml` and `UPDATE_FEED_URL` in
-`src/shared/updates.ts`). Every release therefore carries three files:
+`src/shared/updates.ts`). Every release therefore carries five files:
 
 | File | Used by |
 | --- | --- |
-| `MiniMail-<VERSION>-mac-arm64.dmg` | New installs. |
-| `MiniMail-<VERSION>-mac-arm64.zip` | Installed copies, which download it, check its hash and replace themselves. |
+| `MiniMail-<VERSION>-mac-arm64.dmg` | New installs on Apple Silicon. |
+| `MiniMail-<VERSION>-mac-x64.dmg` | New installs on Intel. |
+| `MiniMail-<VERSION>-mac-arm64.zip`, `-x64.zip` | Installed copies, which download the one for their Mac, check its hash and replace themselves. |
 | `latest-mac.yml` | Installed copies, to learn the newest version and the zip's hash. |
 
-The zip holds the same signed and notarized app as the disk image. macOS only lets an app
+Each zip holds the same signed and notarized app as its disk image. An Intel copy running on Apple Silicon
+(under Rosetta) updates to the Apple Silicon build. macOS only lets an app
 replace itself with a build signed by the same developer. A release published without
 `latest-mac.yml` shows no update to anyone, and a copy that cannot read it records
 "Could not check for updates" in its Log. Copies older than the first one with this

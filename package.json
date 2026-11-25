@@ -17,7 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build:release": "electron-vite build --mode release",
-    "package:mac": "electron-builder --mac dmg zip --arm64 --publish never"
+    "package:mac": "electron-builder --mac dmg zip --arm64 --x64 --publish never"
   },
   "dependencies": {
     "@fontsource/saira": "^5.2.0",
